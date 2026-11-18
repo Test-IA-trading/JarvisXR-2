@@ -16,6 +16,10 @@ Typed commands, recognized command text, saved notes, preferences, and command h
 
 Message-composition commands are excluded from general command history. Jarvis uses the system contact picker to let the user authorize one recipient selection without copying or uploading the address book. The selected phone number and message body remain in an in-memory draft and are passed to Apple's standard message composer only after the user asks to open it. Sending or cancelling occurs in that system interface.
 
+### Optional PC chat (modified edition, November 18, 2026)
+
+Choosing **Chat avec mon PC** opens the system browser at the private IPv4 address entered by the user. The app remembers this address. The browser sends the text entered on the chat page and a limited number of recent turns to the paired PC. The PC calls its local Ollama service. This feature does not read the app’s notes, history, microphone, contacts, or camera. The companion keeps no chat log and the browser page keeps the dialogue in memory. The connection code changes when the companion restarts. The prototype uses HTTP on a trusted private network; the local transport is unencrypted.
+
 ### Microphone and speech recognition
 
 Microphone access is used only after the user starts in-app voice input. Audio is provided to Apple's Speech framework for recognition. Recognition may occur on-device or may be processed by Apple depending on the device, language, operating system, network state, and Apple's service availability. Apple's handling is governed by Apple's own privacy terms.

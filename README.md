@@ -23,6 +23,12 @@
 > [!IMPORTANT]
 > JARVIS XR is a native iOS prototype built exclusively with public APIs. It is not a jailbreak, firmware replacement, hidden system service, or unrestricted phone-control layer.
 
+## JarvisXR 2.0 · Essayer le chat local
+
+Édition modifiée de *JARVIS XR by Amrik Majumdar*, 18 novembre 2026. Sur un PC Windows avec Ollama et `qwen3:8b`, lance [Demarrer-Jarvis.cmd](Demarrer-Jarvis.cmd) depuis le dossier extrait. La fenêtre affiche une réponse de vérification et indique comment ouvrir la discussion dans Safari sur l’iPhone.
+
+[Guide du chat PC et iPhone](companion/windows/README.md)
+
 ## Product Overview
 
 JARVIS XR turns a dedicated iPhone into a focused assistant surface without relying on a browser UI or paid cloud APIs. The app centers interaction on a reactive orb, push-to-talk speech recognition, typed commands, local speech output, and an accessibility-first camera assistant that performs vision analysis on the device.
