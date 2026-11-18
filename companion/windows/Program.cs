@@ -106,7 +106,7 @@ namespace JarvisXR.Companion
                         using (profile) privateIndexes.Add(Convert.ToInt32(profile["InterfaceIndex"]));
 
                 foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces()
-                         .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                         .Where(n => n.OperationalStatus == OperationalStatus.Up && n.Supports(NetworkInterfaceComponent.IPv4) &&
                                      (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet || n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
                          .OrderByDescending(n => n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
                 {
