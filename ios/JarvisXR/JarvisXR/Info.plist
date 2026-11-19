@@ -33,10 +33,24 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>JARVIS uses the camera for local inspection mode.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Jarvis envoie ta question au modèle qui tourne sur ton PC.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>10.0.0.0/8</key>
+			<dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+			<key>172.16.0.0/12</key>
+			<dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+			<key>192.168.0.0/16</key>
+			<dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+		</dict>
+	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>JARVIS uses the microphone for in-app push-to-talk commands.</string>
+	<string>Jarvis utilise le micro pour tes commandes et la conversation vocale.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>JARVIS uses on-device speech recognition when available for in-app push-to-talk commands.</string>
+	<string>Jarvis utilise la reconnaissance vocale Apple pour transcrire ta question.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

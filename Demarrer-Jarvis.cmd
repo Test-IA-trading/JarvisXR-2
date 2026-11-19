@@ -10,10 +10,8 @@ set "JARVIS_BIN=%LOCALAPPDATA%\JarvisXR\Companion"
 if not exist "%JARVIS_BIN%\" mkdir "%JARVIS_BIN%"
 if not exist "%JARVIS_BIN%\" goto :failed
 call :frameworkRef System.Net.Http JARVIS_HTTP
-call :frameworkRef System.Web.Extensions JARVIS_JSON
-call :frameworkRef System.Management JARVIS_WMI
 pushd "%~dp0companion\windows" || goto :failed
-"%JARVIS_COMPILER%" /nologo /codepage:65001 /optimize+ /target:exe /out:"%JARVIS_BIN%\JarvisXR-Chat.exe" /reference:"%JARVIS_HTTP%" /reference:"%JARVIS_JSON%" /reference:"%JARVIS_WMI%" /resource:web\index.html,Jarvis.index.html /resource:web\app.css,Jarvis.app.css /resource:web\chat.js,Jarvis.chat.js Program.cs LocalHttp.cs OllamaChat.cs
+"%JARVIS_COMPILER%" /nologo /codepage:65001 /optimize+ /target:exe /out:"%JARVIS_BIN%\JarvisXR-Chat.exe" /reference:"%JARVIS_HTTP%" /resource:web\index.html,Jarvis.index.html /resource:web\app.css,Jarvis.app.css /resource:web\chat.js,Jarvis.chat.js Program.cs LocalHttp.cs OllamaChat.cs
 if errorlevel 1 (
   popd
   echo Ferme toute fenetre Jarvis deja ouverte avant de relancer.

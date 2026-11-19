@@ -18,7 +18,8 @@ final class JarvisVoiceInputService {
     var onPartialTranscript: ((String) -> Void)?
     var onFinalTranscript: ((String) -> Void)?
 
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let recognizer: SFSpeechRecognizer?
+    private var generation = UUID()
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -31,7 +32,7 @@ final class JarvisVoiceInputService {
 
     private let minimumListenDuration: TimeInterval = 0.8
     private let silenceAfterSpeech: TimeInterval = 1.2
-    private let maximumListenDuration: TimeInterval = 8.0
+    private let maximumListenDuration: TimeInterval
     private let noSpeechTimeout: TimeInterval = 4.0
 
     var isListening: Bool {
@@ -42,7 +43,10 @@ final class JarvisVoiceInputService {
         lastTranscript
     }
 
-    private init() {}
+    init(locale: Locale = Locale(identifier: "en-US"), maximumListenDuration: TimeInterval = 8) {
+        recognizer = SFSpeechRecognizer(locale: locale)
+        self.maximumListenDuration = maximumListenDuration
+    }
 
     func toggleListening() {
         isListening ? stopListening(process: true) : startListening()
@@ -55,9 +59,11 @@ final class JarvisVoiceInputService {
             return
         }
 
+        generation = UUID()
+        let attempt = generation
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.generation == attempt else { return }
                 switch status {
                 case .authorized:
                     self.beginAudioRecognition(with: recognizer)
@@ -80,6 +86,7 @@ final class JarvisVoiceInputService {
     }
 
     func cancel() {
+        generation = UUID()
         clearTimers()
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -118,6 +125,10 @@ final class JarvisVoiceInputService {
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            onStateChange?(.unavailable("Microphone indisponible."))
+            return
+        }
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
@@ -134,48 +145,42 @@ final class JarvisVoiceInputService {
         onStateChange?(.listening)
         startEndpointTimers()
 
+        let attempt = generation
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self else { return }
-            if let result {
-                self.lastTranscript = result.bestTranscription.formattedString
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt else { return }
+                if let result {
+                    self.lastTranscript = result.bestTranscription.formattedString
                     self.onPartialTranscript?(self.lastTranscript)
-                    if !self.lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        self.scheduleSilenceEndpoint()
-                    }
+                    if !self.lastTranscript.isEmpty { self.scheduleSilenceEndpoint() }
                 }
-                if result.isFinal {
-                    self.finishRecognition(process: true)
-                }
-            }
-            if error != nil {
-                self.finishRecognition(process: true)
+                if result?.isFinal == true || error != nil { self.finishRecognition(process: true) }
             }
         }
     }
 
     private func finishRecognition(process: Bool) {
-        guard !finishing else { return }
+        guard !finishing, request != nil else { return }
         finishing = true
+        generation = UUID()
         clearTimers()
         let final = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.audioEngine.stop()
-            self.audioEngine.inputNode.removeTap(onBus: 0)
-            self.request = nil
-            self.task = nil
-            if !process {
-                self.lastTranscript = ""
-                self.onStateChange?(.standby)
-            } else if final.isEmpty {
-                self.onStateChange?(.noSpeech)
-            } else {
-                self.onStateChange?(.heardYou(final))
-                self.onStateChange?(.processing)
-                self.onFinalTranscript?(final)
-            }
-            self.finishing = false
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        request?.endAudio()
+        task?.cancel()
+        request = nil
+        task = nil
+        finishing = false
+        if !process {
+            lastTranscript = ""
+            onStateChange?(.standby)
+        } else if final.isEmpty {
+            onStateChange?(.noSpeech)
+        } else {
+            onStateChange?(.heardYou(final))
+            onStateChange?(.processing)
+            onFinalTranscript?(final)
         }
     }
 
