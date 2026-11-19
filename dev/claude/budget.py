@@ -80,7 +80,14 @@ def measure(project, scripts):
             if source.is_file() and source.resolve().is_relative_to(project):
                 dest = sample / name
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, dest)
+                content = source.read_text(encoding="utf-8")
+                if name == "CLAUDE.md" and "@AGENTS.md" in content.splitlines():
+                    shared = project / "AGENTS.md"
+                    if not shared.is_file() or not shared.resolve().is_relative_to(project):
+                        raise ValueError("La fiche AGENTS.md importée est introuvable dans ce projet.")
+                    content = re.sub(r"^@AGENTS\.md$", lambda _: shared.read_text(encoding="utf-8").rstrip(),
+                                     content, flags=re.MULTILINE)
+                dest.write_text(content, encoding="utf-8")
                 found = True
         if not found:
             raise ValueError("Aucun fichier CLAUDE.md à mesurer dans ce projet.")

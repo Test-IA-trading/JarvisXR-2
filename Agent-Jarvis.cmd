@@ -14,8 +14,9 @@ if not defined JARVIS_HAS_MODEL (
 )
 if /i "%~1"=="coder" goto :code
 if /i "%~1"=="leger" goto :light
+if /i "%~1"=="reprendre" goto :resume
 if not "%~1"=="" (
-  echo Utilisation : Agent-Jarvis.cmd [coder ou leger]. Sans argument : essai manuel.
+  echo Utilisation : Agent-Jarvis.cmd [reprendre, coder ou leger]. Sans argument : essai manuel.
   goto :failed
 )
 
@@ -23,7 +24,6 @@ set "JARVIS_TRIAL=%USERPROFILE%\JarvisAI-Test\Essai-%RANDOM%-%RANDOM%-%RANDOM%"
 if exist "%JARVIS_TRIAL%" goto :failed
 mkdir "%JARVIS_TRIAL%" || goto :failed
 pushd "%JARVIS_TRIAL%" || goto :failed
-copy /y "%JARVIS_ROOT%\CLAUDE.md" CLAUDE.md >nul || goto :trialfailed
 >entree.txt echo JARVIS-%RANDOM%-%RANDOM%-%RANDOM%-%RANDOM%
 if not exist entree.txt goto :trialfailed
 echo Essai dans "%CD%".
@@ -47,6 +47,10 @@ goto :failed
 
 :code
 ollama.exe launch claude --model qwen3:8b -- --permission-mode default
+goto :finish
+
+:resume
+ollama.exe launch claude --model qwen3:8b -- --permission-mode default -- "Reprends JarvisXR. A partir de la fiche AGENTS.md, indique la priorite, le dernier resultat verifie et la prochaine action possible sur cette machine."
 goto :finish
 
 :light
