@@ -109,8 +109,8 @@ final class JarvisVoiceInputService {
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            try audioSession.setCategory(.record, mode: .measurement)
+            try audioSession.setActive(true)
         } catch {
             onStateChange?(.unavailable("Microphone session could not start."))
             return
