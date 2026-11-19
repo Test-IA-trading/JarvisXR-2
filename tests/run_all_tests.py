@@ -35,6 +35,7 @@ def main() -> int:
     REPORTS.mkdir(parents=True, exist_ok=True)
     PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
     checks = [
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests/agent"],
         [sys.executable, "core/registry/validate_registry.py"],
         [sys.executable, "core/registry/xr_capability_matrix.py"],
         [sys.executable, "native/ios/JarvisShell/scripts/generate_models.py"],
