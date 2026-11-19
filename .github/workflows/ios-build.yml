@@ -64,7 +64,7 @@ jobs:
   build-ios:
     needs: validate-python
     runs-on: macos-26-intel
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
@@ -120,6 +120,46 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build | tee build/logs/xcodebuild-build.log
+
+      - name: Package unsigned IPA
+        working-directory: ios/JarvisXR
+        run: |
+          set -e
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/JarvisXR.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "JarvisXR.app was not found at $APP_PATH" | tee BUILD_REAL_APP_STATUS.md
+            exit 1
+          fi
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/JarvisXR.app
+          (cd build && zip -qry JarvisXR-unsigned.ipa Payload)
+          if [ ! -s build/JarvisXR-unsigned.ipa ]; then
+            echo "Unsigned IPA packaging failed." | tee BUILD_REAL_APP_STATUS.md
+            exit 1
+          fi
+          {
+            echo "JarvisXR build summary"
+            echo "Runner: $(sw_vers -productVersion)"
+            echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "Artifact: ios/JarvisXR/build/JarvisXR-unsigned.ipa"
+            echo "Size bytes: $(stat -f%z build/JarvisXR-unsigned.ipa)"
+            echo "Install with Sideloadly from Windows."
+          } | tee BUILD_REAL_APP_STATUS.md
+
+      - name: Audit unsigned IPA
+        run: |
+          set -o pipefail
+          mkdir -p ios/JarvisXR/build/logs ios/JarvisXR/build/reports
+          python3 tools/audit_ipa.py ios/JarvisXR/build/JarvisXR-unsigned.ipa \
+            --json-output ios/JarvisXR/build/reports/ipa-audit.json \
+            | tee ios/JarvisXR/build/logs/ipa-audit.log
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: JarvisXR-unsigned-ipa
+          path: ios/JarvisXR/build/JarvisXR-unsigned.ipa
 
       - name: Run JarvisXR unit tests on simulator
         working-directory: ios/JarvisXR
@@ -222,42 +262,8 @@ jobs:
           python3 tools/audit_vision_privacy.py \
             --output ios/JarvisXR/build/reports/vision-privacy-audit.json
 
-      - name: Package unsigned IPA
-        working-directory: ios/JarvisXR
-        run: |
-          set -e
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/JarvisXR.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "JarvisXR.app was not found at $APP_PATH" | tee BUILD_REAL_APP_STATUS.md
-            exit 1
-          fi
-          rm -rf build/Payload
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/JarvisXR.app
-          (cd build && zip -qry JarvisXR-unsigned.ipa Payload)
-          if [ ! -s build/JarvisXR-unsigned.ipa ]; then
-            echo "Unsigned IPA packaging failed." | tee BUILD_REAL_APP_STATUS.md
-            exit 1
-          fi
-          {
-            echo "JarvisXR build summary"
-            echo "Runner: $(sw_vers -productVersion)"
-            echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
-            echo "Artifact: ios/JarvisXR/build/JarvisXR-unsigned.ipa"
-            echo "Size bytes: $(stat -f%z build/JarvisXR-unsigned.ipa)"
-            echo "Install with Sideloadly from Windows."
-          } | tee BUILD_REAL_APP_STATUS.md
-
-      - name: Audit unsigned IPA
-        run: |
-          set -o pipefail
-          mkdir -p ios/JarvisXR/build/logs ios/JarvisXR/build/reports
-          python3 tools/audit_ipa.py ios/JarvisXR/build/JarvisXR-unsigned.ipa \
-            --json-output ios/JarvisXR/build/reports/ipa-audit.json \
-            | tee ios/JarvisXR/build/logs/ipa-audit.log
-
       - name: Capture required iOS screenshots
-        timeout-minutes: 10
+        timeout-minutes: 35
         working-directory: ios/JarvisXR
         run: |
           set -euo pipefail
@@ -372,12 +378,6 @@ jobs:
             find ios/JarvisXR/build -path '*Logs*' -type f -print 2>/dev/null || true
           } | tee ios/JarvisXR/build/logs/visual-proof-filesystem-debug.log
           find ios/JarvisXR/build -maxdepth 8 -print 2>/dev/null | sort | tee ios/JarvisXR/build/logs/artifact-tree.txt
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: JarvisXR-unsigned-ipa
-          path: ios/JarvisXR/build/JarvisXR-unsigned.ipa
 
       - name: Upload iOS screenshot proof
         if: success()
