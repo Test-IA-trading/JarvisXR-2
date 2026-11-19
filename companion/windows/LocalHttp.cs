@@ -82,16 +82,17 @@ namespace JarvisXR.Companion
         private void Handle(TcpClient socket)
         {
             socket.ReceiveTimeout = 5000; socket.SendTimeout = 5000;
-            using (var io = new BufferedStream(socket.GetStream()))
+            using (var output = socket.GetStream())
+            using (var io = new BufferedStream(output))
             {
-                try { Dispatch(io); }
-                catch (RequestError error) { SendJson(io, error.Status, new { error = error.Message }); }
+                try { Dispatch(io, output); }
+                catch (RequestError error) { SendJson(output, error.Status, new { error = error.Message }); }
                 catch (IOException) { throw; }
-                catch (Exception) { SendJson(io, 500, new { error = "Le compagnon a interrompu cette demande." }); }
+                catch (Exception) { SendJson(output, 500, new { error = "Le compagnon a interrompu cette demande." }); }
             }
         }
 
-        private void Dispatch(Stream io)
+        private void Dispatch(Stream io, Stream output)
         {
             var clock = Stopwatch.StartNew();
             int headerBytes = 0;
@@ -121,7 +122,7 @@ namespace JarvisXR.Companion
                 string file = line[1] == "/" ? "index.html" : line[1] == "/app.css" ? "app.css" : line[1] == "/chat.js" ? "chat.js" : null;
                 if (file == null) throw new RequestError(404, "Page introuvable.");
                 string type = file == "index.html" ? "text/html" : file == "app.css" ? "text/css" : "text/javascript";
-                Send(io, 200, type, pages[file]);
+                Send(output, 200, type, pages[file]);
                 return;
             }
             if (line[0] != "POST") throw new RequestError(405, "Méthode indisponible.");
@@ -144,7 +145,7 @@ namespace JarvisXR.Companion
                 if (count == 0) throw new RequestError(400, "Message incomplet.");
                 offset += count;
             }
-            if (line[1] == "/api/session") { SendJson(io, 200, new { model = OllamaChat.Model }); return; }
+            if (line[1] == "/api/session") { SendJson(output, 200, new { model = OllamaChat.Model }); return; }
 
             string body;
             try { body = new UTF8Encoding(false, true).GetString(bytes); }
@@ -157,7 +158,7 @@ namespace JarvisXR.Companion
             catch (InvalidOperationException ex) { throw new RequestError(502, ex.Message); }
             catch (Exception) { throw new RequestError(502, "Ollama est inaccessible sur le PC. Ouvre Ollama et réessaie."); }
             finally { generation.Release(); }
-            SendJson(io, 200, new { reply = answer });
+            SendJson(output, 200, new { reply = answer });
         }
 
         private static string ReadLine(Stream io, Stopwatch clock, ref int total)
