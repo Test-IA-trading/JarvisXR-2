@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - ci/ios-intel-87ba1f9
     paths:
       - "ios/JarvisXR/**"
       - "core/**"
@@ -63,7 +64,7 @@ jobs:
   build-ios:
     needs: validate-python
     runs-on: macos-26-intel
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
@@ -149,6 +150,7 @@ jobs:
             -resultBundlePath build/logs/JarvisXRUnitTests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            -parallel-testing-enabled NO \
             -only-testing:JarvisXRTests \
             test | tee -a build/logs/xcodebuild-unit-test.log
           python3 - <<'PY'
@@ -197,6 +199,7 @@ jobs:
             -destination "$DESTINATION" \
             -derivedDataPath build/TestDerivedData \
             -resultBundlePath build/logs/JarvisXRUITests.xcresult \
+            -parallel-testing-enabled NO \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofHelp \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofVisionDescribeResult \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofVisionLiveActive \
