@@ -1,0 +1,27 @@
+:root { color-scheme: dark; font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #edf5f6; background: #090f14; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 80% 0%, #10282b 0, transparent 45%), #090f14; }
+header, main { max-width: 44rem; margin: auto; padding: 1rem max(1.2rem, env(safe-area-inset-left)); }
+header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #29393d; min-height: 4.5rem; }
+.brand { display: flex; align-items: center; gap: .65rem; letter-spacing: .02em; }
+.orb { width: 1.35rem; height: 1.35rem; border: 2px solid #8be6db; border-radius: 50%; box-shadow: inset 0 0 8px #37aaa8, 0 0 10px #347478; }
+main { padding-top: clamp(2rem, 8vh, 5rem); padding-bottom: max(2rem, env(safe-area-inset-bottom)); }
+h1 { font-size: clamp(2rem, 5vw, 3rem); margin: .2rem 0 1rem; line-height: 1.08; letter-spacing: -.04em; }
+p { color: #bcccd0; }
+.eyebrow { color: #8be6db; margin: 0 0 .65rem; font-size: .86rem; }
+form { display: grid; gap: .55rem; margin-top: 1.5rem; }
+label { font-weight: 600; }
+input, textarea { font: inherit; display: block; width: 100%; color: #edf5f6; border: 1px solid #4b626a; border-radius: .7rem; background: #111c23; padding: .7rem .85rem; }
+textarea { min-height: 5.5rem; resize: vertical; }
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid #8be6db; outline-offset: 3px; }
+button { font: inherit; font-weight: 650; cursor: pointer; min-height: 44px; border: 0; border-radius: .7rem; padding: .55rem 1.1rem; background: #91e7dc; color: #092326; }
+form button { justify-self: start; margin-top: .3rem; }
+header button { background: transparent; color: #b6d7d6; font-size: .87rem; padding: .4rem; }
+button:disabled { opacity: .55; cursor: progress; }
+#history { display: grid; gap: .85rem; margin: 1.6rem 0; }
+article { border-left: 2px solid #4e696e; padding: .12rem .9rem; }
+article.assistant { border-color: #8be6db; }
+article strong { font-size: .85rem; color: #adcecf; }
+article p { white-space: pre-wrap; overflow-wrap: anywhere; color: #edf5f6; margin: .25rem 0; }
+#status { min-height: 1.55rem; }

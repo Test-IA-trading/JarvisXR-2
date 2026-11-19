@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Jarvis XR · Conversation</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/chat.js" defer></script>
+</head>
+<body>
+  <header><div class="brand"><span class="orb" aria-hidden="true"></span><strong>Jarvis XR</strong></div><button id="reset" type="button" hidden>Nouvelle discussion</button></header>
+  <main>
+    <section id="pair">
+      <p class="eyebrow">Connexion au PC</p>
+      <h1>Ouvrir la conversation</h1>
+      <p>Entre le code affiché dans la fenêtre Jarvis sur ton PC.</p>
+      <form id="pair-form">
+        <label for="code">Code du PC</label>
+        <input id="code" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX" required>
+        <button type="submit">Se connecter</button>
+      </form>
+    </section>
+    <section id="chat" hidden aria-label="Conversation">
+      <p class="eyebrow" id="model"></p>
+      <h1>Conversation</h1>
+      <div id="history" role="log" aria-live="polite" aria-relevant="additions"></div>
+      <form id="compose">
+        <label for="message">Ton message</label>
+        <textarea id="message" maxlength="2000" rows="3" placeholder="Écris à Jarvis…" required></textarea>
+        <button type="submit">Envoyer</button>
+      </form>
+    </section>
+    <p id="status" role="status"></p>
+  </main>
+</body>
+</html>

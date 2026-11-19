@@ -20,6 +20,8 @@ final class JarvisAboutViewController: UIViewController {
         textView.text = """
         JARVIS Appliance Mode
 
+        JARVIS XR by Amrik Majumdar. Modified edition, 18 November 2026: optional chat on a personal Windows PC.
+
         JARVIS is designed to make this iPhone feel like a dedicated command device.
 
         Current ownership layer:

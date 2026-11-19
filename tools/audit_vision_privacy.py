@@ -11,6 +11,9 @@ except ImportError:  # Direct execution: python tools/audit_vision_privacy.py
 
 
 DEFAULT_SOURCE_ROOT = ROOT / "ios" / "JarvisXR" / "JarvisXR"
+PC_CHAT_TRANSPORT = Path("JarvisPCChatTransport.swift")
+PC_CHAT_CALLER = Path("JarvisFrenchConversation.swift")
+PC_CHAT_NETWORK_TOKENS = {"URLSession", "URLRequest", ".dataTask("}
 NETWORK_TOKENS = (
     "URLSession",
     "URLRequest",
@@ -49,13 +52,18 @@ def scan_privacy(source_root: Path, model_manifest_path: Path = DEFAULT_MANIFEST
     for path in files:
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(source_root)
+        is_vision_source = "vision" in path.name.lower() or "camera" in path.name.lower() or "import Vision" in text
+        is_chat_transport = relative == PC_CHAT_TRANSPORT and not is_vision_source
+        if "JarvisPCChatTransport" in text and (is_vision_source or relative not in (PC_CHAT_TRANSPORT, PC_CHAT_CALLER)):
+            failures.append(f"{relative} references the network transport reserved for paired PC chat")
         for token in NETWORK_TOKENS:
+            if is_chat_transport and token in PC_CHAT_NETWORK_TOKENS:
+                continue
             if token in text:
                 failures.append(f"{relative} contains production network API token: {token}")
         for token in TELEMETRY_TOKENS:
             if token in text:
                 failures.append(f"{relative} contains telemetry SDK token: {token}")
-        is_vision_source = "vision" in path.name.lower() or "camera" in path.name.lower() or "import Vision" in text
         if is_vision_source:
             for token in IMAGE_PERSISTENCE_TOKENS:
                 if token in text:
@@ -75,7 +83,7 @@ def scan_privacy(source_root: Path, model_manifest_path: Path = DEFAULT_MANIFEST
         failures.append(f"could not inspect model privacy metadata: {exc}")
 
     if not failures:
-        passed.append(f"{len(files)} production Swift files contain no network, telemetry, automatic image-save, barcode-open, or private Vision logging paths")
+        passed.append(f"scanned {len(files)} production Swift files for network access outside paired PC chat, telemetry and private Vision data handling")
     return {
         "schema_version": 1,
         "status": "passed" if not failures else "failed",
