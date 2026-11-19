@@ -1,7 +1,9 @@
 import UIKit
 
-enum JarvisPCChatAddress {
-    static func url(for input: String) -> URL? {
+struct JarvisPCChatAddress {
+    let url: URL
+
+    init?(_ input: String) {
         var host = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if host.hasPrefix("http://") { host.removeFirst("http://".count) }
         if host.hasSuffix("/") { host.removeLast() }
@@ -12,7 +14,8 @@ enum JarvisPCChatAddress {
         guard bytes.count == 4, bytes.map({ String($0) }).joined(separator: ".") == host else { return nil }
         let isPrivate = bytes[0] == 10 || (bytes[0] == 172 && (16...31).contains(bytes[1]))
             || (bytes[0] == 192 && bytes[1] == 168)
-        return isPrivate ? URL(string: "http://\(host):8765/") : nil
+        guard isPrivate, let url = URL(string: "http://\(host):8765/") else { return nil }
+        self.url = url
     }
 }
 
@@ -36,9 +39,9 @@ extension JarvisRootViewController {
         }
         guard let field = alert.textFields?.first else { return }
         let open = UIAlertAction(title: "Chat écrit dans Safari", style: .default) { [weak self, weak field] _ in
-            guard let url = JarvisPCChatAddress.url(for: field?.text ?? "") else { return }
-            UserDefaults.standard.set(url.host, forKey: savedAddress)
-            UIApplication.shared.open(url, options: [:]) { opened in
+            guard let address = JarvisPCChatAddress(field?.text ?? "") else { return }
+            UserDefaults.standard.set(address.url.host, forKey: savedAddress)
+            UIApplication.shared.open(address.url, options: [:]) { opened in
                 guard !opened else { return }
                 DispatchQueue.main.async {
                     let notice = UIAlertController(title: "Navigateur indisponible",
@@ -48,23 +51,23 @@ extension JarvisRootViewController {
                 }
             }
         }
-        open.isEnabled = JarvisPCChatAddress.url(for: field.text ?? "") != nil
+        open.isEnabled = JarvisPCChatAddress(field.text ?? "") != nil
         field.addAction(UIAction { [weak field, weak open] _ in
-            open?.isEnabled = JarvisPCChatAddress.url(for: field?.text ?? "") != nil
+            open?.isEnabled = JarvisPCChatAddress(field?.text ?? "") != nil
         }, for: .editingChanged)
         alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
         let voice = UIAlertAction(title: "Conversation vocale", style: .default) { [weak self, weak field, weak alert] _ in
-            guard let url = JarvisPCChatAddress.url(for: field?.text ?? ""),
+            guard let address = JarvisPCChatAddress(field?.text ?? ""),
                   let code = alert?.textFields?.last?.text else { return }
             let key = code.uppercased().filter { !$0.isWhitespace && $0 != "-" }
-            UserDefaults.standard.set(url.host, forKey: savedAddress)
-            let vc = JarvisFrenchConversation(url: url, code: key)
+            UserDefaults.standard.set(address.url.host, forKey: savedAddress)
+            let vc = JarvisFrenchConversation(address: address, code: key)
             self?.present(UINavigationController(rootViewController: vc), animated: true)
         }
         let codeField = alert.textFields?.last
         let validateVoice = { [weak field, weak codeField, weak voice] in
             let key = (codeField?.text ?? "").uppercased().filter { !$0.isWhitespace && $0 != "-" }
-            voice?.isEnabled = JarvisPCChatAddress.url(for: field?.text ?? "") != nil
+            voice?.isEnabled = JarvisPCChatAddress(field?.text ?? "") != nil
                 && key.range(of: "^[0-9A-F]{16}$", options: .regularExpression) != nil
         }
         validateVoice()

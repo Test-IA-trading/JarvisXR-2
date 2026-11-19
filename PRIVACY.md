@@ -16,9 +16,11 @@ Typed commands, recognized command text, saved notes, preferences, and command h
 
 Message-composition commands are excluded from general command history. Jarvis uses the system contact picker to let the user authorize one recipient selection without copying or uploading the address book. The selected phone number and message body remain in an in-memory draft and are passed to Apple's standard message composer only after the user asks to open it. Sending or cancelling occurs in that system interface.
 
-### Optional PC chat (modified edition, November 18, 2026)
+### Optional PC chat (modified edition, November 19, 2026)
 
-Choosing **Chat avec mon PC** opens the system browser at the private IPv4 address entered by the user. The app remembers this address. The browser sends the text entered on the chat page and a limited number of recent turns to the paired PC. The PC calls its local Ollama service. This feature does not read the app’s notes, history, microphone, contacts, or camera. The companion keeps no chat log and the browser page keeps the dialogue in memory. The connection code changes when the companion restarts. The prototype uses HTTP on a trusted private network; the local transport is unencrypted.
+Under **Chat avec mon PC**, the user enters the companion’s private IPv4 address and chooses written chat in Safari or a French voice conversation in the app. Both modes send the current text and recent conversation turns to the paired Windows PC, which runs Ollama locally. The native client posts to port 8765 and refuses redirects. The pairing code and text travel over unencrypted HTTP on the chosen private network.
+
+In voice mode, Apple Speech transcribes microphone input as described below. Only the transcript and recent chat turns are sent to the PC. Camera frames, contacts, the app’s notes and command history are excluded. The app remembers the PC address. The dialogue stays in memory while the chat is open, and the companion keeps no chat log. The connection code changes when the companion restarts.
 
 ### Microphone and speech recognition
 
@@ -53,6 +55,7 @@ The app requests only permissions used by implemented features:
 - Microphone for push-to-talk input
 - Speech Recognition for command transcription
 - Camera for visual inspection
+- Local Network for the optional paired PC chat
 
 Permission can be denied or revoked in iOS Settings. Some features will be unavailable when permission is denied.
 

@@ -1,38 +1,21 @@
 import UIKit
 import AVFoundation
 
-private final class NoChatRedirect: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
-                    completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
 final class JarvisFrenchConversation: UIViewController, AVSpeechSynthesizerDelegate {
-    private let url: URL
-    private let code: String
+    private let transport: JarvisPCChatTransport
     private let input = JarvisVoiceInputService(locale: Locale(identifier: "fr-FR"), maximumListenDuration: 55)
     private let speaker = AVSpeechSynthesizer()
-    private let session: URLSession
     private let transcript = UITextView()
     private let status = UILabel()
     private let button = UIButton(type: .system)
     private var turns = [[String: String]]()
-    private var request: URLSessionDataTask?
+    private var cancelRequest: (() -> Void)?
     private var generation = UUID()
     private var speaking: AVSpeechUtterance?
     private var active = false
 
-    init(url: URL, code: String) {
-        self.url = url
-        self.code = code
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 185
-        config.timeoutIntervalForResource = 190
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
-        session = URLSession(configuration: config, delegate: NoChatRedirect(), delegateQueue: .main)
+    init(address: JarvisPCChatAddress, code: String) {
+        transport = JarvisPCChatTransport(address: address, code: code)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -90,16 +73,14 @@ final class JarvisFrenchConversation: UIViewController, AVSpeechSynthesizerDeleg
         pause("Conversation en pause.")
     }
 
-    deinit { session.invalidateAndCancel() }
-
     @objc private func closeChat() { dismiss(animated: true) }
     @objc private func background() { if active { pause("Conversation en pause.") } }
 
     private func pause(_ message: String) {
         active = false
         generation = UUID()
-        request?.cancel()
-        request = nil
+        cancelRequest?()
+        cancelRequest = nil
         speaking = nil
         speaker.stopSpeaking(at: .immediate)
         input.cancel()
@@ -129,39 +110,31 @@ final class JarvisFrenchConversation: UIViewController, AVSpeechSynthesizerDeleg
     }
 
     private func send(_ text: String) {
-        guard active, request == nil else { return }
+        guard active, cancelRequest == nil else { return }
         guard text.utf16.count <= 2000 else { pause("Cette demande est trop longue. Reformule-la en deux phrases."); return }
         let user = ["role": "user", "content": text]
         let messages = turns + [user]
-        var post = URLRequest(url: url.appendingPathComponent("api/chat"))
-        post.httpMethod = "POST"
-        post.setValue(code, forHTTPHeaderField: "X-Jarvis-Code")
-        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        do { post.httpBody = try JSONSerialization.data(withJSONObject: ["messages": messages]) }
-        catch { pause("Impossible de préparer la demande."); return }
         status.text = "Qwen réfléchit…"
         let attempt = generation
-        request = session.dataTask(with: post) { [weak self] data, response, _ in
-            guard let self, self.active, self.generation == attempt else { return }
-            self.request = nil
-            guard let http = response as? HTTPURLResponse, let data else {
-                self.pause("PC inaccessible. Vérifie le Wi-Fi, l’adresse et le compagnon Windows.")
-                return
+        do {
+            cancelRequest = try transport.send(messages) { [weak self] result in
+                guard let self, self.active, self.generation == attempt else { return }
+                self.cancelRequest = nil
+                switch result {
+                case .failure(let message):
+                    self.pause(message)
+                case .reply(let reply):
+                    var excerpt = String(reply.prefix(6000))
+                    while excerpt.utf16.count > 6000 { excerpt.removeLast() }
+                    self.turns = Array((messages + [["role": "assistant", "content": excerpt]]).suffix(8))
+                    self.transcript.text.append("Toi — \(text)\nJarvis — \(reply)\n\n")
+                    self.transcript.scrollRangeToVisible(NSRange(location: (self.transcript.text as NSString).length, length: 0))
+                    self.say(reply)
+                }
             }
-            let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            guard http.statusCode == 200, let reply = body?["reply"] as? String,
-                  !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                self.pause((body?["error"] as? String) ?? "Le PC a interrompu la demande.")
-                return
-            }
-            var excerpt = String(reply.prefix(6000))
-            while excerpt.utf16.count > 6000 { excerpt.removeLast() }
-            self.turns = Array((messages + [["role": "assistant", "content": excerpt]]).suffix(8))
-            self.transcript.text.append("Toi — \(text)\nJarvis — \(reply)\n\n")
-            self.transcript.scrollRangeToVisible(NSRange(location: (self.transcript.text as NSString).length, length: 0))
-            self.say(reply)
+        } catch {
+            pause("Impossible de préparer la demande.")
         }
-        request?.resume()
     }
 
     private func say(_ reply: String) {
