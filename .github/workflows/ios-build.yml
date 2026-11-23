@@ -255,7 +255,7 @@ jobs:
             | tee ios/JarvisXR/build/logs/ipa-audit.log
 
       - name: Capture required iOS screenshots
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: ios/JarvisXR
         run: |
           set -euo pipefail
