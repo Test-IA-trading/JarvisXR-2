@@ -33,16 +33,14 @@ Pendant l’essai, relever le délai entre la fin de ma phrase et le début de s
 - [ ] Utiliser les fonctions iOS que j’autorise.
 - [ ] Retrouver mes décisions et reprendre une tâche lors d’une nouvelle conversation.
 
-## Choisir le modèle selon la tâche et mon budget
+## Un assistant local qui réagit à ce que je fais
 
-La vidéo de référence montre un outil de code qui envoie ses requêtes à un proxy, puis à différents modèles. Pour Jarvis, je veux pouvoir garder la même conversation sur l’iPhone et choisir qui traite chaque tâche.
+- [ ] Je peux utiliser Jarvis sur l’iPhone avec Internet coupé et le PC éteint. L’app traite ma demande sur l’appareil. Les appels entre l’interface, le modèle et les actions restent locaux.
+- [ ] Quand j’active l’assistance dans Jarvis, l’app tient compte de ma voix, de l’écran de Jarvis où je me trouve et des actions que j’y fais. Elle adapte sa réponse si je change d’écran ou de sélection. Je peux suspendre cette assistance.
+- [ ] Si j’active la caméra, je peux demander à Jarvis de réagir à ce que je lui montre. Pour une autre app, le contexte disponible dépend de ce qu’iOS permet de transmettre et de ce que je choisis de partager.
+- [ ] Qwen sur le PC reste une extension facultative sur mon réseau local. Si une tâche dépasse les capacités de l’iPhone, Jarvis me l’indique. Aucun transfert automatique vers un fournisseur cloud.
 
-- [ ] Dans les réglages, je peux choisir un modèle précis ou activer le choix automatique. Mon choix est conservé après redémarrage.
-- [ ] En mode automatique, une tâche simple utilise le modèle disponible le moins coûteux capable de la traiter. Je peux autoriser un modèle plus puissant pour une tâche difficile et fixer si Jarvis doit me demander avant tout appel payant.
-- [ ] Je peux choisir Qwen via Ollama sur le PC pour une tâche locale. Quand le PC est éteint ou qu’un fournisseur atteint sa limite, Jarvis propose les autres options autorisées et conserve la demande à reprendre.
-- [ ] Pour chaque réponse, je peux voir le fournisseur et le modèle réellement utilisés, les tokens si le fournisseur les communique et le coût s’il est connu. Un coût inconnu s’affiche comme tel.
-
-**Essai sur iPhone.** En mode local, je demande à Jarvis de résumer trois phrases et je vérifie que Qwen a répondu. J’éteins le PC puis je demande une reformulation. Jarvis explique l’indisponibilité et respecte mon choix de secours. Si j’autorise un autre fournisseur, il reprend la même conversation et je peux vérifier quel modèle a produit la réponse.
+**Essai sur iPhone.** PC éteint et iPhone en mode avion, j’ouvre les réglages de Jarvis et je demande « À quoi sert cette option ? ». Je sélectionne une autre option et je dis « Et celle-ci ? ». Jarvis explique la nouvelle sélection sans me demander de répéter son nom. Je suspends l’assistance et je vérifie que mes actions suivantes ne déclenchent plus de réaction.
 
 ## Plus tard, l’appeler en disant « Dis Jarvis »
 
