@@ -46,7 +46,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         buildInterface()
         wireVoice()
         NotificationCenter.default.addObserver(self, selector: #selector(deepLinkReceived(_:)), name: .jarvisDeepLinkReceived, object: nil)
-        setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "Ready when you are.")
+        setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -69,7 +69,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         // Rewire them whenever the user returns to the main Jarvis surface.
         wireVoice()
         if interfaceState == .inspection {
-            setInterfaceState(.ready, hint: "Jarvis Vision closed. Ready when you are.")
+            setInterfaceState(.ready, hint: "Jarvis Vision closed. JARVIS est prêt.")
         }
     }
 
@@ -105,7 +105,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         wordmarkLabel.accessibilityLabel = "JARVIS"
         wordmarkLabel.accessibilityIdentifier = "jarvis.wordmark"
 
-        subtitleLabel.text = "Voice-first visual assistance"
+        subtitleLabel.text = "Assistance visuelle à la voix"
         subtitleLabel.textColor = JarvisTheme.mutedText
         subtitleLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
         subtitleLabel.adjustsFontForContentSizeCategory = true
@@ -146,7 +146,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
         commandField.delegate = self
         commandField.attributedPlaceholder = NSAttributedString(
-            string: "Command JARVIS",
+            string: "Demandez à JARVIS…",
             attributes: [.foregroundColor: JarvisTheme.mutedText]
         )
         commandField.textColor = JarvisTheme.text
@@ -161,7 +161,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         commandField.accessibilityLabel = "Command input"
         commandField.accessibilityIdentifier = "jarvis.commandInput"
 
-        submitButton.setTitle("Send", for: .normal)
+        submitButton.setTitle("Envoyer", for: .normal)
         submitButton.setTitleColor(JarvisTheme.background, for: .normal)
         submitButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
         submitButton.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -311,7 +311,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         speech.onSpeechFinish = { [weak self] in
             guard let self else { return }
             if JarvisSpeechService.shared.isEnabled {
-                self.setInterfaceState(.ready, hint: "Ready when you are.")
+                self.setInterfaceState(.ready, hint: "JARVIS est prêt.")
             } else {
                 self.setInterfaceState(.quiet, hint: "Quiet mode.")
             }
@@ -319,7 +319,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         voiceInput.onStateChange = { [weak self] state in
             switch state {
             case .standby:
-                self?.setInterfaceState(.standby, hint: "Ready when you are.")
+                self?.setInterfaceState(.standby, hint: "JARVIS est prêt.")
             case .listening:
                 self?.speech.stop()
                 self?.setInterfaceState(.listening, hint: "Listening.")
@@ -345,7 +345,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private func execute(_ text: String, source: String = "typed") {
         let commandText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !commandText.isEmpty else {
-            setInterfaceState(.ready, hint: "Ready when you are.")
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
             return
         }
 
