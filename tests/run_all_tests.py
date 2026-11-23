@@ -51,6 +51,8 @@ def main() -> int:
         pytest("core/router/tests", "router"),
         pytest("core/daemon/tests", "daemon"),
     ]
+    if sys.platform == "win32":
+        checks.insert(0, [sys.executable, "tests/windows_chat_smoke.py"])
     for command in checks:
         code = run(command)
         if code != 0:

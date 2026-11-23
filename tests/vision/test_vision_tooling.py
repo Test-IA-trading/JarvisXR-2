@@ -186,6 +186,29 @@ def test_privacy_audit_rejects_network_and_image_save_paths(tmp_path):
     assert any("UIImageWriteToSavedPhotosAlbum" in item for item in report["failures"])
 
 
+def test_privacy_audit_limits_the_paired_chat_exception(tmp_path):
+    transport = tmp_path / "JarvisPCChatTransport.swift"
+    caller = tmp_path / "JarvisFrenchConversation.swift"
+    transport.write_text("URLSession URLRequest .dataTask(", encoding="utf-8")
+    caller.write_text("let transport: JarvisPCChatTransport", encoding="utf-8")
+    assert scan_privacy(tmp_path, DEFAULT_MANIFEST)["status"] == "passed"
+
+    transport.write_text("URLSession .uploadTask( import Sentry", encoding="utf-8")
+    nested = tmp_path / "Other"
+    nested.mkdir()
+    (nested / transport.name).write_text("URLRequest", encoding="utf-8")
+    (tmp_path / "Camera.swift").write_text("let client: JarvisPCChatTransport", encoding="utf-8")
+    failures = scan_privacy(tmp_path, DEFAULT_MANIFEST)["failures"]
+    assert any(".uploadTask(" in item for item in failures)
+    assert any("import Sentry" in item for item in failures)
+    assert any("Other" in item and "URLRequest" in item for item in failures)
+    assert any("Camera.swift" in item and "paired PC chat" in item for item in failures)
+
+    transport.write_text("import Vision\nURLSession", encoding="utf-8")
+    assert any(transport.name in item and "URLSession" in item
+               for item in scan_privacy(tmp_path, DEFAULT_MANIFEST)["failures"])
+
+
 def test_macho_architecture_parser_recognizes_arm64_device_binary():
     binary = b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C) + b"\0" * 24
     assert macho_architectures(binary) == ["arm64"]

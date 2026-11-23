@@ -295,6 +295,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             },
             UIAction(title: "Read Text") { [weak self] _ in self?.execute("read this", source: "menu") },
             UIAction(title: "Scan Barcode") { [weak self] _ in self?.execute("scan barcode", source: "menu") },
+            UIAction(title: "Chat avec mon PC", image: UIImage(systemName: "desktopcomputer")) { [weak self] _ in self?.presentPCChat() },
             UIAction(title: "Message a Contact") { [weak self] _ in self?.execute("message a contact", source: "menu") },
             UIAction(title: "Control Mesh") { [weak self] _ in self?.controlMeshTapped() },
             UIAction(title: "Settings") { [weak self] _ in self?.settingsTapped() },
