@@ -2,7 +2,18 @@
 
 Les cases seront cochées après un essai réussi sur l’iPhone. Les dialogues ci-dessous sont des exemples pour juger le résultat.
 
-## En premier, tenir une conversation en français
+## Priorité sur iPhone — réagir en direct à ce que filme la caméra
+
+- [ ] J’active la caméra une fois. Pendant la session, Jarvis observe la scène sur l’iPhone, repère les changements utiles et prend la parole de lui-même en français. Je peux continuer ce que je fais sans toucher l’écran ni lui demander « Qu’est-ce que tu vois ? » à chaque geste.
+- [ ] Jarvis suit une action dans le temps. Si je déplace un objet déjà repéré, il peut me dire ce qui a changé. Quand la scène reste stable, il reste silencieux. S’il perd un objet de vue, il distingue ce qu’il a vu de ce qu’il ignore.
+- [ ] Je peux l’interrompre ou lui demander « Et maintenant ? ». Sa réponse tient compte de ce qu’on vient de faire et de l’image actuelle. Quand je coupe le mode caméra, l’observation et les annonces s’arrêtent.
+- [ ] Ce parcours fonctionne avec le PC éteint et l’iPhone hors ligne. L’analyse des images et les réactions vocales se font sur l’iPhone.
+
+**Premier essai à faire sur l’iPhone.** PC éteint, iPhone en mode avion et Wi-Fi coupé, je cadre une table vide avec le téléphone immobile. J’active le mode et je pose une tasse au centre sans rien dire. Jarvis signale spontanément son apparition, une seule fois. Je la déplace vers la droite et il signale le changement de position. Je la laisse immobile, puis je la sors du cadre et je demande « Elle est où maintenant ? ». La réponse attendue est « Je ne la vois plus », sans inventer où je l’ai mise. Je coupe le mode, puis je remets la tasse dans le champ pour vérifier l’arrêt des annonces. Pendant l’essai, noter le délai entre chaque geste et la première réaction, les changements manqués et les répétitions.
+
+Le prototype dispose déjà du mode *Live Guide*, du suivi d’objets entre images et d’annonces vocales. Ces fonctions servent de point de départ. Le scénario ci-dessus reste à valider sur un iPhone physique. [Fonctions et limites de la vision](https://github.com/Test-IA-trading/JarvisXR-2/blob/develop/docs/FEATURES_AND_LIMITS.md)
+
+## Tenir une conversation en français
 
 - [ ] Je peux enchaîner plusieurs échanges à voix haute. Jarvis comprend à quoi je fais référence et tient compte d’une correction.
 - [ ] Sa voix a un débit naturel. Je peux marquer une courte pause pour chercher mes mots et terminer ma phrase. Après sa réponse, la conversation reprend sans que je touche l’écran à chaque tour.
@@ -37,10 +48,10 @@ Pendant l’essai, relever le délai entre la fin de ma phrase et le début de s
 
 - [ ] Je peux utiliser Jarvis sur l’iPhone avec Internet coupé et le PC éteint. L’app traite ma demande sur l’appareil. Les appels entre l’interface, le modèle et les actions restent locaux.
 - [ ] Quand j’active l’assistance dans Jarvis, l’app tient compte de ma voix, de l’écran de Jarvis où je me trouve et des actions que j’y fais. Elle adapte sa réponse si je change d’écran ou de sélection. Je peux suspendre cette assistance.
-- [ ] Si j’active la caméra, je peux demander à Jarvis de réagir à ce que je lui montre. Pour une autre app, le contexte disponible dépend de ce qu’iOS permet de transmettre et de ce que je choisis de partager.
+- [ ] Pour une autre app, le contexte disponible dépend de ce qu’iOS permet de transmettre et de ce que je choisis de partager.
 - [ ] Qwen sur le PC reste une extension facultative sur mon réseau local. Si une tâche dépasse les capacités de l’iPhone, Jarvis me l’indique. Aucun transfert automatique vers un fournisseur cloud.
 
-**Essai sur iPhone.** PC éteint et iPhone en mode avion, j’ouvre les réglages de Jarvis et je demande « À quoi sert cette option ? ». Je sélectionne une autre option et je dis « Et celle-ci ? ». Jarvis explique la nouvelle sélection sans me demander de répéter son nom. Je suspends l’assistance et je vérifie que mes actions suivantes ne déclenchent plus de réaction.
+**Essai complémentaire dans les réglages.** PC éteint et iPhone en mode avion, j’ouvre les réglages de Jarvis et je demande « À quoi sert cette option ? ». Je sélectionne une autre option et je dis « Et celle-ci ? ». Jarvis explique la nouvelle sélection sans me demander de répéter son nom. Je suspends l’assistance et je vérifie que mes actions suivantes ne déclenchent plus de réaction.
 
 ## Plus tard, l’appeler en disant « Dis Jarvis »
 
@@ -50,4 +61,4 @@ Apple permet d’associer une expression personnalisée à une action avec les r
 
 ## Point de départ du prototype
 
-Dans la version examinée, l’écoute des commandes utilise l’anglais américain et s’arrête au plus tard après huit secondes. Le menu du chat Qwen ouvre une conversation écrite dans le navigateur. Le premier chantier vocal consiste à relier l’écoute en français, les réponses de Qwen et la parole de Jarvis dans le même échange. [Écoute native](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/ios/JarvisXR/JarvisXR/JarvisVoiceInputService.swift) · [Ouverture du chat](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/ios/JarvisXR/JarvisXR/JarvisPCChat.swift) · [Interface du chat](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/companion/windows/web/index.html)
+Dans la version examinée, l’écoute des commandes utilise l’anglais américain et s’arrête au plus tard après huit secondes. Le menu du chat Qwen ouvre une conversation écrite dans le navigateur. Pour l’essai facultatif avec le PC, il reste à relier l’écoute en français, les réponses de Qwen et la parole de Jarvis dans le même échange. [Écoute native](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/ios/JarvisXR/JarvisXR/JarvisVoiceInputService.swift) · [Ouverture du chat](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/ios/JarvisXR/JarvisXR/JarvisPCChat.swift) · [Interface du chat](https://github.com/Test-IA-trading/JarvisXR-2/blob/cd930850c242a543614f289006ff705d34f74e7d/companion/windows/web/index.html)
