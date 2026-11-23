@@ -33,6 +33,17 @@ Pendant l’essai, relever le délai entre la fin de ma phrase et le début de s
 - [ ] Utiliser les fonctions iOS que j’autorise.
 - [ ] Retrouver mes décisions et reprendre une tâche lors d’une nouvelle conversation.
 
+## Choisir le modèle selon la tâche et mon budget
+
+La vidéo de référence montre un outil de code qui envoie ses requêtes à un proxy, puis à différents modèles. Pour Jarvis, je veux pouvoir garder la même conversation sur l’iPhone et choisir qui traite chaque tâche.
+
+- [ ] Dans les réglages, je peux choisir un modèle précis ou activer le choix automatique. Mon choix est conservé après redémarrage.
+- [ ] En mode automatique, une tâche simple utilise le modèle disponible le moins coûteux capable de la traiter. Je peux autoriser un modèle plus puissant pour une tâche difficile et fixer si Jarvis doit me demander avant tout appel payant.
+- [ ] Je peux choisir Qwen via Ollama sur le PC pour une tâche locale. Quand le PC est éteint ou qu’un fournisseur atteint sa limite, Jarvis propose les autres options autorisées et conserve la demande à reprendre.
+- [ ] Pour chaque réponse, je peux voir le fournisseur et le modèle réellement utilisés, les tokens si le fournisseur les communique et le coût s’il est connu. Un coût inconnu s’affiche comme tel.
+
+**Essai sur iPhone.** En mode local, je demande à Jarvis de résumer trois phrases et je vérifie que Qwen a répondu. J’éteins le PC puis je demande une reformulation. Jarvis explique l’indisponibilité et respecte mon choix de secours. Si j’autorise un autre fournisseur, il reprend la même conversation et je peux vérifier quel modèle a produit la réponse.
+
 ## Plus tard, l’appeler en disant « Dis Jarvis »
 
 - [ ] Une fois le déclenchement configuré, je peux dire « Dis Jarvis » pour commencer à lui parler. Essayer depuis l’écran d’accueil, puis séparément avec l’iPhone verrouillé et noter les cas qui fonctionnent sur l’appareil.
