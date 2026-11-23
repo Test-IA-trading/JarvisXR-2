@@ -9,6 +9,7 @@ Je veux voir des objets virtuels dans le décor filmé par l’iPhone et les man
 - [ ] Je cadre une table. Un cube virtuel apparaît posé dessus. Je distingue le cube que je vise et je vois quand je l’ai saisi.
 - [ ] Je rapproche le pouce et l’index dans l’air devant la caméra pour saisir le cube, sans toucher l’écran. Tant que je garde les doigts pincés, le cube suit ma main sur la table. Quand je les écarte, il reste à l’endroit où je l’ai déposé, même si je change de point de vue.
 - [ ] Si la caméra perd ma main de vue pendant le geste, le cube s’immobilise. Je peux le reprendre avec une nouvelle pince.
+- [ ] Si Jarvis confond ma main ouverte et ma pince, je peux lui montrer les deux positions pour régler la détection sur l’iPhone. Pendant le réglage, je vois quelle position il reconnaît. Si ma main entre dans le champ déjà pincée, le cube reste en place jusqu’à ce que je rouvre les doigts puis le saisisse. Un léger tremblement pendant la saisie ne doit ni le lâcher ni l’attraper deux fois. [Exemple de calibrage par webcam sur PC](https://github.com/sosoj92/jarvis-assistant-vocal/blob/15f3f87e0bfd3fe68ec38deafbfeab22636c3993/docs/gestes.md)
 - [ ] Jarvis tient compte de mon geste. Si je lui demande « Qu’est-ce que je viens de déplacer ? », il me répond « Le cube » en français. La caméra, le suivi des doigts et la manipulation fonctionnent sur l’iPhone, PC éteint et hors ligne.
 
 **Premier essai à faire sur l’iPhone.** En mode avion avec le Wi-Fi coupé, je cadre un livre posé sur la table. Je déplace le cube virtuel de la gauche du livre vers sa droite, puis je le lâche. Je filme la table de côté. L’essai réussit si le cube reste à droite du livre et si je peux le saisir de nouveau depuis ce point de vue. Un pincement à côté du cube doit le laisser en place.
@@ -48,6 +49,15 @@ Pendant l’essai, relever le délai entre la fin de ma phrase et le début de s
 - [ ] Je peux utiliser Jarvis entièrement en audio ou ouvrir l’application pour écrire, relire la même discussion et retrouver les tâches et leurs résultats.
 
 **Essai proposé.** Je lui donne deux projets GitHub à comparer. Pendant la comparaison, je lui demande où il en est, puis de créer une courte note dans Jarvis. Je vérifie que la note est disponible pendant que la comparaison est encore en cours, puis que celle-ci se termine une seule fois.
+
+## Demander un bilan et le poser dans le décor
+
+Dans la vidéo, une question sur l’activité de l’application déclenche un bilan des sept derniers jours et des graphiques apparaissent sur les écrans. Le premier essai sur iPhone peut s’appuyer sur des données que Jarvis enregistre déjà, les notes et leur date de création. [Stockage des notes dans JarvisXR](../ios/JarvisXR/JarvisXR/JarvisMemoryStore.swift) · [Projet Windows présenté dans le tutoriel](https://github.com/sosoj92/jarvis-assistant-vocal/blob/15f3f87e0bfd3fe68ec38deafbfeab22636c3993/README.md)
+
+- [ ] Je demande « Combien de notes ai-je prises ces sept derniers jours ? ». Jarvis annonce le nombre en français et affiche la période. À « Montre-les-moi », il ouvre la liste des notes comptées, avec leur date. Si je demande les téléchargements d’une app dont Jarvis ne possède pas les statistiques, il indique que cette donnée lui manque.
+- [ ] Une fois le geste du cube validé, je peux dire « Pose ce bilan sur la table ». Une fiche portant le même total apparaît dans la vue caméra. Je la déplace en pinçant son bord. Elle reste lisible à l’endroit où je la dépose quand je change d’angle. Je peux la fermer et retrouver mes notes.
+
+**Essai sur iPhone, PC éteint et réseau coupé.** Partir de trois notes de test, deux datées d’aujourd’hui et une d’il y a huit jours. La réponse attendue est « Deux notes ». Le détail doit ouvrir exactement les deux notes récentes. Je vérifie que la fiche affiche encore « 2 » après son déplacement. Avec une liste de notes vide, Jarvis annonce zéro.
 
 ## Autres usages demandés
 
