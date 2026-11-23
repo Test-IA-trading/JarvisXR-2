@@ -74,7 +74,7 @@ def main() -> int:
     check(
         "Swift Vision menu exposes Vision and Control Mesh",
         'accessibilityIdentifier = "jarvis.meshMenu"' in root
-        and 'UIAction(title: "Open Jarvis Vision")' in root
+        and 'UIAction(title: "Ouvrir Vision JARVIS")' in root
         and 'UIAction(title: "Control Mesh")' in root,
     )
     check("Preview exposes product-only mode", "--product-only" in preview_text and "Product-only view" in preview_text)
@@ -149,7 +149,7 @@ def main() -> int:
     check("Tap and long press are separate recognizers", "UITapGestureRecognizer" in root and "UILongPressGestureRecognizer" in root and "tap.require(toFail: longPress)" in root)
     check("Long press returns standby", "enterStandbyFromLongPress" in root and "voiceInput.stopListening(process: false)" in root)
     check("Manual listening stop processes transcript", "voiceInput.stopListening(process: true)" in root and "onFinalTranscript" in voice)
-    check("No speech returns ready", "case .noSpeech:" in root and "setInterfaceState(.ready, hint: \"No speech heard.\")" in root)
+    check("No speech returns ready", "case .noSpeech:" in root and "setInterfaceState(.ready, hint: \"Aucune parole détectée.\")" in root)
     check("Ready state label matches UI proof", 'case ready = "Ready"' in state and 'waitForState("Ready")' in ui_test)
     check("Real UIKit layout uses keyboardLayoutGuide", "keyboardLayoutGuide.topAnchor" in root and "keyboardWillChangeFrameNotification" not in root)
     check("Real UIKit source avoids copied preview layout model", "JarvisXRLayoutModel" not in root + state)
