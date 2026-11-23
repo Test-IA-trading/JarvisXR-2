@@ -62,8 +62,8 @@ jobs:
 
   build-ios:
     needs: validate-python
-    runs-on: macos-26
-    timeout-minutes: 45
+    runs-on: macos-26-intel
+    timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
@@ -96,13 +96,14 @@ jobs:
           xcodegen --version
 
       - name: Generate Xcode project
+        timeout-minutes: 5
         working-directory: ios/JarvisXR
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p build/logs
           xcodegen generate 2>&1 | tee build/logs/xcodegen.log
-          find JarvisXR.xcodeproj -maxdepth 3 -print | sort | tee -a build/logs/xcodegen.log
-          xcodebuild -list -project JarvisXR.xcodeproj | tee build/logs/schemes.log
+          test -s JarvisXR.xcodeproj/project.pbxproj
+          test -s JarvisXR.xcodeproj/xcshareddata/xcschemes/JarvisXR.xcscheme
 
       - name: Build JarvisXR for iPhoneOS
         working-directory: ios/JarvisXR
@@ -254,7 +255,7 @@ jobs:
             | tee ios/JarvisXR/build/logs/ipa-audit.log
 
       - name: Capture required iOS screenshots
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: ios/JarvisXR
         run: |
           set -euo pipefail
@@ -346,7 +347,7 @@ jobs:
           ls -lh "$VISUAL_PROOF_DIR" | tee -a build/logs/xcodebuild-visual-proof.log
 
       - name: Debug visual proof filesystem
-        if: always()
+        if: failure()
         run: |
           echo "workspace=$GITHUB_WORKSPACE"
           pwd
@@ -367,13 +368,14 @@ jobs:
             echo ""
             echo "DerivedData logs:"
             find ios/JarvisXR/build -path '*Logs*' -type f -print 2>/dev/null || true
-          } | tee ios/JarvisXR/build/logs/visual-proof-filesystem-debug.log
-          find ios/JarvisXR/build -maxdepth 8 -print 2>/dev/null | sort | tee ios/JarvisXR/build/logs/artifact-tree.txt
+          } > ios/JarvisXR/build/logs/visual-proof-filesystem-debug.log
+          find ios/JarvisXR/build -maxdepth 8 -print 2>/dev/null | sort > ios/JarvisXR/build/logs/artifact-tree.txt
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
         with:
           name: JarvisXR-unsigned-ipa
+          if-no-files-found: error
           path: ios/JarvisXR/build/JarvisXR-unsigned.ipa
 
       - name: Upload iOS screenshot proof
