@@ -69,7 +69,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         // Rewire them whenever the user returns to the main Jarvis surface.
         wireVoice()
         if interfaceState == .inspection {
-            setInterfaceState(.ready, hint: "Jarvis Vision closed. JARVIS est prêt.")
+            setInterfaceState(.ready, hint: "Vision JARVIS fermée. JARVIS est prêt.")
         }
     }
 
@@ -120,7 +120,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         tap.require(toFail: longPress)
         orbView.addGestureRecognizer(tap)
         orbView.addGestureRecognizer(longPress)
-        orbView.accessibilityHint = "Tap to wake, listen, or process. Long hold to standby."
+        orbView.accessibilityHint = "Appuyez pour réveiller, écouter ou traiter. Maintenez pour mettre en veille."
         orbView.accessibilityIdentifier = "jarvis.orb"
 
         stateLabel.textColor = JarvisTheme.accentHot
@@ -158,7 +158,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         commandField.returnKeyType = .send
         commandField.borderStyle = .none
         commandField.setLeftPadding(4)
-        commandField.accessibilityLabel = "Command input"
+        commandField.accessibilityLabel = "Saisie de commande"
         commandField.accessibilityIdentifier = "jarvis.commandInput"
 
         submitButton.setTitle("Envoyer", for: .normal)
@@ -168,7 +168,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         submitButton.backgroundColor = JarvisTheme.accentHot
         submitButton.layer.cornerRadius = 14
         submitButton.addTarget(self, action: #selector(submitTapped), for: .touchUpInside)
-        submitButton.accessibilityLabel = "Send command"
+        submitButton.accessibilityLabel = "Envoyer la commande"
         submitButton.accessibilityIdentifier = "jarvis.send"
 
         menuButton.setTitle("Vision", for: .normal)
@@ -183,7 +183,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         menuButton.layer.borderColor = UIColor.white.withAlphaComponent(0.10).cgColor
         menuButton.showsMenuAsPrimaryAction = true
         menuButton.menu = utilityMenu()
-        menuButton.accessibilityLabel = "Jarvis Vision and systems"
+        menuButton.accessibilityLabel = "Vision JARVIS et systèmes"
         menuButton.accessibilityIdentifier = "jarvis.meshMenu"
 
         helpButton.setTitle("?", for: .normal)
@@ -195,7 +195,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         helpButton.layer.borderWidth = 1
         helpButton.layer.borderColor = JarvisTheme.accent.withAlphaComponent(0.42).cgColor
         helpButton.addTarget(self, action: #selector(helpTapped), for: .touchUpInside)
-        helpButton.accessibilityLabel = "JARVIS help"
+        helpButton.accessibilityLabel = "Aide JARVIS"
         helpButton.accessibilityIdentifier = "jarvis.help"
 
         let inputRow = UIStackView(arrangedSubviews: [commandField, submitButton])
@@ -286,34 +286,34 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func utilityMenu() -> UIMenu {
-        UIMenu(title: "Vision and systems", children: [
-            UIAction(title: "Open Jarvis Vision") { [weak self] _ in self?.execute("open vision", source: "menu") },
-            UIAction(title: "Describe") { [weak self] _ in self?.execute("describe this", source: "menu") },
-            UIAction(title: "Live Guide") { [weak self] _ in self?.execute("start live guide", source: "menu") },
-            UIAction(title: "Find") { [weak self] _ in
+        UIMenu(title: "Vision et systèmes", children: [
+            UIAction(title: "Ouvrir Vision JARVIS") { [weak self] _ in self?.execute("open vision", source: "menu") },
+            UIAction(title: "Décrire") { [weak self] _ in self?.execute("describe this", source: "menu") },
+            UIAction(title: "Guide en direct") { [weak self] _ in self?.execute("start live guide", source: "menu") },
+            UIAction(title: "Trouver") { [weak self] _ in
                 self?.openVision(JarvisVisionLaunchRequest(mode: .find, command: .run, source: "menu"))
             },
-            UIAction(title: "Read Text") { [weak self] _ in self?.execute("read this", source: "menu") },
-            UIAction(title: "Scan Barcode") { [weak self] _ in self?.execute("scan barcode", source: "menu") },
-            UIAction(title: "Message a Contact") { [weak self] _ in self?.execute("message a contact", source: "menu") },
+            UIAction(title: "Lire le texte") { [weak self] _ in self?.execute("read this", source: "menu") },
+            UIAction(title: "Scanner un code-barres") { [weak self] _ in self?.execute("scan barcode", source: "menu") },
+            UIAction(title: "Envoyer un message à un contact") { [weak self] _ in self?.execute("message a contact", source: "menu") },
             UIAction(title: "Control Mesh") { [weak self] _ in self?.controlMeshTapped() },
-            UIAction(title: "Settings") { [weak self] _ in self?.settingsTapped() },
+            UIAction(title: "Réglages") { [weak self] _ in self?.settingsTapped() },
             UIAction(title: "Diagnostics") { [weak self] _ in self?.diagnosticsTapped() },
-            UIAction(title: "Memory") { [weak self] _ in self?.execute("show notes", source: "menu") },
-            UIAction(title: "Help") { [weak self] _ in self?.helpTapped() }
+            UIAction(title: "Mémoire") { [weak self] _ in self?.execute("show notes", source: "menu") },
+            UIAction(title: "Aide") { [weak self] _ in self?.helpTapped() }
         ])
     }
 
     private func wireVoice() {
         speech.onSpeechStart = { [weak self] in
-            self?.setInterfaceState(.speaking, hint: "Speaking.")
+            self?.setInterfaceState(.speaking, hint: "JARVIS parle.")
         }
         speech.onSpeechFinish = { [weak self] in
             guard let self else { return }
             if JarvisSpeechService.shared.isEnabled {
                 self.setInterfaceState(.ready, hint: "JARVIS est prêt.")
             } else {
-                self.setInterfaceState(.quiet, hint: "Quiet mode.")
+                self.setInterfaceState(.quiet, hint: "Mode silencieux.")
             }
         }
         voiceInput.onStateChange = { [weak self] state in
@@ -322,20 +322,20 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 self?.setInterfaceState(.standby, hint: "JARVIS est prêt.")
             case .listening:
                 self?.speech.stop()
-                self?.setInterfaceState(.listening, hint: "Listening.")
+                self?.setInterfaceState(.listening, hint: "Écoute en cours.")
             case .heardYou(let transcript):
                 self?.setInterfaceState(.heardYou, hint: transcript)
             case .processing:
-                self?.setInterfaceState(.processing, hint: "Working.")
+                self?.setInterfaceState(.processing, hint: "Traitement en cours.")
             case .noSpeech:
-                self?.setInterfaceState(.ready, hint: "No speech heard.")
+                self?.setInterfaceState(.ready, hint: "Aucune parole détectée.")
             case .unavailable(let message):
                 self?.setInterfaceState(.attention, hint: message)
                 self?.showTransient(message)
             }
         }
         voiceInput.onPartialTranscript = { [weak self] transcript in
-            self?.hintLabel.text = transcript.isEmpty ? "Listening." : transcript
+            self?.hintLabel.text = transcript.isEmpty ? "Écoute en cours." : transcript
         }
         voiceInput.onFinalTranscript = { [weak self] transcript in
             self?.execute(transcript, source: "voice")
@@ -349,7 +349,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             return
         }
 
-        setInterfaceState(.processing, hint: "Working.")
+        setInterfaceState(.processing, hint: "Traitement en cours.")
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
         let response = decision.response
@@ -380,11 +380,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
 
         if let visionRequest {
-            setInterfaceState(.inspection, hint: "Opening \(visionRequest.mode.visionDisplayName).")
+            setInterfaceState(.inspection, hint: "Ouverture de \(visionRequest.mode.visionDisplayName).")
             openVision(visionRequest)
             return
         } else if response.data["action"] == "open_camera" || response.data["action"] == "inspect" {
-            let hint = response.data["vision"] == "ocr" ? "Reading target." : response.data["vision"] == "visual_classification" ? "Opening visual scan." : "Opening inspection."
+            let hint = response.data["vision"] == "ocr" ? "Lecture de la cible." : response.data["vision"] == "visual_classification" ? "Ouverture de l'analyse visuelle." : "Ouverture de l'inspection."
             setInterfaceState(.inspection, hint: hint)
             openCamera()
         } else if response.data["action"] == "diagnostics" {
@@ -396,15 +396,15 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         } else if response.data["url_scheme"] != nil {
             openExternalRoute(response.data["url_scheme"])
         } else if response.data["mode"] == "standby" {
-            setInterfaceState(.standby, hint: "JARVIS is standing by.")
+            setInterfaceState(.standby, hint: "JARVIS est en attente.")
         } else if response.data["mode"] == "ready" {
-            setInterfaceState(.ready, hint: "JARVIS ready.")
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
         } else if response.data["mode"] == "quiet" {
-            setInterfaceState(.quiet, hint: "Speech output is muted.")
+            setInterfaceState(.quiet, hint: "La sortie vocale est muette.")
         }
 
         if response.shouldSpeak && speech.isEnabled && (response.status == .ok || response.status == .confirmationRequired) {
-            setInterfaceState(.speaking, hint: "Speaking.")
+            setInterfaceState(.speaking, hint: "JARVIS parle.")
             speech.speak(response.spokenResponse)
         } else if response.status == .ok && response.data["action"] == nil {
             setInterfaceState(speech.isEnabled ? .done : .quiet, hint: response.spokenResponse)
@@ -503,17 +503,17 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         switch interfaceState {
         case .standby:
             speech.isEnabled = true
-            setInterfaceState(.ready, hint: "JARVIS ready.")
-            speech.speak("JARVIS ready.", notifyState: false)
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
+            speech.speak("JARVIS est prêt.", notifyState: false)
         case .ready, .done, .attention, .quiet:
             voiceInput.startListening()
         case .listening, .heardYou:
             voiceInput.stopListening(process: true)
         case .processing:
-            showTransient("Processing.")
+            showTransient("Traitement en cours.")
         case .speaking:
             speech.stop()
-            setInterfaceState(.ready, hint: "Speech stopped.")
+            setInterfaceState(.ready, hint: "Parole arrêtée.")
         case .inspection:
             voiceInput.startListening()
         }
@@ -550,30 +550,30 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
         speech.stop()
         commandField.resignFirstResponder()
-        setInterfaceState(.standby, hint: "Standby.")
+        setInterfaceState(.standby, hint: "En veille.")
     }
 
     private func handleUITestOrbTap() {
         switch interfaceState {
         case .standby:
             speech.isEnabled = true
-            setInterfaceState(.ready, hint: "JARVIS ready.")
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
         case .ready, .done, .attention, .quiet, .inspection:
             speech.stop()
-            setInterfaceState(.listening, hint: "Listening.")
+            setInterfaceState(.listening, hint: "Écoute en cours.")
         case .listening, .heardYou:
             let transcript = (commandField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if transcript.isEmpty {
-                setInterfaceState(.ready, hint: "No speech heard.")
-                showTransient("No speech heard.")
+                setInterfaceState(.ready, hint: "Aucune parole détectée.")
+                showTransient("Aucune parole détectée.")
             } else {
                 execute(transcript, source: "voice")
             }
         case .processing:
-            showTransient("Processing.")
+            showTransient("Traitement en cours.")
         case .speaking:
             speech.stop()
-            setInterfaceState(.ready, hint: "Speech stopped.")
+            setInterfaceState(.ready, hint: "Parole arrêtée.")
         }
     }
 
@@ -585,7 +585,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func controlMeshTapped() {
-        setInterfaceState(.processing, hint: "Opening Control Mesh.")
+        setInterfaceState(.processing, hint: "Ouverture de Control Mesh.")
         navigationController?.setNavigationBarHidden(false, animated: true)
         navigationController?.pushViewController(JarvisControlMeshViewController(), animated: true)
     }
@@ -694,21 +694,21 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
               arguments.indices.contains(index + 1) else { return }
         switch arguments[index + 1] {
         case "ready":
-            setInterfaceState(.ready, hint: "JARVIS ready.")
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
         case "listening":
-            setInterfaceState(.listening, hint: "Listening.")
+            setInterfaceState(.listening, hint: "Écoute en cours.")
         case "no_speech":
-            setInterfaceState(.ready, hint: "No speech heard.")
-            showTransient("No speech heard.")
+            setInterfaceState(.ready, hint: "Aucune parole détectée.")
+            showTransient("Aucune parole détectée.")
         case "long_hold_standby":
-            setInterfaceState(.standby, hint: "Standby.")
+            setInterfaceState(.standby, hint: "En veille.")
         case "processing":
             execute("status", source: "visual proof")
         case "speaking":
-            setInterfaceState(.speaking, hint: "Speaking.")
-            showTransient("JARVIS is speaking.")
+            setInterfaceState(.speaking, hint: "JARVIS parle.")
+            showTransient("JARVIS parle.")
         case "keyboard":
-            setInterfaceState(.ready, hint: "JARVIS ready.")
+            setInterfaceState(.ready, hint: "JARVIS est prêt.")
             commandField.becomeFirstResponder()
         case "help":
             helpTapped()
