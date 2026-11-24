@@ -132,6 +132,9 @@ final class JarvisDiagnosticsViewController: UIViewController {
         ACCESSIBILITY AND AUDIO
         Speech output: \(speechOutput)
         Microphone permission: \(microphone)
+        Reconnaissance vocale : \(JarvisVoiceInputService.shared.locale.identifier), \(JarvisVoiceInputService.shared.usesOnDeviceRecognition ? "sur l'iPhone" : "service Apple en ligne")
+        Dernière écoute : \(JarvisVoiceInputService.shared.lastDiagnostic)
+        Voix de JARVIS : \(JarvisSpeechService.shared.currentVoiceDescription())
         Haptics: \(snapshot.hapticsAvailable ? snapshot.hapticsBackend.rawValue : "unavailable; speech fallback")
         VoiceOver: \(voiceOver)
         Reduce Motion: \(reduceMotion)

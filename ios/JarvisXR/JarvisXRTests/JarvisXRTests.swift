@@ -144,7 +144,7 @@ final class JarvisXRTests: XCTestCase {
     func testVoiceTestCommandReturnsResponse() {
         let response = router.route(JarvisCommand("voice test"))
         XCTAssertEqual(response.status, .ok)
-        XCTAssertTrue(response.displayResponse.contains("voice output"))
+        XCTAssertTrue(response.displayResponse.contains("voix française"))
     }
 
     func testStopSpeakingDoesNotRequestSpeech() {

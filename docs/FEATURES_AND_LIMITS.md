@@ -3,7 +3,7 @@
 ## Implemented
 
 - Native Swift and UIKit interface with VoiceOver labels, Dynamic Type, contrast support, and reduced-motion behavior
-- Typed local commands and in-app push-to-talk through Speech and AVAudioEngine
+- Typed local commands and in-app push-to-talk in French (`fr-FR`) through Speech and AVAudioEngine, with a deterministic French command layer and a French system voice
 - Local speech output through `AVSpeechSynthesizer`, including session-scoped priority for warnings, requested targets, scene changes, and detail
 - Persistent voice and Vision preferences, notes, and command history with explicit clear controls
 - Accessible contact selection and in-memory message drafting with readback, explicit confirmation, and the standard iOS message composer
