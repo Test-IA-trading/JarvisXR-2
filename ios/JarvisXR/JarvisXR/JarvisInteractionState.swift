@@ -11,6 +11,23 @@ enum JarvisInteractionState: String {
     case inspection = "Inspection"
     case quiet = "Quiet"
     case attention = "Attention"
+
+    /// French label shown on the home screen and read by VoiceOver. `rawValue` stays the
+    /// stable technical identifier.
+    var displayName: String {
+        switch self {
+        case .standby: return "En veille"
+        case .ready: return "Prêt"
+        case .listening: return "À l'écoute"
+        case .heardYou: return "Compris"
+        case .processing: return "Traitement"
+        case .speaking: return "Réponse"
+        case .done: return "Terminé"
+        case .inspection: return "Inspection"
+        case .quiet: return "Silencieux"
+        case .attention: return "Attention"
+        }
+    }
 }
 
 /// Progress of one voice turn, shown as "Micro · Son · Texte · Réponse".

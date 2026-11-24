@@ -89,6 +89,38 @@ Essai terrain le plus court, en mode avion :
 
 À rapporter : les valeurs de « Mesures » (cadence, délai pince → mouvement, ratées) et l'alignement des pastilles sur vos doigts.
 
+## Conversation, bilan et « Dis Jarvis » — suivi (lot 3, branche `feature/conversation-bilan`)
+
+- **Conversation qui suit les corrections** (`JarvisConversationContext`) :
+  - les heures sont lues en français : « neuf heures », « 9 h 30 », « 21:15 », « midi », « onze heures et demie », « dix heures moins le quart », « huit heures du soir », « dix-sept heures quinze » ;
+  - les phrases du type « <le/la/l'> <objet> part/décolle à <heure> » sont retenues, y compris la seconde moitié d'une phrase comme « le train part à 9 h et le bus à 11 h » ;
+  - les corrections sont prises en compte (« en fait… ») ;
+  - réponses possibles : lequel part en premier ou en dernier, « Et maintenant ? », « Explique-moi pourquoi », « juste l'heure du train ».
+
+  Moteur déterministe et local : il marche pour n'importe quels objets et horaires, pas seulement train/bus. Ce n'est pas un modèle de langage général.
+- **Bilan des notes** (`JarvisNotesSummary`) : « Combien de notes ai-je prises ces sept derniers jours ? » compte sur 7 × 24 h glissants. « Montre-les-moi » affiche exactement les notes comptées, et « Pose ce bilan sur la table » montre le même total. Avec zéro note, Jarvis répond « aucune note ». Pour les téléchargements, il répond qu'il n'y a pas accès. « Prépare l'essai du bilan » crée les 3 notes du scénario (deux aujourd'hui, une il y a huit jours) ; « Efface les notes d'essai » les retire.
+- **Fiche AR** : une carte debout, tournée vers la caméra, posée à droite du cube. Elle se saisit à la même pince (la pince choisit l'objet le plus proche sous les doigts) et se réoriente au lâcher. On la ferme avec « Fermer la fiche » ou « Ferme le bilan ». « Qu'est-ce que je viens de déplacer ? » répond « La fiche du bilan. » si c'est elle qui a bougé.
+- **Conversation continue** (réglage par défaut : activée) :
+  - après une réponse parlée à une demande parlée, l'écoute reprend seule 0,45 s après la fin de la voix ;
+  - un silence met la conversation en pause ;
+  - « C'est tout » la termine ;
+  - un tap pendant la réponse coupe Jarvis et l'écoute reprend ;
+  - « Désactive / active la conversation continue ».
+
+  L'interruption par la voix pendant que Jarvis parle n'est pas faite : il faudrait faire passer la synthèse par le moteur audio avec annulation d'écho, ce qu'on ne peut vérifier que sur l'iPhone.
+- **« Dis Jarvis »** : intention `StartJarvisListeningIntent` (« Parler à JARVIS »), raccourci d'app et lien `jarvis://listen`. iOS n'autorise pas une app à écouter en permanence un mot de réveil. Le chemin prévu est Réglages > Accessibilité > Raccourcis vocaux : phrase « Dis Jarvis » → raccourci « Parler à JARVIS ». L'app s'ouvre alors micro actif ; iPhone verrouillé, il faut d'abord le déverrouiller.
+- **États de l'accueil en français** (« Prêt », « À l'écoute », « En veille »…), l'identifiant technique restant stable. Les attentes des tests d'interface sont mises à jour.
+
+| Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
+|---|---|---|---|---|
+| Train/bus, corrections, « juste l'heure du train » | ✓ | ✓ | tests unitaires | à faire |
+| Bilan 7 jours, « Montre-les-moi », zéro, téléchargements | ✓ | ✓ | tests unitaires | à faire |
+| Fiche AR du bilan, déplaçable à la pince | ✓ | ✓ | compilation | à faire |
+| Conversation continue (reprise sans toucher) | ✓ | ✓ | — | à faire |
+| Interruption vocale pendant la réponse | ✓ | — | — | — |
+| « Dis Jarvis » via raccourci vocal iOS | ✓ | ✓ | compilation | à faire |
+| États de l'accueil en français | ✓ | ✓ | test de surface | à faire |
+
 ## Preserved Boundaries
 
 The app uses public APIs and does not provide jailbreak hooks, root access, hidden screen reading, injected taps, a lock-screen replacement, or unrestricted system control.

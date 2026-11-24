@@ -149,10 +149,10 @@ final class JarvisARCubeViewController: UIViewController {
             case .targeted: return "Visé — pincez pour saisir."
             case .grabbed: return "Saisi — déplacez la main, ouvrez les doigts pour lâcher."
             case .dropped: return "Déposé."
-            case .missed: return "Pince à côté du cube : rien n'est saisi."
-            case .reopenToGrab: return "Ouvrez les doigts, puis pincez le cube."
-            case .handLost: return "Main perdue : le cube reste en place. Rouvrez les doigts pour le reprendre."
-            case .trackingLimited(let reason): return "Suivi limité (\(reason)) : le cube est figé."
+            case .missed: return "Pince à côté de l'objet : rien n'est saisi."
+            case .reopenToGrab: return "Ouvrez les doigts, puis pincez l'objet."
+            case .handLost: return "Main perdue : l'objet reste en place. Rouvrez les doigts pour le reprendre."
+            case .trackingLimited(let reason): return "Suivi limité (\(reason)) : les objets sont figés."
             case .interrupted: return "Réalité augmentée interrompue."
             case .failed(let message): return message
             }
@@ -162,6 +162,19 @@ final class JarvisARCubeViewController: UIViewController {
     private enum GrabSource: String {
         case pinch = "pince"
         case touch = "toucher"
+    }
+
+    /// The virtual objects that can be grabbed: the cube and the notes summary card.
+    private enum GrabTarget {
+        case cube
+        case card
+
+        var spokenName: String {
+            switch self {
+            case .cube: return "Le cube"
+            case .card: return "La fiche du bilan"
+            }
+        }
     }
 
     private struct Metrics {
@@ -200,6 +213,8 @@ final class JarvisARCubeViewController: UIViewController {
     }
 
     private static let cubeHalfSize: Float = 0.03
+    /// Summary card standing on the table: 18 × 11 cm, 8 mm thick.
+    private static let cardHalfExtents = SIMD3<Float>(0.09, 0.055, 0.004)
     private static let calibrationPrepareDelay: CFTimeInterval = 1.2
     private static let calibrationCollectDuration: CFTimeInterval = 1.6
 
@@ -218,6 +233,7 @@ final class JarvisARCubeViewController: UIViewController {
     private let metricsButton = UIButton(type: .system)
     private let talkButton = UIButton(type: .system)
     private let replaceButton = UIButton(type: .system)
+    private let closeCardButton = UIButton(type: .system)
 
     private let handTracker = JarvisHandPoseTracker()
     private let handQueue = DispatchQueue(label: "jarvis.cube.hand", qos: .userInteractive)
@@ -228,7 +244,15 @@ final class JarvisARCubeViewController: UIViewController {
     private var cubeEntity: ModelEntity?
     private var cubeAnchor: AnchorEntity?
     private var activeGrabSource: GrabSource?
+    private var grabbedTarget: GrabTarget?
     private var wasTargeted = false
+    private var cardEntity: ModelEntity?
+    private var cardAnchor: AnchorEntity?
+    private var cardManipulator: JarvisCubeManipulator?
+    private var cardWasTargeted = false
+    private var cardContent: JarvisARSummaryCard?
+    /// Summary asked for before a table was found: placed with the cube.
+    private var pendingSummary: JarvisARSummaryCard?
     private var trackingIsNormal = false
     private var trackingDescription = "initialisation"
     private var searchingSince: CFTimeInterval = CACurrentMediaTime()
@@ -249,6 +273,15 @@ final class JarvisARCubeViewController: UIViewController {
     private let assistant = JarvisAssistantCore()
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
+
+    init(pendingSummary: JarvisARSummaryCard? = nil) {
+        self.pendingSummary = pendingSummary
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -323,13 +356,15 @@ final class JarvisARCubeViewController: UIViewController {
         styleButton(metricsButton, title: "Mesures", accessibility: "Afficher les mesures de suivi", action: #selector(metricsTapped))
         styleButton(talkButton, title: "Parler", accessibility: "Parler à JARVIS", action: #selector(talkTapped))
         styleButton(replaceButton, title: "Replacer", accessibility: "Replacer le cube au centre de la table", action: #selector(replaceTapped))
+        styleButton(closeCardButton, title: "Fermer la fiche", accessibility: "Retirer la fiche du bilan", action: #selector(closeCardTapped))
+        closeCardButton.isHidden = true
         talkButton.backgroundColor = JarvisTheme.accentHot
         talkButton.setTitleColor(JarvisTheme.background, for: .normal)
 
         let topRow = UIStackView(arrangedSubviews: [closeButton, UIView(), calibrateButton, metricsButton])
         topRow.axis = .horizontal
         topRow.spacing = 8
-        let bottomRow = UIStackView(arrangedSubviews: [replaceButton, talkButton])
+        let bottomRow = UIStackView(arrangedSubviews: [replaceButton, closeCardButton, talkButton])
         bottomRow.axis = .horizontal
         bottomRow.spacing = 12
         bottomRow.distribution = .fillEqually
@@ -379,7 +414,7 @@ final class JarvisARCubeViewController: UIViewController {
         pan.maximumNumberOfTouches = 1
         arView.addGestureRecognizer(pan)
 
-        view.accessibilityElements = [closeButton, calibrateButton, metricsButton, statusLabel, metricsLabel, arView!, answerLabel, replaceButton, talkButton]
+        view.accessibilityElements = [closeButton, calibrateButton, metricsButton, statusLabel, metricsLabel, arView!, answerLabel, replaceButton, closeCardButton, talkButton]
     }
 
     private func configureDot(_ layer: CAShapeLayer, radius: CGFloat, color: UIColor) {
@@ -539,6 +574,161 @@ final class JarvisARCubeViewController: UIViewController {
         grabHaptic.prepare()
         render(feedback: .ready)
         postAnnouncement("Cube posé sur la table.")
+        if let summary = pendingSummary {
+            pendingSummary = nil
+            placeSummaryCard(summary)
+        }
+    }
+
+    // MARK: - Summary card
+
+    /// Places (or replaces) the notes summary card on the table, standing and facing the
+    /// camera. Same content as the spoken total: it comes from the same summary.
+    func showSummary(_ summary: JarvisARSummaryCard) {
+        guard isViewLoaded, manipulator != nil else {
+            pendingSummary = summary
+            render(feedback: .searching)
+            return
+        }
+        placeSummaryCard(summary)
+    }
+
+    private func placeSummaryCard(_ summary: JarvisARSummaryCard) {
+        guard let cubeManipulator = manipulator else {
+            pendingSummary = summary
+            return
+        }
+        removeSummaryCard(announce: false)
+        let planeY = cubeManipulator.planeY
+        let extents = Self.cardHalfExtents
+
+        // Beside the cube, on the right as seen from the camera.
+        var right = SIMD3<Float>(1, 0, 0)
+        if let camera = arView.session.currentFrame?.camera.transform {
+            let column = camera.columns.0
+            let flat = SIMD3<Float>(column.x, 0, column.z)
+            if simd_length(flat) > 1e-4 { right = simd_normalize(flat) }
+        }
+        let cubeCenter = cubeManipulator.center
+        let base = SIMD3<Float>(cubeCenter.x, planeY, cubeCenter.z) + right * 0.2
+
+        let card = makeCardEntity(summary)
+        cardEntity = card
+        cardContent = summary
+        faceCamera(card, at: base)
+        anchorCard(atBase: base)
+        cardManipulator = JarvisCubeManipulator(center: base + SIMD3<Float>(0, extents.y, 0), halfExtents: extents, planeY: planeY)
+        cardWasTargeted = false
+        closeCardButton.isHidden = false
+        render(feedback: .ready)
+        postAnnouncement("Fiche du bilan posée sur la table : \(summary.value) \(summary.title).")
+    }
+
+    private func makeCardEntity(_ summary: JarvisARSummaryCard) -> ModelEntity {
+        let extents = Self.cardHalfExtents
+        let card = ModelEntity(
+            mesh: .generateBox(width: extents.x * 2, height: extents.y * 2, depth: extents.z * 2, cornerRadius: 0.006),
+            materials: [cardMaterial(targeted: false, grabbed: false)]
+        )
+        card.name = "jarvis.summaryCard"
+
+        let ink = UnlitMaterial(color: UIColor(white: 0.08, alpha: 1))
+        let valueMesh = MeshResource.generateText(
+            summary.value,
+            extrusionDepth: 0.001,
+            font: .systemFont(ofSize: 0.042, weight: .bold),
+            containerFrame: .zero,
+            alignment: .center,
+            lineBreakMode: .byWordWrapping
+        )
+        let value = ModelEntity(mesh: valueMesh, materials: [ink])
+        let valueBounds = valueMesh.bounds
+        value.position = SIMD3<Float>(-valueBounds.center.x, 0.018 - valueBounds.center.y, extents.z + 0.0005)
+        card.addChild(value)
+
+        let captionMesh = MeshResource.generateText(
+            "\(summary.title)\n\(summary.detail)",
+            extrusionDepth: 0.0006,
+            font: .systemFont(ofSize: 0.0105, weight: .medium),
+            containerFrame: .zero,
+            alignment: .center,
+            lineBreakMode: .byWordWrapping
+        )
+        let caption = ModelEntity(mesh: captionMesh, materials: [ink])
+        let captionBounds = captionMesh.bounds
+        caption.position = SIMD3<Float>(-captionBounds.center.x, -0.03 - captionBounds.center.y, extents.z + 0.0005)
+        card.addChild(caption)
+
+        var shadowMaterial = UnlitMaterial(color: .black)
+        shadowMaterial.blending = .transparent(opacity: 0.22)
+        let shadow = ModelEntity(mesh: .generatePlane(width: extents.x * 2.2, depth: 0.04, cornerRadius: 0.01), materials: [shadowMaterial])
+        shadow.position = SIMD3<Float>(0, -extents.y + 0.0015, 0)
+        card.addChild(shadow)
+        return card
+    }
+
+    /// Turns the card around the vertical axis so its face looks at the camera.
+    private func faceCamera(_ entity: ModelEntity, at base: SIMD3<Float>) {
+        let camera = arView.cameraTransform.translation
+        let toCamera = SIMD3<Float>(camera.x - base.x, 0, camera.z - base.z)
+        guard simd_length(toCamera) > 1e-3 else { return }
+        entity.orientation = simd_quatf(angle: atan2(toCamera.x, toCamera.z), axis: SIMD3<Float>(0, 1, 0))
+    }
+
+    private func anchorCard(atBase base: SIMD3<Float>) {
+        guard let card = cardEntity else { return }
+        let anchor = AnchorEntity(world: base)
+        arView.scene.addAnchor(anchor)
+        card.setParent(anchor, preservingWorldTransform: false)
+        card.position = SIMD3<Float>(0, Self.cardHalfExtents.y, 0)
+        if let previous = cardAnchor, previous !== anchor {
+            arView.scene.removeAnchor(previous)
+        }
+        cardAnchor = anchor
+    }
+
+    private func removeSummaryCard(announce: Bool = true) {
+        if grabbedTarget == .card {
+            activeGrabSource = nil
+            grabbedTarget = nil
+            detector.disarm()
+        }
+        if let anchor = cardAnchor {
+            arView.scene.removeAnchor(anchor)
+        }
+        cardAnchor = nil
+        cardEntity = nil
+        cardManipulator = nil
+        cardContent = nil
+        cardWasTargeted = false
+        closeCardButton.isHidden = true
+        if announce {
+            showAnswer("Fiche du bilan retirée. Vos notes restent dans JARVIS.")
+            postAnnouncement("Fiche du bilan retirée.")
+        }
+    }
+
+    private func cardMaterial(targeted: Bool, grabbed: Bool) -> SimpleMaterial {
+        let color: UIColor
+        if grabbed {
+            color = UIColor(red: 0.78, green: 0.95, blue: 0.80, alpha: 1)
+        } else if targeted {
+            color = UIColor(red: 1.0, green: 0.95, blue: 0.70, alpha: 1)
+        } else {
+            color = UIColor(white: 0.96, alpha: 1)
+        }
+        return SimpleMaterial(color: color, roughness: 0.6, isMetallic: false)
+    }
+
+    private func updateCardAppearance() {
+        guard let card = cardEntity else { return }
+        let grabbed = cardManipulator?.isGrabbed == true
+        card.model?.materials = [cardMaterial(targeted: cardWasTargeted, grabbed: grabbed)]
+        card.scale = SIMD3<Float>(repeating: grabbed ? 1.06 : 1)
+    }
+
+    @objc private func closeCardTapped() {
+        removeSummaryCard()
     }
 
     /// Re-anchors the cube at its resting place on the table, in world coordinates.
@@ -574,8 +764,35 @@ final class JarvisARCubeViewController: UIViewController {
     }
 
     private func syncManipulatorWithEntity() {
-        guard let cube = cubeEntity else { return }
-        manipulator?.syncCenter(cube.position(relativeTo: nil))
+        if let cube = cubeEntity {
+            manipulator?.syncCenter(cube.position(relativeTo: nil))
+        }
+        if let card = cardEntity {
+            cardManipulator?.syncCenter(card.position(relativeTo: nil))
+        }
+    }
+
+    private func entity(for target: GrabTarget) -> ModelEntity? {
+        target == .cube ? cubeEntity : cardEntity
+    }
+
+    private func manipulatorFor(_ target: GrabTarget) -> JarvisCubeManipulator? {
+        target == .cube ? manipulator : cardManipulator
+    }
+
+    /// The object under the aim point, nearest first on screen; nil when none is targeted.
+    private func targetedObject(at aim: CGPoint) -> GrabTarget? {
+        var best: (target: GrabTarget, distance: CGFloat)?
+        for target in [GrabTarget.cube, GrabTarget.card] {
+            guard let candidate = manipulatorFor(target),
+                  candidate.isTargeted(aim: aim, project: { self.project($0) }),
+                  let projected = project(candidate.center) else { continue }
+            let distance = hypot(projected.x - aim.x, projected.y - aim.y)
+            if best == nil || distance < best!.distance {
+                best = (target, distance)
+            }
+        }
+        return best?.target
     }
 
     private func ray(through point: CGPoint) -> JarvisRay? {
@@ -633,7 +850,25 @@ final class JarvisARCubeViewController: UIViewController {
     private func process(_ event: JarvisPinchEvent, source: GrabSource, frameTimestamp: TimeInterval) {
         if let activeGrabSource, activeGrabSource != source { return }
         syncManipulatorWithEntity()
-        guard let outcome = manipulator?.handle(event, ray: { self.ray(through: $0) }, project: { self.project($0) }) else { return }
+
+        // A pinch starts on the object under the fingers; later events follow that object.
+        let target: GrabTarget
+        if case .began(let point) = event, grabbedTarget == nil {
+            target = targetedObject(at: point) ?? .cube
+        } else if let grabbedTarget {
+            target = grabbedTarget
+        } else {
+            return
+        }
+
+        let outcome: JarvisCubeManipulator.Outcome?
+        switch target {
+        case .cube:
+            outcome = manipulator?.handle(event, ray: { self.ray(through: $0) }, project: { self.project($0) })
+        case .card:
+            outcome = cardManipulator?.handle(event, ray: { self.ray(through: $0) }, project: { self.project($0) })
+        }
+        guard let outcome else { return }
         switch outcome {
         case .ignored, .held:
             break
@@ -642,25 +877,37 @@ final class JarvisARCubeViewController: UIViewController {
             render(feedback: .missed, transientFor: 1.4)
         case .grabbed:
             activeGrabSource = source
+            grabbedTarget = target
             metrics.grabs += 1
             grabHaptic.impactOccurred()
             updateCubeAppearance()
+            updateCardAppearance()
             render(feedback: .grabbed)
-            postAnnouncement("Cube saisi.")
+            postAnnouncement("\(target.spokenName) saisi\(target == .card ? "e" : "").")
         case .moved(let center):
-            cubeEntity?.setPosition(center, relativeTo: nil)
+            entity(for: target)?.setPosition(center, relativeTo: nil)
             metrics.lastLatencyMilliseconds = max(0, (CACurrentMediaTime() - frameTimestamp) * 1000)
         case .dropped:
-            finishGrab(outcome, source: source)
+            finishGrab(outcome, source: source, target: target)
         }
     }
 
-    private func finishGrab(_ outcome: JarvisCubeManipulator.Outcome, source: GrabSource) {
+    private func finishGrab(_ outcome: JarvisCubeManipulator.Outcome, source: GrabSource, target: GrabTarget) {
         guard case let .dropped(from, to, reason) = outcome else { return }
         activeGrabSource = nil
-        let base = SIMD3<Float>(to.x, to.y - Self.cubeHalfSize, to.z)
-        anchorCube(atBase: base)
+        grabbedTarget = nil
+        switch target {
+        case .cube:
+            anchorCube(atBase: SIMD3<Float>(to.x, to.y - Self.cubeHalfSize, to.z))
+        case .card:
+            let base = SIMD3<Float>(to.x, to.y - Self.cardHalfExtents.y, to.z)
+            if let card = cardEntity {
+                faceCamera(card, at: base)
+            }
+            anchorCard(atBase: base)
+        }
         updateCubeAppearance()
+        updateCardAppearance()
 
         let distance = simd_distance(SIMD3<Float>(from.x, 0, from.z), SIMD3<Float>(to.x, 0, to.z))
         if distance >= 0.01 {
@@ -671,7 +918,7 @@ final class JarvisARCubeViewController: UIViewController {
                 direction = JarvisSpatialMath.directionDescription(delta: to - from, cameraRight: right, cameraForward: forward)
             }
             JarvisSpatialSceneMemory.shared.record(.init(
-                spokenName: "Le cube",
+                spokenName: target.spokenName,
                 distance: distance,
                 direction: direction,
                 method: source.rawValue,
@@ -686,34 +933,53 @@ final class JarvisARCubeViewController: UIViewController {
             metrics.drops += 1
             dropHaptic.notificationOccurred(.success)
             render(feedback: .dropped, transientFor: 1.4)
-            postAnnouncement("Cube déposé.")
+            postAnnouncement("\(target.spokenName) déposé\(target == .card ? "e" : "").")
         }
     }
 
-    /// Stops a grab in place (tracking loss, interruption): the cube stays where it was,
+    /// Stops a grab in place (tracking loss, interruption): the object stays where it was,
     /// and closed fingers must open before the next grab.
     private func freezeGrab() {
         detector.disarm()
-        guard let source = activeGrabSource, let outcome = manipulator?.release(reason: .handLost) else { return }
-        finishGrab(outcome, source: source)
+        guard let source = activeGrabSource, let target = grabbedTarget else { return }
+        let outcome: JarvisCubeManipulator.Outcome?
+        switch target {
+        case .cube: outcome = manipulator?.release(reason: .handLost)
+        case .card: outcome = cardManipulator?.release(reason: .handLost)
+        }
+        guard let outcome else {
+            activeGrabSource = nil
+            grabbedTarget = nil
+            return
+        }
+        finishGrab(outcome, source: source, target: target)
     }
 
     private func updateTargeting() {
-        guard let manipulator else { return }
-        let targeted: Bool
-        if manipulator.isGrabbed {
-            targeted = true
+        guard manipulator != nil else { return }
+        var cubeTargeted = false
+        var cardTargeted = false
+        if let grabbedTarget {
+            cubeTargeted = grabbedTarget == .cube
+            cardTargeted = grabbedTarget == .card
         } else if let aim = detector.aimPoint, detector.phase != .noHand {
-            targeted = manipulator.isTargeted(aim: aim, project: { self.project($0) })
-        } else {
-            targeted = false
-        }
-        if targeted != wasTargeted {
-            wasTargeted = targeted
-            if targeted && !manipulator.isGrabbed {
-                selectionHaptic.selectionChanged()
+            switch targetedObject(at: aim) {
+            case .cube?: cubeTargeted = true
+            case .card?: cardTargeted = true
+            case nil: break
             }
+        }
+        let newlyTargeted = (cubeTargeted && !wasTargeted) || (cardTargeted && !cardWasTargeted)
+        if newlyTargeted && grabbedTarget == nil {
+            selectionHaptic.selectionChanged()
+        }
+        if cubeTargeted != wasTargeted {
+            wasTargeted = cubeTargeted
             updateCubeAppearance()
+        }
+        if cardTargeted != cardWasTargeted {
+            cardWasTargeted = cardTargeted
+            updateCardAppearance()
         }
         refreshRestingFeedback()
     }
@@ -728,11 +994,11 @@ final class JarvisARCubeViewController: UIViewController {
             render(feedback: .trackingLimited(trackingDescription))
             return
         }
-        if manipulator?.isGrabbed == true {
+        if grabbedTarget != nil {
             render(feedback: .grabbed)
         } else if detector.needsReopen {
             render(feedback: .reopenToGrab)
-        } else if wasTargeted {
+        } else if wasTargeted || cardWasTargeted {
             render(feedback: .targeted)
         } else {
             render(feedback: .ready)
@@ -750,8 +1016,9 @@ final class JarvisARCubeViewController: UIViewController {
             let aim = detector.aimPoint ?? sample.pinchMidpoint
             aimLayer.position = aim
             aimLayer.isHidden = false
-            let active = manipulator?.isGrabbed == true
-            aimLayer.strokeColor = (active ? UIColor.systemGreen : (wasTargeted ? UIColor.systemYellow : UIColor.white)).withAlphaComponent(0.9).cgColor
+            let active = grabbedTarget != nil
+            let targeted = wasTargeted || cardWasTargeted
+            aimLayer.strokeColor = (active ? UIColor.systemGreen : (targeted ? UIColor.systemYellow : UIColor.white)).withAlphaComponent(0.9).cgColor
         } else {
             thumbLayer.isHidden = true
             indexLayer.isHidden = true
@@ -874,6 +1141,16 @@ final class JarvisARCubeViewController: UIViewController {
             guard let self else { return }
             let response = self.assistant.decide(text).response
             self.showAnswer(response.displayResponse)
+            switch response.data["action"] {
+            case "ar_summary":
+                if let summary = JarvisARSummaryCard(data: response.data) {
+                    self.showSummary(summary)
+                }
+            case "ar_summary_close":
+                self.removeSummaryCard()
+            default:
+                break
+            }
             if response.shouldSpeak, self.speech.isEnabled, response.status == .ok || response.status == .confirmationRequired {
                 self.speech.speak(response.spokenResponse)
             }

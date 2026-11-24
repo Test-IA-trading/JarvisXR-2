@@ -21,6 +21,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private var voiceStage: JarvisVoiceStage = .idle
     private var voiceStageFailed = false
     private var voiceLevel: Float = 0
+    /// True while an exchange started at the microphone continues hands-free: after a
+    /// spoken reply, Jarvis listens again without a tap (setting « conversation continue »).
+    private var conversationActive = false
+    private var currentTurnIsAutomatic = false
+    private var rearmWorkItem: DispatchWorkItem?
     private let inputContainer = JarvisPanelView()
     private let commandField = UITextField()
     private let submitButton = UIButton(type: .system)
@@ -336,7 +341,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             guard !self.voiceInput.isListening else { return }
             self.setVoiceStage(.idle)
             if JarvisSpeechService.shared.isEnabled {
-                self.setInterfaceState(.ready, hint: "JARVIS est prêt. Touchez l'orbe pour parler.")
+                self.setInterfaceState(.ready, hint: self.conversationActive ? "JARVIS vous écoute à nouveau…" : "JARVIS est prêt. Touchez l'orbe pour parler.")
+                self.scheduleConversationRearm()
             } else {
                 self.setInterfaceState(.quiet, hint: "Mode silencieux.")
             }
@@ -345,28 +351,40 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             guard let self else { return }
             switch state {
             case .standby:
+                self.endConversation()
                 self.setVoiceStage(.idle)
                 self.setInterfaceState(.standby, hint: "JARVIS est prêt.")
             case .listening:
                 self.setVoiceStage(.micro)
-                self.setInterfaceState(.listening, hint: "Micro actif. Parlez maintenant.")
+                self.setInterfaceState(.listening, hint: self.currentTurnIsAutomatic
+                    ? "Je vous écoute (conversation continue)."
+                    : "Micro actif. Parlez maintenant.")
             case .hearingSound:
                 self.setVoiceStage(.sound)
                 if self.voiceInput.currentTranscript.isEmpty {
                     self.hintLabel.text = "Son reçu…"
                 }
             case .heardYou(let transcript):
+                self.currentTurnIsAutomatic = false
                 self.setVoiceStage(.text)
                 self.setInterfaceState(.heardYou, hint: "« \(transcript) »")
             case .processing:
                 self.setInterfaceState(.processing, hint: "Traitement en cours.")
             case .noSpeech:
+                if self.currentTurnIsAutomatic {
+                    // Silence after a reply ends the hands-free exchange quietly.
+                    self.endConversation()
+                    self.setVoiceStage(.idle)
+                    self.setInterfaceState(.ready, hint: "Conversation en pause. Touchez l'orbe pour reprendre.")
+                    return
+                }
                 self.setVoiceStage(self.voiceStage, failed: true)
                 self.setInterfaceState(.ready, hint: "Aucune parole détectée.")
                 self.showTransient(self.voiceStage == .sound
                     ? "J'ai capté du son mais aucun mot. Parlez un peu plus près du téléphone, puis touchez l'orbe."
                     : "Le micro n'a capté qu'un son très faible. Parlez plus fort ou plus près, puis touchez l'orbe.")
             case .unavailable(let failure):
+                self.endConversation()
                 self.setVoiceStage(self.voiceStage, failed: true)
                 self.setInterfaceState(.attention, hint: failure.message)
                 self.showTransient(failure.message)
@@ -390,13 +408,45 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
     }
 
-    private func startVoiceTurn() {
+    private func startVoiceTurn(automatic: Bool = false) {
         // Stop any reply first so the speech service releases the audio session before
         // the microphone takes it, then listen.
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
+        currentTurnIsAutomatic = automatic
         speech.stop()
         voiceStageFailed = false
         voiceLevel = 0
         voiceInput.startListening()
+    }
+
+    /// After a spoken reply to a spoken request, listen again without a tap. The short
+    /// delay lets the reply's audio tail end so Jarvis does not hear itself.
+    private func scheduleConversationRearm() {
+        guard conversationActive,
+              JarvisConversationSettings.isContinuous,
+              navigationController?.topViewController === self,
+              presentedViewController == nil,
+              UIApplication.shared.applicationState == .active else { return }
+        rearmWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.conversationActive,
+                  !self.voiceInput.isListening,
+                  self.interfaceState == .ready || self.interfaceState == .done,
+                  self.navigationController?.topViewController === self,
+                  self.presentedViewController == nil else { return }
+            self.startVoiceTurn(automatic: true)
+        }
+        rearmWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+    }
+
+    private func endConversation() {
+        conversationActive = false
+        currentTurnIsAutomatic = false
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
     }
 
     private func setVoiceStage(_ stage: JarvisVoiceStage, failed: Bool = false) {
@@ -449,6 +499,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
 
         setInterfaceState(.processing, hint: "Traitement en cours.")
+        // A spoken request keeps the hands-free exchange going; typing ends it.
+        conversationActive = source == "voice" && JarvisConversationSettings.isContinuous
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
         let response = decision.response
@@ -487,7 +539,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             setInterfaceState(.inspection, hint: hint)
             openCamera()
         } else if response.data["action"] == "ar_cube" {
+            endConversation()
             openARCube()
+        } else if response.data["action"] == "ar_summary" {
+            endConversation()
+            openARCube(summary: JarvisARSummaryCard(data: response.data))
         } else if response.data["action"] == "diagnostics" {
             diagnosticsTapped()
         } else if response.data["action"] == "settings" {
@@ -496,7 +552,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             controlMeshTapped()
         } else if response.data["url_scheme"] != nil {
             openExternalRoute(response.data["url_scheme"])
+        } else if response.data["mode"] == "conversation_end" || response.data["mode"] == "conversation_off" {
+            endConversation()
         } else if response.data["mode"] == "standby" {
+            endConversation()
             setInterfaceState(.standby, hint: "JARVIS est en attente.")
         } else if response.data["mode"] == "ready" {
             setInterfaceState(.ready, hint: "JARVIS est prêt.")
@@ -514,8 +573,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func setInterfaceState(_ state: JarvisInteractionState, hint: String) {
         interfaceState = state
-        stateLabel.text = state.rawValue
-        stateLabel.accessibilityLabel = state.rawValue
+        stateLabel.text = state.displayName
+        stateLabel.accessibilityLabel = state.displayName
         hintLabel.text = hint
         switch state {
         case .standby:
@@ -607,6 +666,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             setInterfaceState(.ready, hint: "JARVIS est prêt.")
             speech.speak("JARVIS est prêt.", notifyState: false)
         case .ready, .done, .attention, .quiet:
+            conversationActive = JarvisConversationSettings.isContinuous
             startVoiceTurn()
         case .listening, .heardYou:
             voiceInput.stopListening(process: true)
@@ -643,6 +703,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func enterStandbyFromLongPress() {
+        endConversation()
         responseHideWorkItem?.cancel()
         transientResponseLabel.alpha = 0
         if voiceInput.isListening {
@@ -686,14 +747,37 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         commandField.resignFirstResponder()
     }
 
-    /// Opens the AR cube. ARKit then owns the camera; the Vision screen is not running.
-    private func openARCube() {
+    /// Opens the AR cube, optionally with the notes summary card to place on the table.
+    /// ARKit then owns the camera; the Vision screen is not running.
+    private func openARCube(summary: JarvisARSummaryCard? = nil) {
         guard JarvisARCubeViewController.isSupported else {
             showTransient("La réalité augmentée n'est pas disponible sur cet appareil.")
             return
         }
-        guard !(navigationController?.topViewController is JarvisARCubeViewController) else { return }
-        navigationController?.pushViewController(JarvisARCubeViewController(), animated: true)
+        if let current = navigationController?.topViewController as? JarvisARCubeViewController {
+            if let summary { current.showSummary(summary) }
+            return
+        }
+        navigationController?.pushViewController(JarvisARCubeViewController(pendingSummary: summary), animated: true)
+    }
+
+    /// « Dis Jarvis » (raccourci vocal iOS → intention « Parler à JARVIS ») : back to the
+    /// home screen and open the microphone. The delay lets Siri release the audio session.
+    private func startListeningFromShortcut() {
+        if navigationController?.topViewController !== self {
+            navigationController?.popToViewController(self, animated: false)
+        }
+        if presentedViewController != nil {
+            dismiss(animated: false)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, !self.voiceInput.isListening else { return }
+            if self.interfaceState == .standby {
+                self.speech.isEnabled = true
+            }
+            self.conversationActive = JarvisConversationSettings.isContinuous
+            self.startVoiceTurn()
+        }
     }
 
     private func controlMeshTapped() {
@@ -759,6 +843,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             execute("status", source: "deep link")
         case .controlMesh:
             controlMeshTapped()
+        case .listen:
+            startListeningFromShortcut()
         case .unknown(let raw):
             render(response: JarvisResponse(status: .refused, spokenResponse: "Deep link not recognized.", displayResponse: "Unknown JARVIS deep link: \(raw)", shouldSpeak: false))
         }

@@ -20,11 +20,20 @@ struct JarvisFrenchCommandRouter {
 
     private let memory: JarvisMemoryStore
     private let scene: JarvisSpatialSceneMemory
+    private let context: JarvisConversationContext
     private let locale = Locale(identifier: "fr_FR")
 
-    init(memory: JarvisMemoryStore = .shared, scene: JarvisSpatialSceneMemory = .shared) {
+    /// Prefix of the notes created by « prépare l'essai du bilan ».
+    static let trialNotePrefix = "[essai]"
+
+    init(
+        memory: JarvisMemoryStore = .shared,
+        scene: JarvisSpatialSceneMemory = .shared,
+        context: JarvisConversationContext = .shared
+    ) {
         self.memory = memory
         self.scene = scene
+        self.context = context
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -47,8 +56,34 @@ struct JarvisFrenchCommandRouter {
         }
         let request = withoutWakeWord
 
+        // Hands-free conversation controls.
+        if containsAny(request, ["c'est tout", "ca sera tout", "ce sera tout", "fin de la conversation", "arrete la conversation", "arrete d'ecouter", "stop conversation", "termine la conversation"]) {
+            return .answer(.ok("Très bien. Touchez l'orbe quand vous voudrez reprendre.", data: ["mode": "conversation_end"]))
+        }
+        if containsAny(request, ["desactive la conversation continue", "coupe la conversation continue", "conversation continue desactivee"]) {
+            JarvisConversationSettings.isContinuous = false
+            return .answer(.ok("Conversation continue désactivée : touchez l'orbe à chaque question.", data: ["mode": "conversation_off"]))
+        }
+        if containsAny(request, ["conversation continue", "mode conversation", "active la conversation"]) {
+            JarvisConversationSettings.isContinuous = true
+            return .answer(.ok("Conversation continue activée : après chaque réponse, je vous écoute à nouveau.", data: ["mode": "conversation_on"]))
+        }
+
         if containsAny(request, ["merci"]) && request.split(separator: " ").count <= 4 {
             return .answer(.ok("Avec plaisir."))
+        }
+
+        // Facts stated during the conversation (« le train part à 9 h… lequel part en
+        // premier ? »), corrections and follow-up questions. Checked before the clock so
+        // « juste l'heure du train » is not answered with the current time.
+        let isNoteDictation = Self.notePrefixes.contains { request == $0 || request.hasPrefix($0 + " ") }
+        if !isNoteDictation, let reply = context.respond(to: request) {
+            return .answer(.ok(reply))
+        }
+
+        // Activity summary of the notes Jarvis stores.
+        if !isNoteDictation, let notesAnswer = notesSummaryAnswer(request, now: now) {
+            return .answer(notesAnswer)
         }
 
         if containsAny(request, ["quelle heure", "l'heure", "il est quelle heure"]) {
@@ -67,13 +102,13 @@ struct JarvisFrenchCommandRouter {
 
         if request == "aide" || containsAny(request, ["que sais tu faire", "qu'est ce que tu sais faire", "que peux tu faire", "qu'est ce que tu peux faire", "liste des commandes", "quelles commandes"]) {
             return .answer(.ok(
-                "Je peux donner l'heure et la date, prendre et lire vos notes, ouvrir la caméra ou le cube en réalité augmentée, lire un texte et ouvrir les réglages.",
-                display: "Essayez : « Quelle heure est-il ? », « Prends une note acheter du pain », « Mes notes », « Ouvre la caméra », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Lis ce texte », « Ouvre les réglages »."
+                "Je peux donner l'heure, retenir des horaires et les comparer, compter et montrer vos notes, poser un bilan ou un cube en réalité augmentée, lire un texte et ouvrir les réglages.",
+                display: "Essayez : « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
             ))
         }
 
         // Notes, answered natively so the reply stays French.
-        for prefix in ["prends une note", "prend une note", "prends note", "nouvelle note", "enregistre une note", "note que", "souviens toi que", "retiens que", "rappelle toi que"] {
+        for prefix in Self.notePrefixes {
             if let body = Self.argument(in: original, normalized: request, after: prefix) {
                 guard !body.isEmpty else {
                     return .answer(JarvisResponse(status: .refused, spokenResponse: "Que dois-je noter ?", displayResponse: "Dites par exemple : « Prends une note acheter du pain ».", shouldSpeak: true))
@@ -126,6 +161,71 @@ struct JarvisFrenchCommandRouter {
             "Je n'ai pas encore de réponse locale à cette demande.",
             display: "J'ai compris : « \(original) ». Je n'ai pas encore de réponse locale à cette demande. Essayez « Aide » pour voir ce que je sais faire."
         ))
+    }
+
+    /// « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi »,
+    /// « Pose ce bilan sur la table », and data Jarvis does not have (downloads).
+    private func notesSummaryAnswer(_ request: String, now: Date) -> JarvisResponse? {
+        let padded = " \(request) "
+        func has(_ needles: [String]) -> Bool { needles.contains { padded.contains(" \($0) ") } }
+
+        if has(["telechargement", "telechargements", "downloads", "installations"]) &&
+            has(["combien", "statistiques", "statistique", "nombre", "stats", "chiffres", "bilan"]) {
+            return .ok(
+                "Je n'ai pas accès aux statistiques de téléchargement : aucune source de ce type n'est connectée à JARVIS.",
+                display: "Statistiques de téléchargement indisponibles : JARVIS ne connaît que ses propres données locales (notes, historique)."
+            )
+        }
+
+        let prefix = Self.trialNotePrefix
+        if has(["notes d'essai", "note d'essai", "essai du bilan"]) && has(["efface", "supprime", "retire", "enleve"]) {
+            let removed = memory.removeNotes { $0.text.hasPrefix(prefix) }
+            context.lastNotesSummary = nil
+            return .ok(removed == 0 ? "Il n'y a aucune note d'essai." : "Notes d'essai supprimées.")
+        }
+        if has(["prepare l'essai du bilan", "prepare les notes d'essai", "cree les notes d'essai", "cree des notes d'essai", "ajoute les notes d'essai"]) {
+            memory.removeNotes { $0.text.hasPrefix(prefix) }
+            memory.saveNote("\(prefix) Note d'aujourd'hui n° 1", createdAt: now.addingTimeInterval(-50 * 60))
+            memory.saveNote("\(prefix) Note d'aujourd'hui n° 2", createdAt: now.addingTimeInterval(-5 * 60))
+            memory.saveNote("\(prefix) Note d'il y a huit jours", createdAt: now.addingTimeInterval(-8 * 86_400))
+            context.lastNotesSummary = nil
+            return .ok(
+                "Trois notes d'essai créées : deux aujourd'hui et une il y a huit jours.",
+                display: "Notes d'essai créées (préfixe \(prefix)). Dites « efface les notes d'essai » pour les retirer."
+            )
+        }
+
+        if has(["combien"]) && has(["note", "notes"]) {
+            let summary = JarvisNotesSummary.make(from: memory.loadNotes(), days: JarvisNotesSummary.requestedDays(in: request), now: now)
+            context.lastNotesSummary = summary
+            return .ok(summary.spokenAnswer, display: summary.displayAnswer)
+        }
+
+        if let summary = context.lastNotesSummary,
+           has(["montre les moi", "montre les", "affiche les", "lesquelles", "lis les moi", "lis les", "quelles sont elles", "montre moi ces notes", "montre ces notes", "lesquelles sont ce"]),
+           !has(["les notes", "mes notes", "toutes"]) {
+            let spoken: String
+            switch summary.count {
+            case 0: spoken = "Il n'y a aucune note \(summary.periodDescription)."
+            case 1: spoken = "Voici la note \(summary.periodDescription)."
+            default: spoken = "Voici les \(summary.count) notes \(summary.periodDescription)."
+            }
+            return .ok(spoken, display: summary.listText())
+        }
+
+        if has(["bilan", "fiche"]) && has(["ferme", "retire", "enleve", "supprime", "range", "efface"]) {
+            return .ok("Je retire la fiche du bilan.", display: "Fiche du bilan retirée.", data: ["action": "ar_summary_close"])
+        }
+        if has(["bilan", "fiche", "resume"]) && has(["pose", "poser", "place", "mets", "affiche", "montre", "projette"]) {
+            let summary = context.lastNotesSummary ?? JarvisNotesSummary.make(from: memory.loadNotes(), days: 7, now: now)
+            context.lastNotesSummary = summary
+            return .ok(
+                "Je pose le bilan sur la table : \(summary.count) \(summary.count == 1 ? "note" : "notes").",
+                display: "Fiche du bilan : \(summary.displayAnswer) Pincez son bord pour la déplacer.",
+                data: summary.cardData
+            )
+        }
+        return nil
     }
 
     struct TranslatedAction: Equatable {
@@ -184,12 +284,17 @@ struct JarvisFrenchCommandRouter {
 
     static let greetings = ["bonjour", "salut", "bonsoir", "coucou", "hello"]
 
+    /// Dictated notes win over every other reading: « prends une note le train part à 9 h ».
+    static let notePrefixes = ["prends une note", "prend une note", "prends note", "nouvelle note", "enregistre une note", "note que", "souviens toi que", "retiens que", "rappelle toi que"]
+
     /// Lowercases, folds accents, turns apostrophes into "'" and punctuation/hyphens into spaces.
     static func normalize(_ text: String) -> String {
         let folded = text
             .replacingOccurrences(of: "’", with: "'")
             .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: Locale(identifier: "fr_FR"))
             .lowercased()
+            // Keep « 21:15 » as one clock token (« 21h15 ») before ':' becomes a separator.
+            .replacingOccurrences(of: #"(\d{1,2}):(\d{2})"#, with: "$1h$2", options: .regularExpression)
         let separators = CharacterSet(charactersIn: ",.?;:!\"«»()-–—…")
         return folded
             .components(separatedBy: separators)

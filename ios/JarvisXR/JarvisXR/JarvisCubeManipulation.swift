@@ -61,7 +61,10 @@ struct JarvisCubeManipulator {
         case dropped(from: SIMD3<Float>, to: SIMD3<Float>, reason: JarvisPinchEndReason)
     }
 
-    let halfSize: Float
+    /// Half width, height and depth of the object (the cube: 3 cm on every axis).
+    let halfExtents: SIMD3<Float>
+    /// Height of the object centre above the table.
+    var halfSize: Float { halfExtents.y }
     var planeY: Float
     /// Extra screen distance, in points, accepted around the cube's projected size.
     var targetMargin: CGFloat = 22
@@ -73,8 +76,12 @@ struct JarvisCubeManipulator {
     private var grabStart: SIMD3<Float>?
 
     init(center: SIMD3<Float>, halfSize: Float, planeY: Float) {
+        self.init(center: center, halfExtents: SIMD3<Float>(repeating: halfSize), planeY: planeY)
+    }
+
+    init(center: SIMD3<Float>, halfExtents: SIMD3<Float>, planeY: Float) {
         self.center = center
-        self.halfSize = halfSize
+        self.halfExtents = halfExtents
         self.planeY = planeY
     }
 
@@ -86,10 +93,13 @@ struct JarvisCubeManipulator {
 
     func targetRadius(project: (SIMD3<Float>) -> CGPoint?) -> CGFloat? {
         guard let projectedCenter = project(center) else { return nil }
+        let radial = max(halfExtents.x, halfExtents.z)
+        let height = halfExtents.y
         var radius: CGFloat = 0
         let corners: [SIMD3<Float>] = [
-            SIMD3(halfSize, halfSize, halfSize), SIMD3(-halfSize, halfSize, -halfSize),
-            SIMD3(halfSize, -halfSize, -halfSize), SIMD3(-halfSize, -halfSize, halfSize)
+            // The object may be turned around the vertical axis: use its widest side.
+            SIMD3(radial, height, radial), SIMD3(-radial, height, -radial),
+            SIMD3(radial, -height, -radial), SIMD3(-radial, -height, radial)
         ]
         for corner in corners {
             if let projected = project(center + corner) {
