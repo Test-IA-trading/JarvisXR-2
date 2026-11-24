@@ -307,6 +307,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private func utilityMenu() -> UIMenu {
         UIMenu(title: "Vision et systèmes", children: [
             UIAction(title: "Ouvrir Vision JARVIS") { [weak self] _ in self?.execute("open vision", source: "menu") },
+            UIAction(title: "Cube AR à la pince") { [weak self] _ in self?.openARCube() },
             UIAction(title: "Décrire") { [weak self] _ in self?.execute("describe this", source: "menu") },
             UIAction(title: "Guide en direct") { [weak self] _ in self?.execute("start live guide", source: "menu") },
             UIAction(title: "Trouver") { [weak self] _ in
@@ -485,6 +486,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             let hint = response.data["vision"] == "ocr" ? "Lecture de la cible." : response.data["vision"] == "visual_classification" ? "Ouverture de l'analyse visuelle." : "Ouverture de l'inspection."
             setInterfaceState(.inspection, hint: hint)
             openCamera()
+        } else if response.data["action"] == "ar_cube" {
+            openARCube()
         } else if response.data["action"] == "diagnostics" {
             diagnosticsTapped()
         } else if response.data["action"] == "settings" {
@@ -681,6 +684,16 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         execute(text)
         commandField.text = ""
         commandField.resignFirstResponder()
+    }
+
+    /// Opens the AR cube. ARKit then owns the camera; the Vision screen is not running.
+    private func openARCube() {
+        guard JarvisARCubeViewController.isSupported else {
+            showTransient("La réalité augmentée n'est pas disponible sur cet appareil.")
+            return
+        }
+        guard !(navigationController?.topViewController is JarvisARCubeViewController) else { return }
+        navigationController?.pushViewController(JarvisARCubeViewController(), animated: true)
     }
 
     private func controlMeshTapped() {

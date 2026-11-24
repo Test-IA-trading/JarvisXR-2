@@ -19,10 +19,12 @@ struct JarvisFrenchCommandRouter {
     }
 
     private let memory: JarvisMemoryStore
+    private let scene: JarvisSpatialSceneMemory
     private let locale = Locale(identifier: "fr_FR")
 
-    init(memory: JarvisMemoryStore = .shared) {
+    init(memory: JarvisMemoryStore = .shared, scene: JarvisSpatialSceneMemory = .shared) {
         self.memory = memory
+        self.scene = scene
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -65,8 +67,8 @@ struct JarvisFrenchCommandRouter {
 
         if request == "aide" || containsAny(request, ["que sais tu faire", "qu'est ce que tu sais faire", "que peux tu faire", "qu'est ce que tu peux faire", "liste des commandes", "quelles commandes"]) {
             return .answer(.ok(
-                "Je peux donner l'heure et la date, prendre et lire vos notes, ouvrir la caméra, lire un texte et ouvrir les réglages.",
-                display: "Essayez : « Quelle heure est-il ? », « Prends une note acheter du pain », « Mes notes », « Ouvre la caméra », « Lis ce texte », « Ouvre les réglages »."
+                "Je peux donner l'heure et la date, prendre et lire vos notes, ouvrir la caméra ou le cube en réalité augmentée, lire un texte et ouvrir les réglages.",
+                display: "Essayez : « Quelle heure est-il ? », « Prends une note acheter du pain », « Mes notes », « Ouvre la caméra », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Lis ce texte », « Ouvre les réglages »."
             ))
         }
 
@@ -91,6 +93,25 @@ struct JarvisFrenchCommandRouter {
             let lines = notes.enumerated().map { "\($0.offset + 1). [\(formatter.string(from: $0.element.createdAt))] \($0.element.text)" }
             let count = notes.count == 1 ? "une note" : "\(notes.count) notes"
             return .answer(.ok("Vous avez \(count).", display: lines.joined(separator: "\n")))
+        }
+
+        // The scene engine knows which virtual entity was moved: answer from that fact.
+        if containsAny(request, [
+            "qu'est ce que je viens de deplacer", "qu'est ce que j'ai deplace", "qu'ai je deplace",
+            "j'ai deplace quoi", "je viens de deplacer quoi", "quel objet j'ai deplace", "quel objet je viens de deplacer",
+            "qu'est ce que je viens de bouger", "qu'est ce que j'ai bouge"
+        ]) {
+            let answer = scene.answerWhatWasMoved()
+            return .answer(.ok(answer.spoken, display: answer.display))
+        }
+
+        if containsAny(request, ["realite augmentee", "cube"]) &&
+            (containsAny(request, ["ouvre", "lance", "montre", "affiche", "mode", "active", "demarre"]) || request == "cube" || request == "le cube") {
+            return .answer(.ok(
+                "J'ouvre le cube en réalité augmentée.",
+                display: "Cube AR : cadrez une table, puis pincez le cube entre le pouce et l'index pour le déplacer.",
+                data: ["action": "ar_cube"]
+            ))
         }
 
         // Existing actions, executed by the canonical English router.
