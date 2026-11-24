@@ -161,7 +161,9 @@ final class JarvisVoiceInputService: NSObject {
     var onInputLevel: ((Float) -> Void)?
 
     let locale: Locale
-    private let recognizer: SFSpeechRecognizer?
+    // Created on the first turn, not at launch: building a recognizer talks to the
+    // speech service, which must never delay the first frame of the app.
+    private lazy var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: locale)
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -200,7 +202,6 @@ final class JarvisVoiceInputService: NSObject {
     init(locale: Locale = Locale(identifier: "fr-FR"), maximumListenDuration: TimeInterval = 30) {
         self.locale = locale
         self.maximumListenDuration = maximumListenDuration
-        self.recognizer = SFSpeechRecognizer(locale: locale)
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(handleInterruption(_:)), name: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance())
         NotificationCenter.default.addObserver(self, selector: #selector(handleRouteChange(_:)), name: AVAudioSession.routeChangeNotification, object: AVAudioSession.sharedInstance())
