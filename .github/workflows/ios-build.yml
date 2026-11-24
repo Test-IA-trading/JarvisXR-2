@@ -188,6 +188,9 @@ jobs:
           fi
           echo "Using simulator id: $SIM_ID" | tee build/logs/xcodebuild-ui-test.log
           echo "Using xcodebuild destination: $DESTINATION" | tee -a build/logs/xcodebuild-ui-test.log
+          # On the Intel runner the simulator sometimes never reports the app idle at launch
+          # ("App event loop idle notification not received"), on a different test each run.
+          # A failing UI test is retried once; a test that fails twice still fails the job.
           xcrun simctl boot "$SIM_ID" || true
           xcrun simctl bootstatus "$SIM_ID" -b
           xcodebuild \
@@ -198,6 +201,8 @@ jobs:
             -destination "$DESTINATION" \
             -derivedDataPath build/TestDerivedData \
             -resultBundlePath build/logs/JarvisXRUITests.xcresult \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofHelp \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofVisionDescribeResult \
             -only-testing:JarvisXRUITests/JarvisXRVisualProofTests/testProofVisionLiveActive \
