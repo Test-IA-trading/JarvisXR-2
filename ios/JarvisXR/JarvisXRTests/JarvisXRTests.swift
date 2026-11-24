@@ -384,6 +384,7 @@ final class JarvisXRTests: XCTestCase {
             "jarvis.orb",
             "jarvis.state",
             "jarvis.hint",
+            "jarvis.voiceStage",
             "jarvis.transientResponse",
             "jarvis.commandInput",
             "jarvis.send",
@@ -395,7 +396,7 @@ final class JarvisXRTests: XCTestCase {
             }
         }
         let focusOrder = (controller.view.accessibilityElements as? [UIView])?.compactMap(\.accessibilityIdentifier)
-        XCTAssertEqual(Array(try XCTUnwrap(focusOrder).prefix(8)), [
+        XCTAssertEqual(Array(try XCTUnwrap(focusOrder).prefix(9)), [
             "jarvis.wordmark",
             "jarvis.subtitle",
             "jarvis.meshMenu",
@@ -403,6 +404,7 @@ final class JarvisXRTests: XCTestCase {
             "jarvis.orb",
             "jarvis.state",
             "jarvis.hint",
+            "jarvis.voiceStage",
             "jarvis.transientResponse",
         ])
     }
