@@ -481,6 +481,15 @@ final class JarvisARCubeViewController: UIViewController {
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
         configuration.environmentTexturing = .automatic
+        // LiDAR (iPhone 14 Pro): real objects hide the cube; on other iPhones this is skipped.
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            configuration.sceneReconstruction = .mesh
+            arView.environment.sceneUnderstanding.options.insert(.occlusion)
+        }
+        // The hand passes in front of the cube instead of being drawn over by it.
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth) {
+            configuration.frameSemantics.insert(.personSegmentationWithDepth)
+        }
         if didStartSession {
             arView.session.run(configuration)
         } else {

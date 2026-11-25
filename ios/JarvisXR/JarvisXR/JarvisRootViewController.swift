@@ -26,6 +26,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private var conversationActive = false
     private var currentTurnIsAutomatic = false
     private var rearmWorkItem: DispatchWorkItem?
+    private var didOfferBrainDownload = false
+    private var wasDownloadingBrain = false
+    private var brainDownloadObserver: NSObjectProtocol?
     private let inputContainer = JarvisPanelView()
     private let commandField = UITextField()
     private let submitButton = UIButton(type: .system)
@@ -56,6 +59,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         buildInterface()
         wireVoice()
         NotificationCenter.default.addObserver(self, selector: #selector(deepLinkReceived(_:)), name: .jarvisDeepLinkReceived, object: nil)
+        observeBrainDownload()
         setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
     }
 
@@ -551,6 +555,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             guard !self.voiceInput.isListening else { return }
             guard streaming else {
                 self.render(response: answer)
+                self.offerBrainDownloadIfNeeded()
                 return
             }
             if answer.status == .ok, self.speech.isStreamingReply {
@@ -562,6 +567,47 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 self.render(response: answer)
             }
         })
+    }
+
+    /// First open question without the model: offer the download right here, once per launch.
+    private func offerBrainDownloadIfNeeded() {
+        guard JarvisLocalBrain.shared.availability == .notInstalled,
+              !didOfferBrainDownload,
+              presentedViewController == nil,
+              !JarvisModelDownloader.shared.isDownloading else { return }
+        didOfferBrainDownload = true
+        let model = JarvisLocalBrain.shared.model
+        let alert = UIAlertController(
+            title: "Installer le cerveau local ?",
+            message: "Pour répondre aux questions libres sans Internet ni PC, JARVIS télécharge une seule fois \(model.displayName) (\(model.sizeDescription), licence \(model.license)). Wi-Fi conseillé ; gardez JARVIS ouvert pendant le téléchargement.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Plus tard", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Télécharger", style: .default) { [weak self] _ in
+            if let problem = JarvisModelDownloader.shared.startDownload() {
+                self?.showTransient(problem)
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    /// Download progress and completion, shown on the home screen.
+    private func observeBrainDownload() {
+        guard brainDownloadObserver == nil else { return }
+        brainDownloadObserver = NotificationCenter.default.addObserver(forName: .jarvisLocalBrainStateChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            let downloader = JarvisModelDownloader.shared
+            UIApplication.shared.isIdleTimerDisabled = downloader.isDownloading
+            if let progress = downloader.stateDescription {
+                self.showTransient(progress)
+                self.wasDownloadingBrain = downloader.isDownloading
+            } else if self.wasDownloadingBrain, downloader.isInstalled {
+                self.wasDownloadingBrain = false
+                let message = "Cerveau local installé. Posez-moi une question, même sans Internet."
+                self.showTransient(message)
+                if self.speech.isEnabled, !self.voiceInput.isListening { self.speech.speak(message) }
+            }
+        }
     }
 
     /// If the reply never becomes audible, say so instead of staying silent.
