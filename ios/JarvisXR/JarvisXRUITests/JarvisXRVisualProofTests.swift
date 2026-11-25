@@ -239,7 +239,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_help")
         waitFor(app.staticTexts["jarvis.help.header"], named: "Vision Help header")
-        waitFor(app.staticTexts["Safety first"], named: "Vision safety callout")
+        waitFor(app.staticTexts["La sécurité d'abord"], named: "Vision safety callout")
         saveScreenshot("vision-help")
     }
 
@@ -248,7 +248,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         launch(state: "vision_self_test")
         waitFor(app.staticTexts["jarvis.vision.selfTest.header"], named: "Vision Self-Test header")
         waitFor(app.staticTexts["jarvis.vision.selfTest.results"], named: "fixture self-test results")
-        XCTAssertTrue(app.staticTexts["jarvis.vision.selfTest.results"].label.contains("No physical camera test"))
+        XCTAssertTrue(app.staticTexts["jarvis.vision.selfTest.results"].label.contains("Aucun test avec la vraie caméra"))
         saveScreenshot("vision-self-test")
     }
 

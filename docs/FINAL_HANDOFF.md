@@ -255,7 +255,8 @@ Ce qui change :
 | Arrêt du mode : plus d'observation ni d'annonce | ✓ | ✓ | tests unitaires | à faire |
 | Narration Vision en français, règles de sécurité françaises | ✓ | ✓ | tests unitaires + audits | à faire |
 | Boutons, états, modes et erreurs de l'écran Vision en français, tests UI alignés (branche `feature/vision-ecran-fr`) | ✓ | ✓ | en attente | à faire |
-| Aide, autotest, accueil Vision et Réglages Vision en français | ✓ | — | — | — |
+| Aide (accueil et Vision), autotest et accueil Vision en français ; Réglages Vision déjà en français (#5) | ✓ | ✓ | test de surface | à faire |
+| « Trouve la tasse », « Cherche mon téléphone » lancent Trouver ; l'alerte Trouver comprend les noms français | ✓ | ✓ | tests unitaires | à faire |
 
 Essai sur l'iPhone, en posant le téléphone :
 1. Caméra > Guide en direct (« Live Guide »), puis démarrez.

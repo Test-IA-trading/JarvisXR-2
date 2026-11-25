@@ -79,7 +79,7 @@ def main() -> int:
     )
     check("Preview exposes product-only mode", "--product-only" in preview_text and "Product-only view" in preview_text)
     check("Preview has Mesh sheet", "Control Mesh" in mesh_surface and "Voice Control" in mesh_surface)
-    check("Help includes scan read detect Mesh", all(term in help_swift for term in ["scan this", "read this", "detect objects", "Control Mesh"]))
+    check("Help includes scan read detect Mesh", all(term in help_swift for term in ["Scanne le code-barres", "Lis ce texte", "Qu'est-ce que tu vois", "Control Mesh"]))
     check("Help avoids forbidden words", all(term not in help_swift.lower() for term in ["json", "debug", "approval gate", "test step"]))
     check("Phone surface avoids JSON", "JSON" not in initial_surface and "json" not in initial_surface.lower())
     check("Phone surface avoids guide/checklist text", all(term not in initial_surface.lower() for term in ["checklist", "approval", "should say ready"]))
