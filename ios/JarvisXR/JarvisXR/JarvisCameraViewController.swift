@@ -895,8 +895,8 @@ final class JarvisCameraViewController: UIViewController {
         case .modelMissing, .modelChecksumMismatch, .modelLoadFailed(_), .invalidModelOutput:
             message = "Le modèle d'objets de l'iPhone est indisponible ou n'a pas passé la vérification. Lire et Code-barres peuvent encore fonctionner."
             offersSettings = false
-        case .unsupportedTarget(let target):
-            message = "Jarvis ne peut pas trouver cet objet de façon fiable avec le modèle installé. \(target)"
+        case .unsupportedTarget:
+            message = "Jarvis ne reconnaît pas cet objet avec le modèle installé. Essayez un objet courant : tasse, bouteille, chaise, livre, téléphone…"
             offersSettings = false
         case .targetNotFound(let target):
             message = "Je n'ai pas trouvé \(VisionFrenchVocabulary.noun(for: target).definite). Balayez lentement, ou arrêtez et réessayez d'un autre endroit."

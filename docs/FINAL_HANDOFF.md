@@ -28,7 +28,7 @@
 - **Essais demandés au propriétaire** :
   1. Cerveau : téléchargement dans Réglages > Cerveau local, puis « Pourquoi le ciel est-il bleu ? » en mode avion. Relever le délai avant la voix et les jetons/s.
   2. Scénario 4 de la tasse : voir le lot 7 ci-dessous.
-- **Méthode** : ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une petite réplique Python (ce fut le cas pour `VisionLiveGuideEngine`, et les tests unitaires de la #13 sont passés du premier coup). Le runner `macos-26-intel` met environ 1 h 30 par run. Une poussée de documentation seule ne relance pas la CI.
+- **Méthode** : ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une petite réplique Python (ce fut le cas pour `VisionLiveGuideEngine`, et les tests unitaires de la #13 sont passés du premier coup). Le runner `macos-26-intel` met environ 1 h 30 par run. Sur une PR qui touche déjà au code, tout push relance la CI et annule le run en cours, même un commit de documentation seule : regroupez les modifications.
 
 ## Current Product
 
