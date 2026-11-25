@@ -1,5 +1,35 @@
 # Public Release Handoff
 
+## Reprise rapide — état au 25/11/2026, matin
+
+À lire en premier pour reprendre le travail sans raconter le projet.
+
+- **PR à fusionner dans l'ordre** (chacune contient les précédentes, toutes vers `develop`) :
+  - #5 Réglages en français ;
+  - #6 voix française ;
+  - #7 cube AR à la pince ;
+  - #8 conversation et bilan ;
+  - #9 aide des Réglages ;
+  - #10 documentation (idées, tuto) ;
+  - #11 cerveau local ;
+  - #12 minuteurs, rappels et agenda ;
+  - #13 guide en direct français ;
+  - #14 Vision tout en français.
+
+  Les fusions restent la décision du propriétaire.
+- **Dernière préversion publiée** : `v2.0.0-preversion.3`, commit `ea23425` (PR #12), avec le cerveau local, les minuteurs et l'occlusion.
+  - L'IPA a été vérifiée : `Frameworks/llama.framework` est embarqué, l'app le charge par `@rpath/llama.framework/llama` et le rpath `@executable_path/Frameworks` est présent.
+  - Copie dans `OneDrive\Desktop\Jarvis\IPA`, avec LISEZMOI et TUTO à jour.
+- **Validé sur iPhone 14 Pro** : seulement le micro et la transcription française (25/11). Tout le reste est « à faire ».
+- **Prochaine action exacte** : quand la CI de la #14 est verte (sinon celle de la #13) :
+  1. télécharger l'artefact `JarvisXR-unsigned-ipa` du run et revérifier `llama.framework` ;
+  2. publier `v2.0.0-preversion.4` (guide en direct français, Vision en français, « Trouve la tasse ») ;
+  3. copier l'IPA dans OneDrive et mettre à jour LISEZMOI, TUTO et la page tuto.
+- **Essais demandés au propriétaire** :
+  1. Cerveau : téléchargement dans Réglages > Cerveau local, puis « Pourquoi le ciel est-il bleu ? » en mode avion. Relever le délai avant la voix et les jetons/s.
+  2. Scénario 4 de la tasse : voir le lot 7 ci-dessous.
+- **Méthode** : ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une petite réplique Python (ce fut le cas pour `VisionLiveGuideEngine`, et les tests unitaires de la #13 sont passés du premier coup). Le runner `macos-26-intel` met environ 1 h 30 par run. Une poussée de documentation seule ne relance pas la CI.
+
 ## Current Product
 
 The shipping source is the Swift and UIKit app under `ios/JarvisXR`. Jarvis Vision provides Describe, Live Guide, Find, Read Text, Barcode, and Color modes through a model-agnostic, on-device pipeline with tracking, scene fusion, safe narration, priority speech, haptics, diagnostics, privacy controls, and thermal degradation.
