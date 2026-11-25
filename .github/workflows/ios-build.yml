@@ -82,6 +82,14 @@ jobs:
             --require-model \
             --output ios/JarvisXR/build/reports/vision-model-audit.json
 
+      - name: Fetch and verify pinned llama.cpp iPhone framework
+        run: |
+          set -euo pipefail
+          mkdir -p ios/JarvisXR/build/reports
+          python3 tools/fetch_llama_framework.py \
+            --output ios/JarvisXR/Frameworks \
+            --report ios/JarvisXR/build/reports/llama-framework-fetch.json
+
       - name: Inspect runner and repository
         run: |
           mkdir -p ios/JarvisXR/build/logs

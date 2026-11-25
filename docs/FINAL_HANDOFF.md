@@ -27,9 +27,9 @@ Symptôme rapporté sur iPhone 14 Pro (iOS 27.2.1) : « Aucune parole détectée
 
 | Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
 |---|---|---|---|---|
-| Reconnaissance `fr-FR`, moteur local préféré puis repli Apple en ligne | ✓ | ✓ | en attente | à faire |
-| Autorisations Speech puis micro, messages français et bouton Réglages | ✓ | ✓ | en attente | à faire |
-| Session `.playAndRecord`, jamais désactivée sous un micro ouvert | ✓ | ✓ | en attente | à faire |
+| Reconnaissance `fr-FR`, moteur local préféré puis repli Apple en ligne | ✓ | ✓ | ✓ | ✓ transcription correcte (25/11) |
+| Autorisations Speech puis micro, messages français et bouton Réglages | ✓ | ✓ | ✓ | ✓ acceptées (25/11) |
+| Session `.playAndRecord`, jamais désactivée sous un micro ouvert | ✓ | ✓ | ✓ | ✓ (25/11) |
 | Erreur ≠ silence ; détection d'un micro muet (buffers nuls) ; jeton de tour contre les rappels tardifs | ✓ | ✓ | tests unitaires | à faire |
 | Indicateur « Micro · Son · Texte · Réponse » avec niveau | ✓ | ✓ | en attente | à faire |
 | Pauses : 1,6 s de silence après parole, 7 s sans parole, 30 s max | ✓ | ✓ | tests unitaires | à faire |
@@ -136,6 +136,38 @@ Essai terrain le plus court, en mode avion :
 | « À quoi sert cette option ? » puis « Et celle-ci ? » | ✓ | ✓ | tests unitaires | à faire |
 | Suspension / reprise de l'assistance | ✓ | ✓ | tests unitaires | à faire |
 | Contexte d'autres apps via les mécanismes iOS autorisés | ✓ | — | — | — |
+
+## Cerveau local hors ligne — suivi (lot 5, branche `feature/cerveau-local`)
+
+Retour du 25/11 sur l'iPhone : le micro et la transcription marchent, mais Jarvis « ne peut pas répondre » aux questions libres. Il ne connaissait que des commandes fixes et disait « Je n'ai pas encore de réponse locale ».
+
+Choix techniques :
+- **Moteur** : llama.cpp, version précompilée `b12262` (10/11/2026), épinglée par taille et SHA-256 dans `tools/fetch_llama_framework.py`. MLX a été écarté : il exige une puce Apple, alors que la CI teste sur un simulateur Intel.
+- **Pas de variante simulateur** dans cette version de llama.cpp : le framework est lié aux builds iPhone seulement (`FRAMEWORK_SEARCH_PATHS`/`OTHER_LDFLAGS[sdk=iphoneos*]`) et copié dans l'app par un script de post-build. Le code est protégé par `#if canImport(llama)`. Les tests simulateur voient donc le cerveau « indisponible », et le build iPhone de la CI compile le vrai moteur.
+- **Modèle** : Qwen2.5-1.5B-Instruct Q4_K_M, licence Apache 2.0, 1 117 320 736 octets, SHA-256 `6a1a2eb6…407e`. Il est téléchargé une seule fois depuis Hugging Face, depuis Réglages > Cerveau local, après confirmation.
+  - Le fichier est vérifié, rangé dans Application Support et exclu des sauvegardes iCloud.
+  - C'est la seule exception réseau de l'app, inscrite dans `tools/audit_vision_privacy.py` et verrouillée par un test.
+- **Aiguillage** : le routeur français déterministe passe toujours en premier. Le cerveau ne reçoit que les questions françaises qu'aucune commande ne couvre (`openQuestion`) et ne déclenche jamais d'action.
+- **Ce que le cerveau reçoit** : les 6 derniers échanges et les faits connus de l'app (horaires donnés, dernier objet déplacé, bilan de notes), plus une consigne de style « réponse courte, en français, lue à voix haute, sans inventer ».
+- **Réponse** : le texte s'affiche pendant qu'il s'écrit, puis Jarvis le prononce, et la conversation continue reprend ensuite. Un tap sur l'orbe interrompt la réflexion.
+- **Accès** : depuis l'accueil, depuis « Parler » dans l'écran AR et depuis « Demander » dans les Réglages.
+- **Paramètres du moteur** : 2 048 jetons de contexte, 200 jetons de réponse au maximum, Metal (`n_gpu_layers = 99`), échantillonnage top-k 40, top-p 0,9, température 0,6, pénalité de répétition 1,1. Le modèle est déchargé si iOS manque de mémoire.
+
+| Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
+|---|---|---|---|---|
+| Framework llama.cpp épinglé et embarqué (iPhone) | ✓ | ✓ | build iPhone | à faire |
+| Téléchargement unique, vérifié, avec consentement | ✓ | ✓ | tests (SHA-256, état) | à faire |
+| Réponses aux questions libres, affichées puis lues | ✓ | ✓ | tests (prompt, nettoyage, aiguillage) | à faire |
+| Contexte de conversation (6 échanges + faits) | ✓ | ✓ | tests unitaires | à faire |
+| Exception réseau unique dans l'audit de confidentialité | ✓ | ✓ | test Python | — |
+| Lecture de la réponse au fil de l'écriture | ✓ | — | — | — |
+
+Essai sur l'iPhone :
+1. Réglages > Cerveau local > « Télécharger le cerveau (1,1 Go) », en Wi-Fi, en gardant l'app ouverte.
+2. Mode avion activé, touchez l'orbe et dites « Pourquoi le ciel est-il bleu ? ».
+3. Attendu : « Je réfléchis… », la réponse qui s'écrit, puis une réponse française parlée en une à trois phrases.
+
+À rapporter : le délai entre la fin de la question et le début de la voix, et la vitesse affichée dans Réglages > Cerveau local (« jetons/s »).
 
 ## Preserved Boundaries
 

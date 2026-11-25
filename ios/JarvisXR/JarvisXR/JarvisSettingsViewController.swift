@@ -37,6 +37,12 @@ final class JarvisSettingsViewController: UIViewController {
     private let voiceInput = JarvisVoiceInputService.shared
     private let assistant = JarvisAssistantCore()
 
+    // Local brain (on-device language model) controls.
+    private let brainStatusLabel = UILabel()
+    private let brainSwitch = UISwitch()
+    private var brainActionButton: UIButton?
+    private var brainObserver: NSObjectProtocol?
+
     init(initialSection: JarvisSettingsSection = .general) {
         self.initialSection = initialSection
         super.init(nibName: nil, bundle: nil)
@@ -69,6 +75,120 @@ final class JarvisSettingsViewController: UIViewController {
             voiceInput.cancel()
         }
         JarvisScreenContext.shared.leaveScreen()
+    }
+
+    deinit {
+        if let brainObserver {
+            NotificationCenter.default.removeObserver(brainObserver)
+        }
+    }
+
+    // MARK: - Local brain
+
+    private func buildBrainSection() {
+        let brain = JarvisLocalBrain.shared
+        stackView.addArrangedSubview(sectionHeading("Cerveau local (hors ligne)"))
+        let explanation = textLabel(
+            "Pour répondre aux questions libres sans Internet ni PC, JARVIS utilise un modèle de langage installé sur l'iPhone : \(brain.model.displayName), licence \(brain.model.license), \(brain.model.sizeDescription) téléchargés une seule fois depuis \(brain.model.source). Vos questions restent sur l'iPhone.",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        )
+        explanation.accessibilityIdentifier = "jarvis.settings.brain.explanation"
+        stackView.addArrangedSubview(explanation)
+
+        brainStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        brainStatusLabel.adjustsFontForContentSizeCategory = true
+        brainStatusLabel.textColor = JarvisTheme.text
+        brainStatusLabel.numberOfLines = 0
+        brainStatusLabel.accessibilityIdentifier = "jarvis.settings.brain.status"
+        brainStatusLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(wrapInPanel(brainStatusLabel))
+
+        let button = actionButton("Télécharger le cerveau", identifier: "jarvis.settings.brain.action", action: #selector(brainActionTapped))
+        brainActionButton = button
+        stackView.addArrangedSubview(button)
+
+        configureSwitch(
+            brainSwitch,
+            label: "Répondre aux questions libres",
+            hint: "Quand aucune commande ne correspond, JARVIS pose la question au cerveau local installé sur l'iPhone.",
+            identifier: "jarvis.settings.brain.enabled",
+            action: #selector(brainSwitchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Répondre aux questions libres", control: brainSwitch))
+
+        brainObserver = NotificationCenter.default.addObserver(forName: .jarvisLocalBrainStateChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshBrainSection()
+        }
+        refreshBrainSection()
+    }
+
+    private func refreshBrainSection() {
+        let brain = JarvisLocalBrain.shared
+        let downloader = JarvisModelDownloader.shared
+        brainSwitch.isOn = brain.isEnabled
+        if let progress = downloader.stateDescription {
+            brainStatusLabel.text = progress
+        } else {
+            brainStatusLabel.text = brain.statusDescription
+        }
+        let title: String
+        if !JarvisLocalBrain.isEngineCompiled {
+            title = "Disponible sur iPhone"
+            brainActionButton?.isEnabled = false
+        } else if downloader.isDownloading {
+            title = "Annuler le téléchargement"
+            brainActionButton?.isEnabled = true
+        } else if downloader.isInstalled {
+            title = "Supprimer le cerveau (\(brain.model.sizeDescription))"
+            brainActionButton?.isEnabled = true
+        } else {
+            title = "Télécharger le cerveau (\(brain.model.sizeDescription))"
+            brainActionButton?.isEnabled = true
+        }
+        brainActionButton?.setTitle(title, for: .normal)
+        brainActionButton?.accessibilityLabel = title
+        // Keep the screen on while the model downloads: the download needs the app open.
+        UIApplication.shared.isIdleTimerDisabled = downloader.isDownloading
+    }
+
+    @objc private func brainSwitchChanged() {
+        JarvisLocalBrain.shared.isEnabled = brainSwitch.isOn
+    }
+
+    @objc private func brainActionTapped() {
+        let downloader = JarvisModelDownloader.shared
+        let model = JarvisLocalBrain.shared.model
+        if downloader.isDownloading {
+            downloader.cancelDownload()
+            return
+        }
+        if downloader.isInstalled {
+            let alert = UIAlertController(
+                title: "Supprimer le cerveau local ?",
+                message: "Le fichier de \(model.sizeDescription) sera effacé. JARVIS gardera ses commandes, mais ne répondra plus aux questions libres tant que vous ne l'aurez pas retéléchargé.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Supprimer", style: .destructive) { _ in
+                JarvisLocalBrain.shared.unloadIfIdle()
+                downloader.deleteModel()
+            })
+            present(alert, animated: true)
+            return
+        }
+        let alert = UIAlertController(
+            title: "Télécharger le cerveau local ?",
+            message: "\(model.displayName), \(model.sizeDescription), licence \(model.license), depuis \(model.source). Le Wi-Fi est conseillé ; gardez JARVIS ouvert pendant le téléchargement. Ensuite, tout fonctionne sans Internet et vos questions restent sur l'iPhone.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Télécharger", style: .default) { [weak self] _ in
+            if let problem = downloader.startDownload() {
+                self?.brainStatusLabel.text = problem
+            }
+        })
+        present(alert, animated: true)
     }
 
     // MARK: - Contextual help
@@ -164,8 +284,21 @@ final class JarvisSettingsViewController: UIViewController {
         voiceInput.onFinalTranscript = { [weak self] text in
             guard let self else { return }
             let response = self.assistant.decide(text).response
-            self.showAssistant(response.displayResponse)
             let speech = JarvisSpeechService.shared
+            if response.data["action"] == "local_brain", let question = response.data["question"],
+               JarvisLocalBrain.shared.availability != .unsupported {
+                self.showAssistant("Je réfléchis…")
+                JarvisLocalBrain.shared.answerOpenQuestion(question, onPartial: { [weak self] partial in
+                    self?.showAssistant(partial)
+                }, completion: { [weak self] answer in
+                    self?.showAssistant(answer.displayResponse)
+                    if answer.shouldSpeak, speech.isEnabled, answer.status == .ok {
+                        speech.speak(answer.spokenResponse)
+                    }
+                })
+                return
+            }
+            self.showAssistant(response.displayResponse)
             if response.shouldSpeak, speech.isEnabled, response.status == .ok || response.status == .confirmationRequired {
                 speech.speak(response.spokenResponse)
             }
@@ -229,6 +362,8 @@ final class JarvisSettingsViewController: UIViewController {
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
         stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
+
+        buildBrainSection()
 
         stackView.addArrangedSubview(sectionHeading("Narration Vision"))
         configureSegmented(defaultModeControl, identifier: "jarvis.settings.vision.defaultMode", action: #selector(defaultModeChanged))

@@ -187,10 +187,42 @@ final class JarvisConversationContext {
     /// « pose ce bilan sur la table » shows the same total.
     var lastNotesSummary: JarvisNotesSummary?
 
+    /// Last exchanges, oldest first, given to the local brain so it follows the
+    /// conversation (« et la deuxième ? »). Kept short and in memory only.
+    private(set) var recentTurns: [JarvisChatTurn] = []
+    static let maximumTurns = 6
+
+    func recordTurn(user: String, assistant: String) {
+        let question = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = assistant.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !answer.isEmpty else { return }
+        recentTurns.append(JarvisChatTurn(user: question, assistant: answer))
+        if recentTurns.count > Self.maximumTurns {
+            recentTurns.removeFirst(recentTurns.count - Self.maximumTurns)
+        }
+    }
+
+    /// Facts the app knows for sure, written for the local brain's system prompt.
+    func brainContextLines(scene: JarvisSpatialSceneMemory = .shared) -> [String] {
+        var lines: [String] = []
+        if !departures.isEmpty {
+            let list = departures.map { "\($0.phrase) part à \($0.time.spoken)" }.joined(separator: ", ")
+            lines.append("Horaires donnés par l'utilisateur dans cette conversation : \(list).")
+        }
+        if let moved = scene.lastManipulation {
+            lines.append("Dernier objet virtuel déplacé par l'utilisateur en réalité augmentée : \(moved.spokenName.lowercased()).")
+        }
+        if let summary = lastNotesSummary {
+            lines.append("Notes comptées \(summary.periodDescription) : \(summary.count).")
+        }
+        return lines
+    }
+
     func reset() {
         departures = []
         lastQuestion = nil
         lastNotesSummary = nil
+        recentTurns = []
     }
 
     private static let articles: Set<String> = ["le", "la", "les", "mon", "ma", "mes", "ton", "ta", "son", "sa", "notre", "votre", "leur", "ce", "cet", "cette"]

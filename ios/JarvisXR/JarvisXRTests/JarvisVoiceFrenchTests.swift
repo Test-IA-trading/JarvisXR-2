@@ -166,11 +166,15 @@ final class JarvisVoiceFrenchTests: XCTestCase {
         guard case .notHandled = french.route("save note first field test") else { return XCTFail("English command was intercepted") }
     }
 
-    func testUnknownFrenchRequestIsAcknowledgedInFrench() {
-        guard case .answer(let response) = french.route("Raconte-moi une histoire de pirates") else {
-            return XCTFail("French text must not fall through to the English hint")
+    func testUnknownFrenchRequestGoesToTheLocalBrainWithAFrenchFallback() {
+        guard case .openQuestion(let question) = french.route("Raconte-moi une histoire de pirates") else {
+            return XCTFail("An open French question must reach the local brain, not the English hint")
         }
-        XCTAssertTrue(response.displayResponse.contains("J'ai compris : « Raconte-moi une histoire de pirates »"))
+        XCTAssertEqual(question, "Raconte-moi une histoire de pirates")
+        let decision = JarvisAssistantCore(conversation: JarvisConversationContext()).decide("Raconte-moi une histoire de pirates")
+        XCTAssertEqual(decision.response.data["action"], "local_brain")
+        XCTAssertEqual(decision.response.data["question"], "Raconte-moi une histoire de pirates")
+        XCTAssertTrue(decision.response.displayResponse.contains("J'ai compris : « Raconte-moi une histoire de pirates »"))
     }
 
     // MARK: Spoken voice

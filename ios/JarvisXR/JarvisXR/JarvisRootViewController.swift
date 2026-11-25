@@ -524,7 +524,25 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         render(response: response, visionRequest: visionRequest)
     }
 
+    /// Open question: the local brain writes the answer (shown as it comes), then the
+    /// normal rendering speaks it. A tap on the orb interrupts it.
+    private func askLocalBrain(_ question: String) {
+        setInterfaceState(.processing, hint: "Je réfléchis…")
+        showTransient("…")
+        JarvisLocalBrain.shared.answerOpenQuestion(question, onPartial: { [weak self] partial in
+            guard let self, !partial.isEmpty, self.interfaceState == .processing else { return }
+            self.showTransient(partial)
+        }, completion: { [weak self] answer in
+            self?.render(response: answer)
+        })
+    }
+
     private func render(response: JarvisResponse, visionRequest: JarvisVisionLaunchRequest? = nil) {
+        if response.data["action"] == "local_brain", let question = response.data["question"],
+           JarvisLocalBrain.shared.availability != .unsupported {
+            askLocalBrain(question)
+            return
+        }
         showTransient(response.displayResponse)
         if response.status == .refused || response.status == .unavailable || response.status == .error {
             setInterfaceState(.ready, hint: response.displayResponse)
@@ -566,6 +584,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         if response.shouldSpeak && speech.isEnabled && (response.status == .ok || response.status == .confirmationRequired) {
             setInterfaceState(.speaking, hint: "JARVIS parle.")
             speech.speak(response.spokenResponse)
+            // If the reply never becomes audible, say so instead of staying silent.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                guard let self, self.speech.speechFailedToStart(after: 2.4) else { return }
+                self.setInterfaceState(.ready, hint: "La voix ne démarre pas : montez le volume, ou vérifiez qu'une voix française est installée (Réglages iOS › Accessibilité › Contenu énoncé › Voix).")
+            }
         } else if response.status == .ok && response.data["action"] == nil {
             setInterfaceState(speech.isEnabled ? .done : .quiet, hint: response.spokenResponse)
         }
@@ -671,7 +694,12 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         case .listening, .heardYou:
             voiceInput.stopListening(process: true)
         case .processing:
-            showTransient("Traitement en cours.")
+            if JarvisLocalBrain.shared.isGenerating {
+                JarvisLocalBrain.shared.cancel()
+                showTransient("J'arrête de réfléchir.")
+            } else {
+                showTransient("Traitement en cours.")
+            }
         case .speaking:
             speech.stop()
             setVoiceStage(.idle)
@@ -704,6 +732,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func enterStandbyFromLongPress() {
         endConversation()
+        JarvisLocalBrain.shared.cancel()
         responseHideWorkItem?.cancel()
         transientResponseLabel.alpha = 0
         if voiceInput.isListening {

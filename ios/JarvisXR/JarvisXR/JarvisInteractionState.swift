@@ -63,18 +63,31 @@ final class JarvisAssistantCore {
     private let router: JarvisCommandRouter
     private let planner: JarvisCommandPlanner
     private let french: JarvisFrenchCommandRouter
+    private let conversation: JarvisConversationContext
 
     init(
         router: JarvisCommandRouter = JarvisCommandRouter(),
         planner: JarvisCommandPlanner = JarvisCommandPlanner(),
-        french: JarvisFrenchCommandRouter = JarvisFrenchCommandRouter()
+        french: JarvisFrenchCommandRouter = JarvisFrenchCommandRouter(),
+        conversation: JarvisConversationContext = .shared
     ) {
         self.router = router
         self.planner = planner
         self.french = french
+        self.conversation = conversation
     }
 
     func decide(_ rawCommand: String) -> JarvisAssistantDecision {
+        let decision = decideWithoutMemory(rawCommand)
+        // Every answered exchange becomes context for the local brain. Open questions
+        // are recorded by the brain itself once it has answered.
+        if decision.response.data["action"] != "local_brain", decision.response.status == .ok {
+            conversation.recordTurn(user: rawCommand, assistant: decision.response.spokenResponse)
+        }
+        return decision
+    }
+
+    private func decideWithoutMemory(_ rawCommand: String) -> JarvisAssistantDecision {
         switch french.route(rawCommand) {
         case .answer(let response):
             let normalized = JarvisFrenchCommandRouter.normalize(rawCommand)
@@ -90,6 +103,16 @@ final class JarvisAssistantCore {
                 shouldSpeak: base.shouldSpeak
             )
             return JarvisAssistantDecision(intent: decision.intent, plan: decision.plan, response: response)
+        case .openQuestion(let question):
+            // Screens that know the local brain replace this placeholder with its answer;
+            // the text below is what is said when the brain is not available.
+            let response = JarvisResponse(
+                status: .ok,
+                spokenResponse: "Je n'ai pas encore de réponse locale à cette demande.",
+                displayResponse: "J'ai compris : « \(question) ». Je n'ai pas encore de réponse locale à cette demande.",
+                data: ["action": "local_brain", "question": question]
+            )
+            return JarvisAssistantDecision(intent: .unsupported, plan: nil, response: response)
         case .notHandled:
             return decideCanonical(rawCommand)
         }

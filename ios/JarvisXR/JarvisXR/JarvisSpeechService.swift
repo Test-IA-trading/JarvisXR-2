@@ -231,6 +231,29 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         visionQueue.lastCompletedText
     }
 
+    /// When the last reply was requested and when speech actually started, for the
+    /// « la voix ne démarre pas » check and Diagnostics. No text is kept.
+    private(set) var lastSpeakRequestAt: Date?
+    private(set) var lastSpeechStartAt: Date?
+
+    /// True when a reply was requested more than `delay` ago and speech never started.
+    func speechFailedToStart(after delay: TimeInterval, now: Date = Date()) -> Bool {
+        guard let requested = lastSpeakRequestAt, now.timeIntervalSince(requested) >= delay else { return false }
+        if let started = lastSpeechStartAt, started >= requested { return false }
+        return !synthesizer.isSpeaking
+    }
+
+    var speechDiagnostic: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "HH:mm:ss"
+        guard let requested = lastSpeakRequestAt else { return "aucune réponse parlée depuis le lancement" }
+        if let started = lastSpeechStartAt, started >= requested {
+            return String(format: "dernière réponse démarrée en %.1f s (%@)", started.timeIntervalSince(requested), formatter.string(from: started))
+        }
+        return "dernière réponse demandée à \(formatter.string(from: requested)), pas encore démarrée"
+    }
+
     func speak(_ text: String, notifyState: Bool = true) {
         guard isEnabled else { return }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -240,6 +263,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         let utterance = makeUtterance(text, profile: profile)
         suppressNextCallbacks = !notifyState
         activateAudioSession()
+        if notifyState {
+            lastSpeakRequestAt = Date()
+        }
         synthesizer.speak(utterance)
     }
 
@@ -501,6 +527,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        lastSpeechStartAt = Date()
         guard !suppressNextCallbacks else { return }
         onSpeechStart?()
     }

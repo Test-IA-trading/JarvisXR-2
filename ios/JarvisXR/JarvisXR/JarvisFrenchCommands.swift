@@ -16,6 +16,9 @@ struct JarvisFrenchCommandRouter {
         case forward(command: String, spoken: String, display: String?)
         /// Not French, or an English command: let the existing router decide.
         case notHandled
+        /// French question no deterministic route can answer: it goes to the local
+        /// brain (language model on the iPhone), which never runs actions.
+        case openQuestion(String)
     }
 
     private let memory: JarvisMemoryStore
@@ -177,11 +180,17 @@ struct JarvisFrenchCommandRouter {
             return .forward(command: command, spoken: action.spoken, display: action.display)
         }
 
+        if containsAny(request, ["cerveau local", "cerveau", "modele de langage"]) &&
+            containsAny(request, ["installe", "telecharge", "active", "ouvre", "configure"]) {
+            return .answer(.ok(
+                "J'ouvre les réglages : le cerveau local se télécharge dans la section Cerveau local.",
+                display: "Réglages › Cerveau local : téléchargement unique de 1,1 Go, puis réponses aux questions libres sans Internet.",
+                data: ["action": "settings"]
+            ))
+        }
+
         guard Self.looksFrench(text) else { return .notHandled }
-        return .answer(.ok(
-            "Je n'ai pas encore de réponse locale à cette demande.",
-            display: "J'ai compris : « \(original) ». Je n'ai pas encore de réponse locale à cette demande. Essayez « Aide » pour voir ce que je sais faire."
-        ))
+        return .openQuestion(original)
     }
 
     /// « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi »,
