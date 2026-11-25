@@ -26,6 +26,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private var conversationActive = false
     private var currentTurnIsAutomatic = false
     private var rearmWorkItem: DispatchWorkItem?
+    /// Réveil par la voix: the next wait for « Jarvis », and whether « Oui ? » was just
+    /// said to a bare « Jarvis » (the request is listened to right after).
+    private var wakeRestartWorkItem: DispatchWorkItem?
+    private var listenAfterWakeReply = false
     private var didOfferBrainDownload = false
     private var wasDownloadingBrain = false
     private var brainDownloadObserver: NSObjectProtocol?
@@ -59,6 +63,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         buildInterface()
         wireVoice()
         NotificationCenter.default.addObserver(self, selector: #selector(deepLinkReceived(_:)), name: .jarvisDeepLinkReceived, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         observeBrainDownload()
         setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
     }
@@ -75,6 +80,101 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             didCheckFirstLaunch = true
             showFirstLaunchIfNeeded()
         }
+        scheduleWakeListening()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Vision, the cube and Settings own the microphone while they are on screen.
+        stopWakeListening()
+    }
+
+    @objc private func appBecameActive() {
+        scheduleWakeListening()
+    }
+
+    // MARK: - Réveil par la voix
+
+    private var isWakeListening: Bool { voiceInput.isListening && voiceInput.mode == .wake }
+
+    /// Waits for « Jarvis » again once this screen is idle; the guards in
+    /// `startWakeListeningIfIdle` decide at that moment.
+    private func scheduleWakeListening(after delay: TimeInterval = 0.6) {
+        wakeRestartWorkItem?.cancel()
+        wakeRestartWorkItem = nil
+        guard JarvisWakeWordSettings.isEnabled, !isUITestMode else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.startWakeListeningIfIdle()
+        }
+        wakeRestartWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func startWakeListeningIfIdle() {
+        guard JarvisWakeWordSettings.isEnabled,
+              !isUITestMode,
+              navigationController?.topViewController === self,
+              presentedViewController == nil,
+              UIApplication.shared.applicationState == .active else { return }
+        if speech.isSpeaking || speech.isStreamingReply || JarvisLocalBrain.shared.isGenerating {
+            // Jarvis is talking or thinking: wait until it is quiet.
+            scheduleWakeListening(after: 1.0)
+            return
+        }
+        let idleStates: [JarvisInteractionState] = [.standby, .ready, .done, .quiet]
+        guard !voiceInput.isListening,
+              !conversationActive,
+              !listenAfterWakeReply,
+              idleStates.contains(interfaceState) else { return }
+        voiceInput.startListening(mode: .wake)
+    }
+
+    private func stopWakeListening() {
+        if isWakeListening {
+            voiceInput.cancel()
+        }
+        wakeRestartWorkItem?.cancel()
+        wakeRestartWorkItem = nil
+    }
+
+    /// Voice events of a wait for « Jarvis »: nothing is shown of what the room says.
+    private func handleWakeState(_ state: JarvisVoiceInputState) {
+        switch state {
+        case .listening:
+            if [.standby, .ready, .done, .quiet].contains(interfaceState) {
+                hintLabel.text = "À l'écoute : dites « Jarvis », puis votre demande."
+            }
+        case .standby, .noSpeech:
+            scheduleWakeListening(after: 0.25)
+        case .unavailable(let failure):
+            // No retry loop on an error: the next tap or return to this screen tries again.
+            hintLabel.text = "Réveil par la voix en pause : \(failure.message)"
+        case .hearingSound, .heardYou, .processing:
+            break
+        }
+    }
+
+    private func handleWakeTranscript(_ transcript: String) {
+        // A sheet or an alert is open: the request waits for the next call.
+        guard presentedViewController == nil else { return }
+        guard let request = JarvisWakeWord.command(in: transcript) else {
+            // Not addressed to Jarvis: forget it and keep waiting.
+            setInterfaceState(interfaceState, hint: "À l'écoute : dites « Jarvis », puis votre demande.")
+            return
+        }
+        if request.isEmpty {
+            // « Jarvis ? » alone: answer, then listen to the request.
+            listenAfterWakeReply = true
+            setInterfaceState(.ready, hint: "Oui ?")
+            if speech.isEnabled {
+                speech.speak("Oui ?")
+            } else {
+                listenAfterWakeReply = false
+                startVoiceTurn()
+            }
+            return
+        }
+        execute(request, source: "voice")
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -335,6 +435,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func wireVoice() {
         speech.onSpeechStart = { [weak self] in
+            // Jarvis must not hear its own voice while it waits for « Jarvis ».
+            self?.stopWakeListening()
             self?.setVoiceStage(.reply)
             self?.setInterfaceState(.speaking, hint: "JARVIS parle.")
         }
@@ -343,6 +445,15 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             // A reply interrupted by a new turn reports didCancel asynchronously; it must
             // not pull the screen out of the listening state the user just entered.
             guard !self.voiceInput.isListening else { return }
+            if self.listenAfterWakeReply {
+                self.listenAfterWakeReply = false
+                self.setVoiceStage(.idle)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    guard let self, !self.voiceInput.isListening else { return }
+                    self.startVoiceTurn()
+                }
+                return
+            }
             self.setVoiceStage(.idle)
             if JarvisSpeechService.shared.isEnabled {
                 self.setInterfaceState(.ready, hint: self.conversationActive ? "JARVIS vous écoute à nouveau…" : "JARVIS est prêt. Touchez l'orbe pour parler.")
@@ -353,6 +464,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
         voiceInput.onStateChange = { [weak self] state in
             guard let self else { return }
+            if self.voiceInput.mode == .wake {
+                self.handleWakeState(state)
+                return
+            }
             switch state {
             case .standby:
                 self.endConversation()
@@ -399,11 +514,23 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
         voiceInput.onPartialTranscript = { [weak self] transcript in
             guard let self else { return }
+            if self.voiceInput.mode == .wake {
+                // Only the words addressed to Jarvis appear, never the room's conversation.
+                if let request = JarvisWakeWord.command(in: transcript) {
+                    self.hintLabel.text = request.isEmpty ? "Oui ?" : request
+                }
+                return
+            }
             if !transcript.isEmpty { self.setVoiceStage(.text) }
             self.hintLabel.text = transcript.isEmpty ? "Micro actif. Parlez maintenant." : transcript
         }
         voiceInput.onFinalTranscript = { [weak self] transcript in
-            self?.execute(transcript, source: "voice")
+            guard let self else { return }
+            if self.voiceInput.mode == .wake {
+                self.handleWakeTranscript(transcript)
+                return
+            }
+            self.execute(transcript, source: "voice")
         }
         voiceInput.onInputLevel = { [weak self] level in
             guard let self, self.voiceStage == .micro || self.voiceStage == .sound || self.voiceStage == .text else { return }
@@ -417,6 +544,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         // the microphone takes it, then listen.
         rearmWorkItem?.cancel()
         rearmWorkItem = nil
+        // A wait for « Jarvis » gives the microphone to this request.
+        stopWakeListening()
         currentTurnIsAutomatic = automatic
         speech.stop()
         voiceStageFailed = false
@@ -686,6 +815,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func setInterfaceState(_ state: JarvisInteractionState, hint: String) {
         interfaceState = state
+        if [.standby, .ready, .done, .quiet].contains(state), !isWakeListening {
+            scheduleWakeListening()
+        }
         stateLabel.text = state.displayName
         stateLabel.accessibilityLabel = state.displayName
         hintLabel.text = hint
@@ -769,6 +901,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             longPressSuppressesNextTap = false
             return
         }
+        // A tap always wins over a wait for « Jarvis ».
+        stopWakeListening()
         if isUITestMode {
             handleUITestOrbTap()
             return

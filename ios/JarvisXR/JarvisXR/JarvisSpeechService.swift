@@ -332,6 +332,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     var isStreamingReply: Bool { streamOpen || !streamUtterances.isEmpty }
 
+    /// True while any utterance is being spoken (the wake word waits for silence).
+    var isSpeaking: Bool { synthesizer.isSpeaking }
+
     /// Starts a reply that will arrive sentence by sentence. `onSpeechStart` fires once
     /// for the first sentence and `onSpeechFinish` once, after the last one.
     func beginStreamedReply() {

@@ -13,6 +13,7 @@ final class JarvisSettingsViewController: UIViewController {
     private let stackView = UIStackView()
 
     private let speechSwitch = UISwitch()
+    private let wakeWordSwitch = UISwitch()
     private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Discrète", "Formelle"])
     private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
     private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
@@ -474,6 +475,13 @@ final class JarvisSettingsViewController: UIViewController {
         )
         stackView.addArrangedSubview(settingRow(title: "Sortie vocale", control: speechSwitch, identifier: "jarvis.settings.speechLabel"))
 
+        let wakeExplanation = "Quand JARVIS est ouvert sur l'accueil, dites « Jarvis » puis votre demande, sans toucher l'écran. La reconnaissance reste sur l'iPhone et rien n'est enregistré ; le micro reste actif (point orange) et la batterie s'use un peu plus."
+        wakeWordSwitch.addTarget(self, action: #selector(wakeWordChanged), for: .valueChanged)
+        wakeWordSwitch.accessibilityLabel = "Réveil par la voix"
+        wakeWordSwitch.accessibilityHint = wakeExplanation
+        wakeWordSwitch.accessibilityIdentifier = "jarvis.settings.wakeWord"
+        stackView.addArrangedSubview(settingPanel(title: "Réveil par la voix (« Jarvis »)", detail: wakeExplanation, control: wakeWordSwitch))
+
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
         stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
 
@@ -558,6 +566,7 @@ final class JarvisSettingsViewController: UIViewController {
     private func loadValues() {
         let preferences = preferencesStore.value
         speechSwitch.isOn = JarvisSpeechService.shared.isEnabled
+        wakeWordSwitch.isOn = JarvisWakeWordSettings.isEnabled
         voiceProfileControl.selectedSegmentIndex = index(for: JarvisSpeechService.shared.profile)
         narrationControl.selectedSegmentIndex = index(for: preferences.narrationVerbosity)
         defaultModeControl.selectedSegmentIndex = index(for: preferences.defaultMode)
@@ -664,6 +673,13 @@ final class JarvisSettingsViewController: UIViewController {
         label.adjustsFontForContentSizeCategory = true
         label.numberOfLines = 0
         return label
+    }
+
+    @objc private func wakeWordChanged() {
+        JarvisWakeWordSettings.isEnabled = wakeWordSwitch.isOn
+        if wakeWordSwitch.isOn {
+            showAssistant("Réveil par la voix activé : revenez à l'accueil et dites « Jarvis », puis votre demande.")
+        }
     }
 
     @objc private func speechChanged() {

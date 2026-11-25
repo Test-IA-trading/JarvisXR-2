@@ -154,9 +154,21 @@ struct JarvisVoiceSignalMeter {
 final class JarvisVoiceInputService: NSObject {
     static let shared = JarvisVoiceInputService()
 
+    enum ListeningMode: Equatable {
+        /// A request: ends after a short silence, 7 s without speech, or 30 s.
+        case command
+        /// Waiting for « Jarvis » (Réveil par la voix): long turns, on-device recognition
+        /// only, other audio not ducked; the turn ends after the request that follows
+        /// « Jarvis », and the home screen starts the next one.
+        case wake
+    }
+
     var onStateChange: ((JarvisVoiceInputState) -> Void)?
     var onPartialTranscript: ((String) -> Void)?
     var onFinalTranscript: ((String) -> Void)?
+    /// Mode of the current or last turn.
+    private(set) var mode: ListeningMode = .command
+    let wakeListenDuration: TimeInterval = 50
     /// Microphone level in 0...1, throttled, only while listening.
     var onInputLevel: ((Float) -> Void)?
 
@@ -219,8 +231,9 @@ final class JarvisVoiceInputService: NSObject {
 
     /// Checks both permissions in order (speech recognition, then microphone), asking
     /// only when iOS has not decided yet, then opens the microphone.
-    func startListening() {
+    func startListening(mode: ListeningMode = .command) {
         guard !isListening else { return }
+        self.mode = mode
         starting = true
         generation += 1
         let turn = generation
@@ -252,6 +265,11 @@ final class JarvisVoiceInputService: NSObject {
                 }
                 guard recognizer.isAvailable else {
                     self.fail(.make(.recognizerUnavailable, diagnostic: "recognizer.isAvailable == false (\(self.locale.identifier))"), turn: turn)
+                    return
+                }
+                // Waiting for « Jarvis » never streams the room's sound to a server.
+                guard self.mode == .command || recognizer.supportsOnDeviceRecognition else {
+                    self.fail(.make(.recognizerUnavailable, diagnostic: "wake word needs on-device recognition"), turn: turn)
                     return
                 }
                 self.beginAudioRecognition(with: recognizer, turn: turn)
@@ -325,7 +343,9 @@ final class JarvisVoiceInputService: NSObject {
             // `.duckOthers` is only valid with play-and-record style categories; with
             // `.record` iOS may reject it. `.defaultToSpeaker` keeps Jarvis's reply on the
             // loudspeaker if it starts before the session is released.
-            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+            // Waiting for « Jarvis » must not lower the user's music for minutes on end.
+            let options: AVAudioSession.CategoryOptions = mode == .wake ? [.mixWithOthers, .defaultToSpeaker] : [.duckOthers, .defaultToSpeaker]
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: options)
             try audioSession.setActive(true)
         } catch {
             let nsError = error as NSError
@@ -345,7 +365,7 @@ final class JarvisVoiceInputService: NSObject {
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.addsPunctuation = true
         recognitionRequest.contextualStrings = ["Jarvis", "JARVIS"]
-        let onDevice = recognizer.supportsOnDeviceRecognition && !preferServerRecognition
+        let onDevice = mode == .wake || (recognizer.supportsOnDeviceRecognition && !preferServerRecognition)
         recognitionRequest.requiresOnDeviceRecognition = onDevice
         request = recognitionRequest
 
@@ -398,7 +418,10 @@ final class JarvisVoiceInputService: NSObject {
                 if let transcript {
                     self.lastTranscript = transcript
                     self.onPartialTranscript?(transcript)
-                    if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // While waiting for « Jarvis », other voices (a TV, a conversation)
+                    // do not end the turn: only the request that follows the wake word does.
+                    let addressed = self.mode == .command || JarvisWakeWord.command(in: transcript) != nil
+                    if addressed, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         self.scheduleSilenceEndpoint(turn: turn)
                     }
                 }
@@ -409,7 +432,7 @@ final class JarvisVoiceInputService: NSObject {
                 if let error {
                     let hasText = !self.lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if let failure = JarvisVoiceFailure.fromRecognitionError(error), !hasText {
-                        if onDevice && failure.kind != .dictationDisabled {
+                        if onDevice && failure.kind != .dictationDisabled && self.mode == .command {
                             // The local French model failed: let the next turn use Apple's server engine.
                             self.preferServerRecognition = true
                         }
@@ -486,6 +509,8 @@ final class JarvisVoiceInputService: NSObject {
     // MARK: - Endpointing
 
     private func startEndpointTimers(turn: Int) {
+        let noSpeechTimeout = mode == .wake ? wakeListenDuration : self.noSpeechTimeout
+        let maximumListenDuration = mode == .wake ? wakeListenDuration + 5 : self.maximumListenDuration
         noSpeechTimer = Timer.scheduledTimer(withTimeInterval: noSpeechTimeout, repeats: false) { [weak self] _ in
             guard let self, self.generation == turn else { return }
             if self.lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
