@@ -13,7 +13,17 @@ extension Notification.Name {
 /// data. The file is verified by size and SHA-256, kept in Application Support and
 /// excluded from iCloud backups. Everything after the download runs offline.
 final class JarvisModelDownloader: NSObject, URLSessionDownloadDelegate {
-    static let shared = JarvisModelDownloader(model: .qwen25Instruct1_5B)
+    static let standard = JarvisModelDownloader(model: .qwen25Instruct1_5B)
+    static let advanced = JarvisModelDownloader(model: .qwen3Instruct4B)
+
+    /// The downloader of the brain chosen in Settings.
+    static var shared: JarvisModelDownloader { downloader(for: JarvisLocalModel.selected) }
+
+    static func downloader(for model: JarvisLocalModel) -> JarvisModelDownloader {
+        model == .qwen3Instruct4B ? advanced : standard
+    }
+
+    static var isAnyDownloading: Bool { standard.isDownloading || advanced.isDownloading }
 
     enum State: Equatable {
         case idle

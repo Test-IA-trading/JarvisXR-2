@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UIKit
 #if canImport(llama)
 import llama
@@ -31,10 +32,48 @@ struct JarvisLocalModel: Equatable {
         source: "Hugging Face (Qwen)"
     )
 
+    /// Qwen3 4B Instruct (2507), IQ4_XS quantisation published by Unsloth: clearly better
+    /// at reasoning, maths and French than the 1.5B model, but slower, 2.3 GB, and it needs
+    /// about 2.7 GB of free memory. Optional: « Avancé » in Settings.
+    static let qwen3Instruct4B = JarvisLocalModel(
+        identifier: "qwen3-4b-instruct-2507-iq4_xs",
+        displayName: "Qwen3 4B Instruct",
+        fileName: "Qwen3-4B-Instruct-2507-IQ4_XS.gguf",
+        downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-IQ4_XS.gguf")!,
+        sha256: "cfd15a69e4801abfa16f0263b77ffbf97cbb8af67782a70cc95cf627b3dfa27d",
+        sizeBytes: 2_270_751_840,
+        license: "Apache 2.0",
+        source: "Hugging Face (Unsloth, modèle Qwen)"
+    )
+
+    /// Standard first, then Avancé, as in Settings.
+    static let catalog: [JarvisLocalModel] = [.qwen25Instruct1_5B, .qwen3Instruct4B]
+    static let selectionKey = "JarvisXR.brainModel"
+
+    /// The brain chosen in Settings: the standard 1.5B model unless « Avancé » was picked.
+    static var selected: JarvisLocalModel {
+        get {
+            let identifier = UserDefaults.standard.string(forKey: selectionKey)
+            return catalog.first { $0.identifier == identifier } ?? .qwen25Instruct1_5B
+        }
+        set {
+            UserDefaults.standard.set(newValue.identifier, forKey: selectionKey)
+        }
+    }
+
+    var isAdvanced: Bool { self == .qwen3Instruct4B }
+
+    /// Free memory needed before loading: the mapped file, the conversation cache (2,048
+    /// tokens) and the work buffers.
+    var requiredMemoryBytes: Int64 { sizeBytes + 450_000_000 }
+
     /// « 1,1 Go »
     var sizeDescription: String {
-        let gigabytes = Double(sizeBytes) / 1_000_000_000
-        return String(format: "%.1f Go", gigabytes).replacingOccurrences(of: ".", with: ",")
+        JarvisLocalModel.gigabytes(sizeBytes)
+    }
+
+    static func gigabytes(_ bytes: Int64) -> String {
+        String(format: "%.1f Go", Double(bytes) / 1_000_000_000).replacingOccurrences(of: ".", with: ",")
     }
 }
 
@@ -184,6 +223,11 @@ enum JarvisAnswerCleaner {
     static func clean(_ raw: String, maxCharacters: Int = 700) -> String {
         // LaTeX (\frac{x^3}{3}) becomes plain notation (x³/3) before anything else.
         var text = JarvisSpokenMath.plainMath(raw)
+        // A model that thinks aloud wraps it in <think>…</think>: only the answer is kept.
+        text = text.replacingRegex(#"(?s)<think>.*?</think>"#, with: "")
+        if let open = text.range(of: "<think>") {
+            text = String(text[..<open.lowerBound])
+        }
         for marker in ["<|im_end|>", "<|im_start|>", "<|endoftext|>"] {
             if let range = text.range(of: marker) {
                 text = String(text[..<range.lowerBound])
@@ -220,9 +264,12 @@ enum JarvisBrainError: Error, Equatable {
     case generationFailed(String)
     case emptyAnswer
     case cancelled
+    case notEnoughMemory(available: Int64, required: Int64)
 
     var message: String {
         switch self {
+        case .notEnoughMemory(let available, let required):
+            return "Pas assez de mémoire libre pour charger ce cerveau : \(JarvisLocalModel.gigabytes(available)) disponibles, il en faut environ \(JarvisLocalModel.gigabytes(required)). Fermez d'autres apps et réessayez, ou choisissez le cerveau Standard dans les Réglages."
         case .unsupportedDevice:
             return "Le cerveau local fonctionne sur iPhone, pas dans le simulateur."
         case .notInstalled:
@@ -388,9 +435,12 @@ final class JarvisLocalBrain {
         #endif
     }
 
-    let model: JarvisLocalModel
+    private let fixedModel: JarvisLocalModel?
+    private let fixedDownloader: JarvisModelDownloader?
+    /// The model in use: the one chosen in Settings, unless a test fixed it.
+    var model: JarvisLocalModel { fixedDownloader?.model ?? fixedModel ?? JarvisLocalModel.selected }
     let maxAnswerTokens = 256
-    private let downloader: JarvisModelDownloader
+    private var downloader: JarvisModelDownloader { fixedDownloader ?? JarvisModelDownloader.downloader(for: model) }
     private let queue = DispatchQueue(label: "jarvis.local-brain", qos: .userInitiated)
     private let cancelLock = NSLock()
     private var cancelRequested = false
@@ -398,13 +448,15 @@ final class JarvisLocalBrain {
     private(set) var measurement = Measurement()
     #if canImport(llama)
     private var engine: JarvisLlamaEngine?
+    /// File of the loaded engine: another brain chosen in Settings is loaded instead.
+    private var enginePath: String?
     #endif
 
     private static let enabledKey = "JarvisXR.localBrainEnabled"
 
-    init(model: JarvisLocalModel = .qwen25Instruct1_5B, downloader: JarvisModelDownloader = .shared) {
-        self.model = model
-        self.downloader = downloader
+    init(model: JarvisLocalModel? = nil, downloader: JarvisModelDownloader? = nil) {
+        self.fixedModel = model
+        self.fixedDownloader = downloader
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
@@ -441,6 +493,10 @@ final class JarvisLocalBrain {
             var text = "Prêt : \(model.displayName) (\(model.license)), fonctionne sans Internet."
             if measurement.lastTokens > 0 {
                 text += String(format: " Dernière réponse : %.0f mots-jetons/s.", measurement.tokensPerSecond)
+            }
+            let available = Int64(os_proc_available_memory())
+            if model.isAdvanced, available > 0 {
+                text += " Mémoire libre pour Jarvis : \(JarvisLocalModel.gigabytes(available)) (il faut environ \(JarvisLocalModel.gigabytes(model.requiredMemoryBytes)))."
             }
             return text
         }
@@ -500,7 +556,10 @@ final class JarvisLocalBrain {
     func unloadIfIdle() {
         guard !isGenerating else { return }
         #if canImport(llama)
-        queue.async { [weak self] in self?.engine = nil }
+        queue.async { [weak self] in
+            self?.engine = nil
+            self?.enginePath = nil
+        }
         #endif
     }
 
@@ -515,14 +574,26 @@ final class JarvisLocalBrain {
         cancelRequested = false
         cancelLock.unlock()
         let path = downloader.modelFileURL.path
+        let requiredMemory = model.requiredMemoryBytes
         let maxTokens = maxAnswerTokens
         queue.async { [weak self] in
             guard let self else { return }
             var loadSeconds: Double?
             do {
+                if self.enginePath != path {
+                    // Another brain was chosen in Settings: free the old one first.
+                    self.engine = nil
+                    self.enginePath = nil
+                }
                 if self.engine == nil {
+                    // Refuse to load rather than let iOS close the app for lack of memory.
+                    let available = Int64(os_proc_available_memory())
+                    if available > 0, available < requiredMemory {
+                        throw JarvisBrainError.notEnoughMemory(available: available, required: requiredMemory)
+                    }
                     let loadStart = Date()
                     self.engine = try JarvisLlamaEngine(modelPath: path)
+                    self.enginePath = path
                     loadSeconds = Date().timeIntervalSince(loadStart)
                 }
                 guard let engine = self.engine else { throw JarvisBrainError.modelLoadFailed }
@@ -559,6 +630,7 @@ final class JarvisLocalBrain {
                 }
             } catch let error as JarvisBrainError {
                 self.engine = nil
+                self.enginePath = nil
                 DispatchQueue.main.async {
                     self.isGenerating = false
                     completion(.failure(error))

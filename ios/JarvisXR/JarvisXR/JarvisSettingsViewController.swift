@@ -39,6 +39,8 @@ final class JarvisSettingsViewController: UIViewController {
     private let assistant = JarvisAssistantCore()
 
     // Local brain (on-device language model) controls.
+    private let brainExplanationLabel = UILabel()
+    private let brainModelControl = UISegmentedControl(items: ["Standard", "Avancé"])
     private let brainStatusLabel = UILabel()
     private let brainSwitch = UISwitch()
     private var brainActionButton: UIButton?
@@ -164,15 +166,22 @@ final class JarvisSettingsViewController: UIViewController {
     // MARK: - Local brain
 
     private func buildBrainSection() {
-        let brain = JarvisLocalBrain.shared
         stackView.addArrangedSubview(sectionHeading("Cerveau local (hors ligne)"))
-        let explanation = textLabel(
-            "Pour répondre aux questions libres sans Internet ni PC, JARVIS utilise un modèle de langage installé sur l'iPhone : \(brain.model.displayName), licence \(brain.model.license), \(brain.model.sizeDescription) téléchargés une seule fois depuis \(brain.model.source). Vos questions restent sur l'iPhone.",
-            style: .footnote,
-            color: JarvisTheme.mutedText
-        )
-        explanation.accessibilityIdentifier = "jarvis.settings.brain.explanation"
-        stackView.addArrangedSubview(explanation)
+        brainExplanationLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
+        brainExplanationLabel.adjustsFontForContentSizeCategory = true
+        brainExplanationLabel.textColor = JarvisTheme.mutedText
+        brainExplanationLabel.numberOfLines = 0
+        brainExplanationLabel.accessibilityIdentifier = "jarvis.settings.brain.explanation"
+        stackView.addArrangedSubview(brainExplanationLabel)
+
+        let standard = JarvisLocalModel.qwen25Instruct1_5B
+        let advanced = JarvisLocalModel.qwen3Instruct4B
+        configureSegmented(brainModelControl, identifier: "jarvis.settings.brain.model", action: #selector(brainModelChanged))
+        stackView.addArrangedSubview(settingPanel(
+            title: "Cerveau",
+            detail: "Standard : \(standard.displayName), \(standard.sizeDescription), rapide. Avancé : \(advanced.displayName), \(advanced.sizeDescription), bien meilleur en raisonnement et en maths, plus lent ; il lui faut environ \(JarvisLocalModel.gigabytes(advanced.requiredMemoryBytes)) de mémoire libre.",
+            control: brainModelControl
+        ))
 
         brainStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
         brainStatusLabel.adjustsFontForContentSizeCategory = true
@@ -204,6 +213,11 @@ final class JarvisSettingsViewController: UIViewController {
     private func refreshBrainSection() {
         let brain = JarvisLocalBrain.shared
         let downloader = JarvisModelDownloader.shared
+        let model = brain.model
+        brainExplanationLabel.text = "Pour répondre aux questions libres sans Internet ni PC, JARVIS utilise un modèle de langage installé sur l'iPhone : \(model.displayName), licence \(model.license), \(model.sizeDescription) téléchargés une seule fois depuis \(model.source). Vos questions restent sur l'iPhone."
+        brainModelControl.selectedSegmentIndex = model.isAdvanced ? 1 : 0
+        // One download at a time: the choice waits until it ends.
+        brainModelControl.isEnabled = !JarvisModelDownloader.isAnyDownloading
         brainSwitch.isOn = brain.isEnabled
         if let progress = downloader.stateDescription {
             brainStatusLabel.text = progress
@@ -232,6 +246,18 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func brainSwitchChanged() {
         JarvisLocalBrain.shared.isEnabled = brainSwitch.isOn
+    }
+
+    /// Standard or Avancé: each brain is downloaded once, both can stay installed.
+    @objc private func brainModelChanged() {
+        guard !JarvisModelDownloader.isAnyDownloading else {
+            refreshBrainSection()
+            return
+        }
+        JarvisLocalModel.selected = brainModelControl.selectedSegmentIndex == 1 ? .qwen3Instruct4B : .qwen25Instruct1_5B
+        JarvisLocalBrain.shared.unloadIfIdle()
+        NotificationCenter.default.post(name: .jarvisLocalBrainStateChanged, object: nil)
+        refreshBrainSection()
     }
 
     @objc private func brainActionTapped() {
