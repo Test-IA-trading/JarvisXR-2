@@ -21,6 +21,7 @@ struct JarvisFrenchCommandRouter {
     private let memory: JarvisMemoryStore
     private let scene: JarvisSpatialSceneMemory
     private let context: JarvisConversationContext
+    private let screen: JarvisScreenContext
     private let locale = Locale(identifier: "fr_FR")
 
     /// Prefix of the notes created by « prépare l'essai du bilan ».
@@ -29,11 +30,13 @@ struct JarvisFrenchCommandRouter {
     init(
         memory: JarvisMemoryStore = .shared,
         scene: JarvisSpatialSceneMemory = .shared,
-        context: JarvisConversationContext = .shared
+        context: JarvisConversationContext = .shared,
+        screen: JarvisScreenContext = .shared
     ) {
         self.memory = memory
         self.scene = scene
         self.context = context
+        self.screen = screen
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -71,6 +74,24 @@ struct JarvisFrenchCommandRouter {
 
         if containsAny(request, ["merci"]) && request.split(separator: " ").count <= 4 {
             return .answer(.ok("Avec plaisir."))
+        }
+
+        // Context of the JARVIS screen: the option the user touched last.
+        if containsAny(request, ["suspends l'assistance", "suspend l'assistance", "mets l'assistance en pause", "pause de l'assistance", "desactive l'assistance"]) {
+            screen.setAssistanceEnabled(false)
+            return .answer(.ok("Assistance contextuelle suspendue : je ne suis plus vos sélections.", data: ["mode": "screen_assistance_off"]))
+        }
+        if containsAny(request, ["reprends l'assistance", "reprend l'assistance", "reactive l'assistance", "active l'assistance"]) {
+            screen.setAssistanceEnabled(true)
+            return .answer(.ok("Assistance contextuelle reprise : touchez une option puis demandez-moi.", data: ["mode": "screen_assistance_on"]))
+        }
+        if containsAny(request, [
+            "a quoi sert cette option", "a quoi sert ce reglage", "a quoi ca sert", "a quoi sert ce bouton",
+            "c'est quoi cette option", "c'est quoi ce reglage", "explique cette option", "explique ce reglage",
+            "et celle ci", "et celui ci", "et cette option", "et ce reglage", "et celle la", "et celui la"
+        ]) {
+            let reply = screen.answerAboutSelection()
+            return .answer(.ok(reply))
         }
 
         // Facts stated during the conversation (« le train part à 9 h… lequel part en

@@ -27,6 +27,16 @@ final class JarvisSettingsViewController: UIViewController {
     private let debugOverlaySwitch = UISwitch()
     private let hapticIntensityControl = UISegmentedControl(items: ["Réduit", "Standard", "Fort"])
 
+    // Contextual help: « À quoi sert cette option ? » answers about the option touched last.
+    private let assistantLabel = UILabel()
+    private var optionsByControl: [ObjectIdentifier: JarvisScreenContext.Option] = [:]
+    private var optionsByPanel: [ObjectIdentifier: JarvisScreenContext.Option] = [:]
+    private var panelsByControl: [ObjectIdentifier: UIView] = [:]
+    private var originalBorders: [ObjectIdentifier: (width: CGFloat, color: CGColor?)] = [:]
+    private weak var selectedPanel: UIView?
+    private let voiceInput = JarvisVoiceInputService.shared
+    private let assistant = JarvisAssistantCore()
+
     init(initialSection: JarvisSettingsSection = .general) {
         self.initialSection = initialSection
         super.init(nibName: nil, bundle: nil)
@@ -41,8 +51,125 @@ final class JarvisSettingsViewController: UIViewController {
         super.viewDidLoad()
         title = initialSection == .vision ? "Réglages Vision" : "Réglages"
         view.backgroundColor = JarvisTheme.background
+        let ask = UIBarButtonItem(title: "Demander", style: .plain, target: self, action: #selector(askTapped))
+        ask.accessibilityLabel = "Demander à JARVIS à quoi sert l'option sélectionnée"
+        navigationItem.rightBarButtonItem = ask
         buildInterface()
         loadValues()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        wireVoice()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if voiceInput.isListening {
+            voiceInput.cancel()
+        }
+        JarvisScreenContext.shared.leaveScreen()
+    }
+
+    // MARK: - Contextual help
+
+    private func registerOption(_ control: UIView, title: String, explanation: String) {
+        let option = JarvisScreenContext.Option(title: title, explanation: explanation, screen: self.title ?? "Réglages")
+        optionsByControl[ObjectIdentifier(control)] = option
+        if let uiControl = control as? UIControl {
+            uiControl.addTarget(self, action: #selector(optionChanged(_:)), for: .valueChanged)
+        }
+    }
+
+    /// Lets a tap on the option's panel select it without changing its value.
+    private func linkPanel(_ panel: UIView, to control: UIView) {
+        guard let option = optionsByControl[ObjectIdentifier(control)] else { return }
+        optionsByPanel[ObjectIdentifier(panel)] = option
+        panelsByControl[ObjectIdentifier(control)] = panel
+        let tap = UITapGestureRecognizer(target: self, action: #selector(panelTapped(_:)))
+        tap.cancelsTouchesInView = false
+        panel.addGestureRecognizer(tap)
+    }
+
+    @objc private func optionChanged(_ sender: UIControl) {
+        guard let option = optionsByControl[ObjectIdentifier(sender)] else { return }
+        select(option, panel: panelsByControl[ObjectIdentifier(sender)])
+    }
+
+    @objc private func panelTapped(_ gesture: UITapGestureRecognizer) {
+        guard let panel = gesture.view, let option = optionsByPanel[ObjectIdentifier(panel)] else { return }
+        select(option, panel: panel)
+    }
+
+    private func select(_ option: JarvisScreenContext.Option, panel: UIView?) {
+        let context = JarvisScreenContext.shared
+        guard context.isAssistanceEnabled else { return }
+        context.select(option)
+        if let previous = selectedPanel, let original = originalBorders[ObjectIdentifier(previous)] {
+            previous.layer.borderWidth = original.width
+            previous.layer.borderColor = original.color
+        }
+        guard let panel else { return }
+        if originalBorders[ObjectIdentifier(panel)] == nil {
+            originalBorders[ObjectIdentifier(panel)] = (panel.layer.borderWidth, panel.layer.borderColor)
+        }
+        panel.layer.borderWidth = 2
+        panel.layer.borderColor = JarvisTheme.accentHot.cgColor
+        selectedPanel = panel
+        panel.accessibilityValue = "Sélectionnée pour l'aide JARVIS"
+    }
+
+    @objc private func askTapped() {
+        if voiceInput.isListening {
+            voiceInput.stopListening(process: true)
+            return
+        }
+        JarvisSpeechService.shared.stop()
+        voiceInput.startListening()
+    }
+
+    private func showAssistant(_ text: String) {
+        assistantLabel.text = text
+        assistantLabel.isHidden = text.isEmpty
+    }
+
+    private func wireVoice() {
+        voiceInput.onStateChange = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .listening:
+                self.navigationItem.rightBarButtonItem?.title = "Terminer"
+                self.showAssistant("Micro actif : demandez « À quoi sert cette option ? ».")
+            case .hearingSound:
+                if self.voiceInput.currentTranscript.isEmpty { self.showAssistant("Son reçu…") }
+            case .heardYou(let transcript):
+                self.showAssistant("« \(transcript) »")
+            case .processing:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+            case .standby:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+            case .noSpeech:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+                self.showAssistant("Aucune parole détectée. Touchez « Demander » et réessayez.")
+            case .unavailable(let failure):
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+                self.showAssistant(failure.message)
+            }
+        }
+        voiceInput.onPartialTranscript = { [weak self] text in
+            guard let self, !text.isEmpty else { return }
+            self.showAssistant(text)
+        }
+        voiceInput.onInputLevel = nil
+        voiceInput.onFinalTranscript = { [weak self] text in
+            guard let self else { return }
+            let response = self.assistant.decide(text).response
+            self.showAssistant(response.displayResponse)
+            let speech = JarvisSpeechService.shared
+            if response.shouldSpeak, speech.isEnabled, response.status == .ok || response.status == .confirmationRequired {
+                speech.speak(response.spokenResponse)
+            }
+        }
     }
 
     private func buildInterface() {
@@ -74,6 +201,22 @@ final class JarvisSettingsViewController: UIViewController {
         header.accessibilityTraits.insert(.header)
         header.accessibilityIdentifier = "jarvis.settings.header"
         stackView.addArrangedSubview(header)
+
+        let contextualHint = textLabel(
+            "Touchez une option, puis « Demander » et dites « À quoi sert cette option ? ».",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        )
+        contextualHint.accessibilityIdentifier = "jarvis.settings.assistantHint"
+        stackView.addArrangedSubview(contextualHint)
+        assistantLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        assistantLabel.adjustsFontForContentSizeCategory = true
+        assistantLabel.textColor = JarvisTheme.accentHot
+        assistantLabel.numberOfLines = 0
+        assistantLabel.isHidden = true
+        assistantLabel.accessibilityIdentifier = "jarvis.settings.assistant"
+        assistantLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(assistantLabel)
 
         configureSwitch(
             speechSwitch,
@@ -185,6 +328,7 @@ final class JarvisSettingsViewController: UIViewController {
         control.accessibilityLabel = label
         control.accessibilityHint = hint
         control.accessibilityIdentifier = identifier
+        registerOption(control, title: label, explanation: hint)
     }
 
     private func configureSegmented(_ control: UISegmentedControl, identifier: String, action: Selector) {
@@ -207,6 +351,7 @@ final class JarvisSettingsViewController: UIViewController {
         row.distribution = .equalSpacing
         let panel = wrapInPanel(row)
         panel.accessibilityElements = [control]
+        linkPanel(panel, to: control)
         return panel
     }
 
@@ -217,7 +362,10 @@ final class JarvisSettingsViewController: UIViewController {
         let stack = UIStackView(arrangedSubviews: [heading, detailLabel, control])
         stack.axis = .vertical
         stack.spacing = 8
-        return wrapInPanel(stack)
+        let panel = wrapInPanel(stack)
+        registerOption(control, title: title, explanation: detail)
+        linkPanel(panel, to: control)
+        return panel
     }
 
     private func sectionHeading(_ title: String) -> UILabel {

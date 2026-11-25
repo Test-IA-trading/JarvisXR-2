@@ -121,6 +121,22 @@ Essai terrain le plus court, en mode avion :
 | « Dis Jarvis » via raccourci vocal iOS | ✓ | ✓ | compilation | à faire |
 | États de l'accueil en français | ✓ | ✓ | test de surface | à faire |
 
+## Aide contextuelle des Réglages — suivi (lot 4, branche `feature/contexte-reglages`)
+
+- `JarvisScreenContext` garde en mémoire l'option touchée en dernier dans les Réglages : un tap sur son panneau, ou un changement de valeur. Cette option est mise en évidence par un cadre.
+- Le bouton « Demander » de la barre des Réglages ouvre le micro :
+  - « À quoi sert cette option ? » répond avec le titre et l'explication de l'option sélectionnée, tirés du texte même des Réglages ;
+  - « Et celle-ci ? » utilise la nouvelle sélection ;
+  - sans sélection, Jarvis demande d'abord de toucher une option.
+- « Suspends l'assistance » arrête de suivre les sélections, et les actions suivantes ne déclenchent plus de réaction. « Reprends l'assistance » la réactive.
+- Rien n'est lu hors de JARVIS : le contexte d'une autre app dépend de ce qu'iOS permet de partager (partage, raccourcis).
+
+| Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
+|---|---|---|---|---|
+| « À quoi sert cette option ? » puis « Et celle-ci ? » | ✓ | ✓ | tests unitaires | à faire |
+| Suspension / reprise de l'assistance | ✓ | ✓ | tests unitaires | à faire |
+| Contexte d'autres apps via les mécanismes iOS autorisés | ✓ | — | — | — |
+
 ## Preserved Boundaries
 
 The app uses public APIs and does not provide jailbreak hooks, root access, hidden screen reading, injected taps, a lock-screen replacement, or unrestricted system control.
