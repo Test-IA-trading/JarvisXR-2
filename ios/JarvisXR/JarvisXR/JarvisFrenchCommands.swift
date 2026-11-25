@@ -132,6 +132,12 @@ struct JarvisFrenchCommandRouter {
             return .answer(.ok(math.spoken, display: math.display))
         }
 
+        // Conversions and date questions, before « quel jour » takes « Quel jour serons-nous
+        // dans 3 jours ? » for today's date.
+        if !isNoteDictation, let everyday = JarvisUnitConverter.answer(to: original) ?? JarvisDateAnswers.answer(to: original, now: now) {
+            return .answer(.ok(everyday.spoken, display: everyday.display))
+        }
+
         if containsAny(request, ["quelle heure", "l'heure", "il est quelle heure"]) {
             let formatter = DateFormatter()
             formatter.locale = locale

@@ -1,6 +1,6 @@
 # Public Release Handoff
 
-## Reprise rapide — état au 25/11/2026, matin
+## Reprise rapide — état au 25/11/2026, midi
 
 À lire en premier pour reprendre le travail sans raconter le projet.
 
@@ -15,21 +15,42 @@
   - #12 minuteurs, rappels et agenda ;
   - #13 guide en direct français ;
   - #14 Vision tout en français ;
-  - #15 cube AR mains libres.
+  - #15 cube AR mains libres ;
+  - #16 voix naturelle (fin des voix Eloquence, choix de la voix) ;
+  - #17 calculs exacts, formules lues en mots, consignes du cerveau ;
+  - #18 mémoire personnelle (prénom, notes données au cerveau) ;
+  - #19 cerveau avancé en option (Qwen3 4B, contrôle de la mémoire) ;
+  - #20 réveil par la voix « Jarvis » (option, reconnaissance sur l'iPhone) ;
+  - #21 conversions et questions de dates.
 
   Les fusions restent la décision du propriétaire.
-- **Dernière préversion publiée** : `v2.0.0-preversion.3`, commit `ea23425` (PR #12), avec le cerveau local, les minuteurs et l'occlusion.
-  - L'IPA a été vérifiée : `Frameworks/llama.framework` est embarqué, l'app le charge par `@rpath/llama.framework/llama` et le rpath `@executable_path/Frameworks` est présent.
-  - Copie dans `OneDrive\Desktop\Jarvis\IPA`, avec LISEZMOI et TUTO à jour.
-- **Validé sur iPhone 14 Pro** : seulement le micro et la transcription française (25/11). Tout le reste est « à faire ».
-- **Prochaine action exacte** : publier la préversion 4 depuis la #13 et la préversion 5 depuis la #14, chacune quand sa CI est verte :
-  1. télécharger l'artefact `JarvisXR-unsigned-ipa` du run et revérifier `llama.framework` ;
-  2. publier la préversion : `v2.0.0-preversion.4` pour le guide en direct français (#13), `v2.0.0-preversion.5` pour la Vision tout en français avec « Trouve la tasse » (#14) ;
-  3. copier l'IPA dans OneDrive et mettre à jour LISEZMOI, TUTO et la page tuto.
+- **Dernière préversion publiée** : `v2.0.0-preversion.4`, commit `917a9bb` (PR #16), avec la voix naturelle.
+  - IPA vérifiée : `llama.framework` embarqué et chargé par `@rpath`. Lien public testé sans compte, empreinte identique.
+  - Copie dans `OneDrive\Desktop\Jarvis\IPA`, avec LISEZMOI et TUTO à jour ; page tuto republiée.
+- **Validé sur iPhone 14 Pro (25/11)** :
+  - micro, transcription française ;
+  - cerveau local hors ligne : « Pourquoi le ciel est-il bleu ? » bien expliqué.
+  - Deux retours ont été corrigés depuis : une intégrale refusée (corrigé par #17) et une voix « horrible » (corrigé par #16 : à qualité égale, l'app prenait souvent une voix Eloquence).
+- **Prochaine action exacte** : publier `v2.0.0-preversion.5` depuis le haut de la pile (#21, ou #20 si #21 n'est pas encore verte), quand sa CI est verte. Mêmes étapes que pour la préversion 4 :
+  1. télécharger l'artefact `JarvisXR-unsigned-ipa` dans un dossier vide ;
+  2. vérifier `llama.framework` ;
+  3. publier en préversion ;
+  4. tester le lien sans compte ;
+  5. copier l'IPA dans OneDrive, mettre à jour LISEZMOI et TUTO, republier la page tuto.
 - **Essais demandés au propriétaire** :
-  1. Cerveau : téléchargement dans Réglages > Cerveau local, puis « Pourquoi le ciel est-il bleu ? » en mode avion. Relever le délai avant la voix et les jetons/s.
-  2. Scénario 4 de la tasse : voir le lot 7 ci-dessous.
-- **Méthode** : ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une petite réplique Python (ce fut le cas pour `VisionLiveGuideEngine`, et les tests unitaires de la #13 sont passés du premier coup). Le runner `macos-26-intel` met environ 1 h 30 par run. Sur une PR qui touche déjà au code, tout push relance la CI et annule le run en cours, même un commit de documentation seule : regroupez les modifications.
+  1. Voix : Réglages › Voix de Jarvis (plus d'Eddy ni de Jacques), puis télécharger « Thomas (Améliorée) » dans les Réglages d'iOS.
+  2. Préversion 5 :
+     - « Intégrale de 0 à 1 de x au carré » ;
+     - « Je m'appelle… », puis « Bonjour Jarvis » ;
+     - le cerveau Avancé (noter la mémoire libre affichée) ;
+     - le réveil par la voix.
+- **CI** : deux pannes du runner Intel ont eu lieu le 25/11, sans lien avec le code. `gh run rerun <id> --failed` les corrige :
+  - un envoi d'artefact en `ENOTFOUND` ;
+  - un simulateur qui ne démarre pas (étape « annulée »).
+- **Méthode** :
+  - ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une réplique Python : `VisionLiveGuideEngine`, `JarvisMathSolver`, conversions et dates. Leurs tests sont passés au premier essai en CI ;
+  - le runner `macos-26-intel` met environ 1 h 30 par CI ;
+  - tout envoi sur une PR de code, même de documentation seule, relance sa CI : on regroupe donc les envois.
 
 ## Current Product
 
