@@ -131,6 +131,17 @@ def test_wake_word_like_the_iphone():
     assert wake.command("On regardait un film") is None
 
 
+def test_wake_word_survives_what_whisper_writes():
+    """Mis-hearings seen on the real PC (25/11): « Dis Jarvis » run together, a letter off."""
+    assert wake.command("Dijardvis, met un minuteur de 10 minutes.") == "met un minuteur de 10 minutes"
+    assert wake.command("Jarvos, quelle heure est-il ?") == "quelle heure est-il"
+    assert wake.command("J'arvis, ouvre Spotify") == "ouvre Spotify"
+    assert wake.command("Rendez-vous sur le parvis de la gare") is None
+    assert wake.command("J'invite mes amis demain soir.") is None
+    assert wake.command("Il est ravi de venir") is None
+    assert wake.command("J'arrive dans cinq minutes") is None
+
+
 def test_brain_text_is_clean_for_the_voice():
     assert clean("<think>calculs</think>La réponse est \\( e^x (x - 1) + C \\).") == "La réponse est e^x (x - 1) + C ."
     assert clean("**Bonjour** !\n- un\n- deux") == "Bonjour ! un deux"
@@ -139,6 +150,7 @@ def test_brain_text_is_clean_for_the_voice():
     assert streamer.new_sentences("Bonjour. Je suis Jarvis.", True) == ["Je suis Jarvis."]
     prompt = system_prompt(["La personne qui te parle s'appelle Tony."], now=NOW)
     assert "mercredi 25 novembre 2026" in prompt and "Tony" in prompt and "sans LaTeX" in prompt
+    assert "Vouvoie" in prompt, "Jarvis says « vous », as on the iPhone"
 
 
 def _room(seconds, level=0.002, seed=12345):

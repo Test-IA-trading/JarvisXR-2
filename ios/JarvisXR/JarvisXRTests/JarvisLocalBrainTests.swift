@@ -58,6 +58,7 @@ final class JarvisLocalBrainTests: XCTestCase {
         XCTAssertTrue(system.contains("hors ligne"))
         XCTAssertTrue(system.contains("25 novembre 2026"))
         XCTAssertTrue(system.contains("le train part à midi"))
+        XCTAssertTrue(system.contains("Vouvoie"), "Jarvis says « vous », like Jarvis PC")
     }
 
     // MARK: Streaming text and cleaning

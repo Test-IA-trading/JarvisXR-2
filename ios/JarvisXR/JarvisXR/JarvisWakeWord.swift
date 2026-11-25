@@ -28,6 +28,45 @@ enum JarvisWakeWord {
     /// Words that only call Jarvis: « Hey Jarvis », « Dis Jarvis », « Bonjour Jarvis ».
     private static let callWords: Set<String> = ["hey", "he", "eh", "ok", "okay", "dis", "dites", "bonjour", "salut", "allo", "alors"]
 
+    /// « Dis Jarvis » is sometimes written as one word (« Dijarvis »).
+    private static let callPrefixes = ["dis", "di", "hey", "he", "eh", "ok"]
+
+    /// One letter away from « jarvis », yet a French word.
+    private static let notJarvis: Set<String> = ["parvis"]
+
+    /// « jarvis », a letter off (« jardvis »), or run together with « dis » (« dijarvis »).
+    /// The same rule as Jarvis PC (pc/jarvis_pc/wake.py).
+    static func isJarvis(_ folded: String) -> Bool {
+        if spellings.contains(folded) || looksLikeJarvis(folded) { return true }
+        for prefix in callPrefixes where folded.hasPrefix(prefix) {
+            let rest = String(folded.dropFirst(prefix.count))
+            if spellings.contains(rest) || looksLikeJarvis(rest) { return true }
+        }
+        return false
+    }
+
+    private static func looksLikeJarvis(_ word: String) -> Bool {
+        (5...8).contains(word.count) && !notJarvis.contains(word) && distance(word, "jarvis") <= 1
+    }
+
+    /// Edit distance: letters added, removed or changed.
+    static func distance(_ a: String, _ b: String) -> Int {
+        let left = Array(a)
+        let right = Array(b)
+        guard !left.isEmpty else { return right.count }
+        guard !right.isEmpty else { return left.count }
+        var previous = Array(0...right.count)
+        for i in 1...left.count {
+            var current = [i] + Array(repeating: 0, count: right.count)
+            for j in 1...right.count {
+                let change = left[i - 1] == right[j - 1] ? 0 : 1
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + change)
+            }
+            previous = current
+        }
+        return previous[right.count]
+    }
+
     /// The request in a transcript: the words after the last « Jarvis » (« Jarvis, quelle
     /// heure est-il ? »), or the words before it when nothing follows (« Quelle heure
     /// est-il, Jarvis ? »). "" when Jarvis is only called (« Jarvis ? »), nil when the
@@ -37,7 +76,7 @@ enum JarvisWakeWord {
         transcript.enumerateSubstrings(in: transcript.startIndex..<transcript.endIndex, options: .byWords) { word, range, _, _ in
             guard let word else { return }
             let folded = word.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR")).lowercased()
-            if spellings.contains(folded) {
+            if isJarvis(folded) {
                 lastRange = range
             }
         }

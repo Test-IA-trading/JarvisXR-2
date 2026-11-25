@@ -95,6 +95,9 @@ class Speaker:
             out.writeframes(audio.tobytes())
 
 
+WAKE_PROMPT = "Jarvis, quelle heure est-il ? Jarvis, ouvre Spotify. Dis Jarvis, quel temps fait-il ?"
+
+
 class Transcriber:
     """Speech to text in French with faster-whisper on the CPU."""
 
@@ -117,8 +120,11 @@ class Transcriber:
         if sample_rate != 16000:
             positions = np.linspace(0, len(samples) - 1, int(len(samples) * 16000 / sample_rate))
             samples = np.interp(positions, np.arange(len(samples)), samples).astype(np.float32)
+        # A prompt full of « Jarvis, … » calls: on the same recordings (25/11), Jarvis was
+        # heard 12 times out of 12 instead of 9 (« J'envie, quelle heure est-il ? »), with
+        # no false wake on « J'invite… » or « J'envie… », at the same speed.
         segments, _ = self.ensure().transcribe(samples, language="fr", beam_size=1, vad_filter=False,
-                                               initial_prompt="Jarvis, assistant personnel.")
+                                               initial_prompt=WAKE_PROMPT)
         return " ".join(segment.text.strip() for segment in segments).strip()
 
 

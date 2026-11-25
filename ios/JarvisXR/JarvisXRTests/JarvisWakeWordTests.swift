@@ -21,6 +21,17 @@ final class JarvisWakeWordTests: XCTestCase {
         XCTAssertEqual(JarvisWakeWord.command(in: "Dis Jarvis."), "")
     }
 
+    func testWhatTheRecognizerMayWriteForJarvis() {
+        XCTAssertEqual(JarvisWakeWord.command(in: "Dijarvis, mets un minuteur de 10 minutes"), "mets un minuteur de 10 minutes", "« Dis Jarvis » run together")
+        XCTAssertEqual(JarvisWakeWord.command(in: "Jarvos, quelle heure est-il ?"), "quelle heure est-il", "One letter off")
+        XCTAssertNil(JarvisWakeWord.command(in: "Rendez-vous sur le parvis de la gare"), "« parvis » is a word")
+        XCTAssertNil(JarvisWakeWord.command(in: "J'invite mes amis demain soir"))
+        XCTAssertNil(JarvisWakeWord.command(in: "Il est ravi de venir"))
+        XCTAssertEqual(JarvisWakeWord.distance("jardvis", "jarvis"), 1)
+        XCTAssertEqual(JarvisWakeWord.distance("parvis", "jarvis"), 1)
+        XCTAssertEqual(JarvisWakeWord.distance("", "jarvis"), 6)
+    }
+
     func testOtherConversationsAreIgnored() {
         XCTAssertNil(JarvisWakeWord.command(in: "On regardait un film hier soir"))
         XCTAssertNil(JarvisWakeWord.command(in: "J'arrive dans cinq minutes"))
