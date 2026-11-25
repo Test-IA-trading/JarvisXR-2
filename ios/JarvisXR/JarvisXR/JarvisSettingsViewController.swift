@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 
 enum JarvisSettingsSection {
@@ -12,12 +13,12 @@ final class JarvisSettingsViewController: UIViewController {
     private let stackView = UIStackView()
 
     private let speechSwitch = UISwitch()
-    private let voiceProfileControl = UISegmentedControl(items: ["Natural", "Friendly", "Crisp", "Quiet", "Formal"])
-    private let narrationControl = UISegmentedControl(items: ["Concise", "Standard", "Detailed"])
-    private let cameraControl = UISegmentedControl(items: ["Rear", "Front"])
-    private let defaultModeControl = UISegmentedControl(items: ["Describe", "Live", "Find", "Read", "Scan"])
-    private let sensitivityControl = UISegmentedControl(items: ["Conservative", "Balanced", "Sensitive"])
-    private let processingControl = UISegmentedControl(items: ["Auto", "Standard", "Reduced"])
+    private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Discrète", "Formelle"])
+    private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
+    private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
+    private let defaultModeControl = UISegmentedControl(items: ["Décrire", "Guide", "Trouver", "Lire", "Scanner"])
+    private let sensitivityControl = UISegmentedControl(items: ["Conservateur", "Équilibré", "Sensible"])
+    private let processingControl = UISegmentedControl(items: ["Auto", "Standard", "Réduit"])
     private let importantChangesSwitch = UISwitch()
     private let screenAwakeSwitch = UISwitch()
     private let hapticsSwitch = UISwitch()
@@ -25,7 +26,27 @@ final class JarvisSettingsViewController: UIViewController {
     private let sessionMemorySwitch = UISwitch()
     private let autoLightSwitch = UISwitch()
     private let debugOverlaySwitch = UISwitch()
-    private let hapticIntensityControl = UISegmentedControl(items: ["Reduced", "Standard", "Strong"])
+    private let hapticIntensityControl = UISegmentedControl(items: ["Réduit", "Standard", "Fort"])
+
+    // Contextual help: « À quoi sert cette option ? » answers about the option touched last.
+    private let assistantLabel = UILabel()
+    private var optionsByControl: [ObjectIdentifier: JarvisScreenContext.Option] = [:]
+    private var optionsByPanel: [ObjectIdentifier: JarvisScreenContext.Option] = [:]
+    private var panelsByControl: [ObjectIdentifier: UIView] = [:]
+    private var originalBorders: [ObjectIdentifier: (width: CGFloat, color: CGColor?)] = [:]
+    private weak var selectedPanel: UIView?
+    private let voiceInput = JarvisVoiceInputService.shared
+    private let assistant = JarvisAssistantCore()
+
+    // Local brain (on-device language model) controls.
+    private let brainStatusLabel = UILabel()
+    private let brainSwitch = UISwitch()
+    private var brainActionButton: UIButton?
+    private var brainObserver: NSObjectProtocol?
+
+    // Voice of Jarvis: which installed French voice speaks, and how to get a better one.
+    private let voiceStatusLabel = UILabel()
+    private var voiceObservers: [NSObjectProtocol] = []
 
     init(initialSection: JarvisSettingsSection = .general) {
         self.initialSection = initialSection
@@ -39,10 +60,337 @@ final class JarvisSettingsViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = initialSection == .vision ? "Vision Settings" : "Settings"
+        title = initialSection == .vision ? "Réglages Vision" : "Réglages"
         view.backgroundColor = JarvisTheme.background
+        let ask = UIBarButtonItem(title: "Demander", style: .plain, target: self, action: #selector(askTapped))
+        ask.accessibilityLabel = "Demander à JARVIS à quoi sert l'option sélectionnée"
+        navigationItem.rightBarButtonItem = ask
         buildInterface()
         loadValues()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        wireVoice()
+        refreshVoiceSection()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if voiceInput.isListening {
+            voiceInput.cancel()
+        }
+        JarvisScreenContext.shared.leaveScreen()
+    }
+
+    deinit {
+        if let brainObserver {
+            NotificationCenter.default.removeObserver(brainObserver)
+        }
+        voiceObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    // MARK: - Voice of Jarvis
+
+    private func buildVoiceSection() {
+        stackView.addArrangedSubview(sectionHeading("Voix de Jarvis"))
+        voiceStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        voiceStatusLabel.adjustsFontForContentSizeCategory = true
+        voiceStatusLabel.textColor = JarvisTheme.text
+        voiceStatusLabel.numberOfLines = 0
+        voiceStatusLabel.accessibilityIdentifier = "jarvis.settings.voice.status"
+        voiceStatusLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(wrapInPanel(voiceStatusLabel))
+
+        let chooseButton = actionButton("Choisir la voix", identifier: "jarvis.settings.voice.choose", action: #selector(chooseVoiceTapped(_:)))
+        let betterButton = actionButton("Voix plus naturelle", identifier: "jarvis.settings.voice.better", action: #selector(betterVoiceTapped))
+        stackView.addArrangedSubview(horizontalRow([chooseButton, betterButton]))
+
+        // A voice downloaded in iOS Settings shows up when the user comes back.
+        let center = NotificationCenter.default
+        voiceObservers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshVoiceSection()
+        })
+        voiceObservers.append(center.addObserver(forName: AVSpeechSynthesizer.availableVoicesDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshVoiceSection()
+        })
+        refreshVoiceSection()
+    }
+
+    private func refreshVoiceSection() {
+        voiceStatusLabel.text = JarvisSpeechService.shared.currentVoiceDescription()
+    }
+
+    @objc private func chooseVoiceTapped(_ sender: UIButton) {
+        let speech = JarvisSpeechService.shared
+        let choices = speech.frenchVoiceChoices()
+        let sheet = UIAlertController(
+            title: "Voix de Jarvis",
+            message: choices.isEmpty
+                ? "Aucune voix française n'est installée sur cet iPhone."
+                : "Touchez une voix : Jarvis la fait entendre et la garde.",
+            preferredStyle: .actionSheet
+        )
+        let automaticTitle = (speech.chosenVoiceIdentifier == nil ? "✓ " : "") + "Automatique (meilleure voix installée)"
+        sheet.addAction(UIAlertAction(title: automaticTitle, style: .default) { [weak self] _ in
+            speech.chosenVoiceIdentifier = nil
+            speech.previewVoice(identifier: nil)
+            self?.refreshVoiceSection()
+        })
+        for choice in choices.prefix(12) {
+            let mark = speech.chosenVoiceIdentifier == choice.identifier ? "✓ " : ""
+            sheet.addAction(UIAlertAction(title: mark + choice.menuTitle, style: .default) { [weak self] _ in
+                speech.chosenVoiceIdentifier = choice.identifier
+                speech.previewVoice(identifier: choice.identifier)
+                self?.refreshVoiceSection()
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        sheet.popoverPresentationController?.sourceView = sender
+        sheet.popoverPresentationController?.sourceRect = sender.bounds
+        present(sheet, animated: true)
+    }
+
+    @objc private func betterVoiceTapped() {
+        let alert = UIAlertController(
+            title: "Une voix plus naturelle",
+            message: "Les voix « Améliorée » et « Premium » d'Apple sont gratuites et fonctionnent sans Internet une fois téléchargées. Une app ne peut pas les télécharger elle-même.\n\n1. Ouvrez l'app Réglages de l'iPhone › Accessibilité › Contenu énoncé › Voix.\n2. Touchez Français, puis une voix : Thomas est une voix d'homme, la plus proche de Jarvis.\n3. Téléchargez sa version « Améliorée » (ou « Premium » si elle existe).\n\nRevenez ensuite dans Jarvis : il prend tout seul la meilleure voix installée.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Local brain
+
+    private func buildBrainSection() {
+        let brain = JarvisLocalBrain.shared
+        stackView.addArrangedSubview(sectionHeading("Cerveau local (hors ligne)"))
+        let explanation = textLabel(
+            "Pour répondre aux questions libres sans Internet ni PC, JARVIS utilise un modèle de langage installé sur l'iPhone : \(brain.model.displayName), licence \(brain.model.license), \(brain.model.sizeDescription) téléchargés une seule fois depuis \(brain.model.source). Vos questions restent sur l'iPhone.",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        )
+        explanation.accessibilityIdentifier = "jarvis.settings.brain.explanation"
+        stackView.addArrangedSubview(explanation)
+
+        brainStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        brainStatusLabel.adjustsFontForContentSizeCategory = true
+        brainStatusLabel.textColor = JarvisTheme.text
+        brainStatusLabel.numberOfLines = 0
+        brainStatusLabel.accessibilityIdentifier = "jarvis.settings.brain.status"
+        brainStatusLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(wrapInPanel(brainStatusLabel))
+
+        let button = actionButton("Télécharger le cerveau", identifier: "jarvis.settings.brain.action", action: #selector(brainActionTapped))
+        brainActionButton = button
+        stackView.addArrangedSubview(button)
+
+        configureSwitch(
+            brainSwitch,
+            label: "Répondre aux questions libres",
+            hint: "Quand aucune commande ne correspond, JARVIS pose la question au cerveau local installé sur l'iPhone.",
+            identifier: "jarvis.settings.brain.enabled",
+            action: #selector(brainSwitchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Répondre aux questions libres", control: brainSwitch))
+
+        brainObserver = NotificationCenter.default.addObserver(forName: .jarvisLocalBrainStateChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshBrainSection()
+        }
+        refreshBrainSection()
+    }
+
+    private func refreshBrainSection() {
+        let brain = JarvisLocalBrain.shared
+        let downloader = JarvisModelDownloader.shared
+        brainSwitch.isOn = brain.isEnabled
+        if let progress = downloader.stateDescription {
+            brainStatusLabel.text = progress
+        } else {
+            brainStatusLabel.text = brain.statusDescription
+        }
+        let title: String
+        if !JarvisLocalBrain.isEngineCompiled {
+            title = "Disponible sur iPhone"
+            brainActionButton?.isEnabled = false
+        } else if downloader.isDownloading {
+            title = "Annuler le téléchargement"
+            brainActionButton?.isEnabled = true
+        } else if downloader.isInstalled {
+            title = "Supprimer le cerveau (\(brain.model.sizeDescription))"
+            brainActionButton?.isEnabled = true
+        } else {
+            title = "Télécharger le cerveau (\(brain.model.sizeDescription))"
+            brainActionButton?.isEnabled = true
+        }
+        brainActionButton?.setTitle(title, for: .normal)
+        brainActionButton?.accessibilityLabel = title
+        // Keep the screen on while the model downloads: the download needs the app open.
+        UIApplication.shared.isIdleTimerDisabled = downloader.isDownloading
+    }
+
+    @objc private func brainSwitchChanged() {
+        JarvisLocalBrain.shared.isEnabled = brainSwitch.isOn
+    }
+
+    @objc private func brainActionTapped() {
+        let downloader = JarvisModelDownloader.shared
+        let model = JarvisLocalBrain.shared.model
+        if downloader.isDownloading {
+            downloader.cancelDownload()
+            return
+        }
+        if downloader.isInstalled {
+            let alert = UIAlertController(
+                title: "Supprimer le cerveau local ?",
+                message: "Le fichier de \(model.sizeDescription) sera effacé. JARVIS gardera ses commandes, mais ne répondra plus aux questions libres tant que vous ne l'aurez pas retéléchargé.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Supprimer", style: .destructive) { _ in
+                JarvisLocalBrain.shared.unloadIfIdle()
+                downloader.deleteModel()
+            })
+            present(alert, animated: true)
+            return
+        }
+        let alert = UIAlertController(
+            title: "Télécharger le cerveau local ?",
+            message: "\(model.displayName), \(model.sizeDescription), licence \(model.license), depuis \(model.source). Le Wi-Fi est conseillé ; gardez JARVIS ouvert pendant le téléchargement. Ensuite, tout fonctionne sans Internet et vos questions restent sur l'iPhone.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Télécharger", style: .default) { [weak self] _ in
+            if let problem = downloader.startDownload() {
+                self?.brainStatusLabel.text = problem
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    // MARK: - Contextual help
+
+    private func registerOption(_ control: UIView, title: String, explanation: String) {
+        let option = JarvisScreenContext.Option(title: title, explanation: explanation, screen: self.title ?? "Réglages")
+        optionsByControl[ObjectIdentifier(control)] = option
+        if let uiControl = control as? UIControl {
+            uiControl.addTarget(self, action: #selector(optionChanged(_:)), for: .valueChanged)
+        }
+    }
+
+    /// Lets a tap on the option's panel select it without changing its value.
+    private func linkPanel(_ panel: UIView, to control: UIView) {
+        guard let option = optionsByControl[ObjectIdentifier(control)] else { return }
+        optionsByPanel[ObjectIdentifier(panel)] = option
+        panelsByControl[ObjectIdentifier(control)] = panel
+        let tap = UITapGestureRecognizer(target: self, action: #selector(panelTapped(_:)))
+        tap.cancelsTouchesInView = false
+        panel.addGestureRecognizer(tap)
+    }
+
+    @objc private func optionChanged(_ sender: UIControl) {
+        guard let option = optionsByControl[ObjectIdentifier(sender)] else { return }
+        select(option, panel: panelsByControl[ObjectIdentifier(sender)])
+    }
+
+    @objc private func panelTapped(_ gesture: UITapGestureRecognizer) {
+        guard let panel = gesture.view, let option = optionsByPanel[ObjectIdentifier(panel)] else { return }
+        select(option, panel: panel)
+    }
+
+    private func select(_ option: JarvisScreenContext.Option, panel: UIView?) {
+        let context = JarvisScreenContext.shared
+        guard context.isAssistanceEnabled else { return }
+        context.select(option)
+        if let previous = selectedPanel, let original = originalBorders[ObjectIdentifier(previous)] {
+            previous.layer.borderWidth = original.width
+            previous.layer.borderColor = original.color
+        }
+        guard let panel else { return }
+        if originalBorders[ObjectIdentifier(panel)] == nil {
+            originalBorders[ObjectIdentifier(panel)] = (panel.layer.borderWidth, panel.layer.borderColor)
+        }
+        panel.layer.borderWidth = 2
+        panel.layer.borderColor = JarvisTheme.accentHot.cgColor
+        selectedPanel = panel
+        panel.accessibilityValue = "Sélectionnée pour l'aide JARVIS"
+    }
+
+    @objc private func askTapped() {
+        if voiceInput.isListening {
+            voiceInput.stopListening(process: true)
+            return
+        }
+        JarvisSpeechService.shared.stop()
+        voiceInput.startListening()
+    }
+
+    private func showAssistant(_ text: String) {
+        assistantLabel.text = text
+        assistantLabel.isHidden = text.isEmpty
+    }
+
+    private func wireVoice() {
+        voiceInput.onStateChange = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .listening:
+                self.navigationItem.rightBarButtonItem?.title = "Terminer"
+                self.showAssistant("Micro actif : demandez « À quoi sert cette option ? ».")
+            case .hearingSound:
+                if self.voiceInput.currentTranscript.isEmpty { self.showAssistant("Son reçu…") }
+            case .heardYou(let transcript):
+                self.showAssistant("« \(transcript) »")
+            case .processing:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+            case .standby:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+            case .noSpeech:
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+                self.showAssistant("Aucune parole détectée. Touchez « Demander » et réessayez.")
+            case .unavailable(let failure):
+                self.navigationItem.rightBarButtonItem?.title = "Demander"
+                self.showAssistant(failure.message)
+            }
+        }
+        voiceInput.onPartialTranscript = { [weak self] text in
+            guard let self, !text.isEmpty else { return }
+            self.showAssistant(text)
+        }
+        voiceInput.onInputLevel = nil
+        voiceInput.onFinalTranscript = { [weak self] text in
+            guard let self else { return }
+            let response = self.assistant.decide(text).response
+            let speech = JarvisSpeechService.shared
+            if JarvisLifeActionPerformer.handles(response) {
+                self.showAssistant(response.displayResponse)
+                JarvisLifeActionPerformer.perform(response) { [weak self] final in
+                    self?.showAssistant(final.displayResponse)
+                    if final.shouldSpeak, speech.isEnabled, final.status == .ok {
+                        speech.speak(final.spokenResponse)
+                    }
+                }
+                return
+            }
+            if response.data["action"] == "local_brain", let question = response.data["question"],
+               JarvisLocalBrain.shared.availability != .unsupported {
+                self.showAssistant("Je réfléchis…")
+                JarvisLocalBrain.shared.answerOpenQuestion(question, onPartial: { [weak self] partial in
+                    self?.showAssistant(partial)
+                }, completion: { [weak self] answer in
+                    self?.showAssistant(answer.displayResponse)
+                    if answer.shouldSpeak, speech.isEnabled, answer.status == .ok {
+                        speech.speak(answer.spokenResponse)
+                    }
+                })
+                return
+            }
+            self.showAssistant(response.displayResponse)
+            if response.shouldSpeak, speech.isEnabled, response.status == .ok || response.status == .confirmationRequired {
+                speech.speak(response.spokenResponse)
+            }
+        }
     }
 
     private func buildInterface() {
@@ -67,7 +415,7 @@ final class JarvisSettingsViewController: UIViewController {
         ])
 
         let header = textLabel(
-            initialSection == .vision ? "Accessible Vision preferences" : "JARVIS preferences",
+            initialSection == .vision ? "Préférences Vision accessibles" : "Préférences JARVIS",
             style: .title2,
             color: JarvisTheme.text
         )
@@ -75,56 +423,76 @@ final class JarvisSettingsViewController: UIViewController {
         header.accessibilityIdentifier = "jarvis.settings.header"
         stackView.addArrangedSubview(header)
 
+        let contextualHint = textLabel(
+            "Touchez une option, puis « Demander » et dites « À quoi sert cette option ? ».",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        )
+        contextualHint.accessibilityIdentifier = "jarvis.settings.assistantHint"
+        stackView.addArrangedSubview(contextualHint)
+        assistantLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        assistantLabel.adjustsFontForContentSizeCategory = true
+        assistantLabel.textColor = JarvisTheme.accentHot
+        assistantLabel.numberOfLines = 0
+        assistantLabel.isHidden = true
+        assistantLabel.accessibilityIdentifier = "jarvis.settings.assistant"
+        assistantLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(assistantLabel)
+
         configureSwitch(
             speechSwitch,
-            label: "Speech Output",
-            hint: "Speaks JARVIS and Vision results.",
+            label: "Sortie vocale",
+            hint: "Énonce les résultats de JARVIS et Vision.",
             identifier: "jarvis.settings.speechSwitch",
             action: #selector(speechChanged)
         )
-        stackView.addArrangedSubview(settingRow(title: "Speech Output", control: speechSwitch, identifier: "jarvis.settings.speechLabel"))
+        stackView.addArrangedSubview(settingRow(title: "Sortie vocale", control: speechSwitch, identifier: "jarvis.settings.speechLabel"))
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Voice Profile", detail: "Changes the local system voice pace, pitch, and volume.", control: voiceProfileControl))
+        stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
 
-        stackView.addArrangedSubview(sectionHeading("Vision narration"))
+        buildVoiceSection()
+
+        buildBrainSection()
+
+        stackView.addArrangedSubview(sectionHeading("Narration Vision"))
         configureSegmented(defaultModeControl, identifier: "jarvis.settings.vision.defaultMode", action: #selector(defaultModeChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Default Vision Mode", detail: "Used when opening Vision without a specific command.", control: defaultModeControl))
+        stackView.addArrangedSubview(settingPanel(title: "Mode Vision par défaut", detail: "Utilisé à l'ouverture de Vision sans commande spécifique.", control: defaultModeControl))
         configureSegmented(narrationControl, identifier: "jarvis.settings.vision.verbosity", action: #selector(narrationChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Detail Level", detail: "Choose shorter updates or more grounded scene detail.", control: narrationControl))
-        configureSwitch(importantChangesSwitch, label: "Only Important Changes", hint: "Suppresses low-priority Live Guide narration.", identifier: "jarvis.settings.vision.importantChanges", action: #selector(importantChangesChanged))
-        stackView.addArrangedSubview(settingRow(title: "Only Important Changes", control: importantChangesSwitch))
-        configureSwitch(directionSpeechSwitch, label: "Speak Direction", hint: "Adds broad left, center, and right guidance.", identifier: "jarvis.settings.vision.directionSpeech", action: #selector(directionSpeechChanged))
-        stackView.addArrangedSubview(settingRow(title: "Speak Direction", control: directionSpeechSwitch))
+        stackView.addArrangedSubview(settingPanel(title: "Niveau de détail", detail: "Choisissez des mises à jour plus courtes ou un détail de scène plus complet.", control: narrationControl))
+        configureSwitch(importantChangesSwitch, label: "Seuls les changements importants", hint: "Réduit la narration du Guide en direct aux priorités élevées.", identifier: "jarvis.settings.vision.importantChanges", action: #selector(importantChangesChanged))
+        stackView.addArrangedSubview(settingRow(title: "Seuls les changements importants", control: importantChangesSwitch))
+        configureSwitch(directionSpeechSwitch, label: "Énoncer la direction", hint: "Ajoute les repères gauche, centre et droite.", identifier: "jarvis.settings.vision.directionSpeech", action: #selector(directionSpeechChanged))
+        stackView.addArrangedSubview(settingRow(title: "Énoncer la direction", control: directionSpeechSwitch))
 
-        stackView.addArrangedSubview(sectionHeading("Camera and Live Guide"))
+        stackView.addArrangedSubview(sectionHeading("Caméra et Guide en direct"))
         configureSegmented(cameraControl, identifier: "jarvis.settings.vision.camera", action: #selector(cameraChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Camera", detail: "Rear camera is recommended for understanding surroundings.", control: cameraControl))
-        configureSwitch(screenAwakeSwitch, label: "Keep Screen Awake in Live Guide", hint: "Prevents screen lock only while Live Guide is active in the foreground.", identifier: "jarvis.settings.vision.screenAwake", action: #selector(screenAwakeChanged))
-        stackView.addArrangedSubview(settingRow(title: "Keep Screen Awake in Live Guide", control: screenAwakeSwitch))
-        configureSwitch(autoLightSwitch, label: "Suggest More Light", hint: "Allows camera-quality guidance to suggest the flashlight. It never turns on automatically.", identifier: "jarvis.settings.vision.autoLight", action: #selector(autoLightChanged))
-        stackView.addArrangedSubview(settingRow(title: "Suggest More Light", control: autoLightSwitch))
+        stackView.addArrangedSubview(settingPanel(title: "Caméra", detail: "La caméra arrière est recommandée pour comprendre l'environnement.", control: cameraControl))
+        configureSwitch(screenAwakeSwitch, label: "Maintenir l'écran allumé en Guide en direct", hint: "Empêche la mise en veille uniquement quand le Guide en direct est actif au premier plan.", identifier: "jarvis.settings.vision.screenAwake", action: #selector(screenAwakeChanged))
+        stackView.addArrangedSubview(settingRow(title: "Maintenir l'écran allumé en Guide en direct", control: screenAwakeSwitch))
+        configureSwitch(autoLightSwitch, label: "Suggérer plus de lumière", hint: "Permet aux conseils de qualité d'image de suggérer la torche. Elle ne s'allume jamais automatiquement.", identifier: "jarvis.settings.vision.autoLight", action: #selector(autoLightChanged))
+        stackView.addArrangedSubview(settingRow(title: "Suggérer plus de lumière", control: autoLightSwitch))
         configureSegmented(sensitivityControl, identifier: "jarvis.settings.vision.sensitivity", action: #selector(sensitivityChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Detection Sensitivity", detail: "Conservative requires stronger, more stable evidence. More sensitive can increase false detections.", control: sensitivityControl))
+        stackView.addArrangedSubview(settingPanel(title: "Sensibilité de détection", detail: "Conservateur exige des preuves plus fortes et stables. Plus sensible peut augmenter les fausses détections.", control: sensitivityControl))
         configureSegmented(processingControl, identifier: "jarvis.settings.vision.processing", action: #selector(processingChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Processing", detail: "Automatic adapts for heat and Low Power Mode. Reduced uses fewer analyses.", control: processingControl))
+        stackView.addArrangedSubview(settingPanel(title: "Traitement", detail: "Auto s'adapte à la chaleur et au mode Économie d'énergie. Réduit utilise moins d'analyses.", control: processingControl))
 
-        stackView.addArrangedSubview(sectionHeading("Haptics"))
-        configureSwitch(hapticsSwitch, label: "Vision Haptics", hint: "Provides direction, target, warning, and completion patterns.", identifier: "jarvis.settings.vision.haptics", action: #selector(hapticsChanged))
-        stackView.addArrangedSubview(settingRow(title: "Vision Haptics", control: hapticsSwitch))
+        stackView.addArrangedSubview(sectionHeading("Haptique"))
+        configureSwitch(hapticsSwitch, label: "Haptique Vision", hint: "Fournit les motifs de direction, cible, avertissement et achèvement.", identifier: "jarvis.settings.vision.haptics", action: #selector(hapticsChanged))
+        stackView.addArrangedSubview(settingRow(title: "Haptique Vision", control: hapticsSwitch))
         configureSegmented(hapticIntensityControl, identifier: "jarvis.settings.vision.hapticIntensity", action: #selector(hapticIntensityChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Haptic Intensity", detail: "Adjusts Vision patterns when haptics are enabled.", control: hapticIntensityControl))
-        let hapticTutorialButton = actionButton("Try Haptic Tutorial", identifier: "jarvis.settings.vision.hapticTutorial", action: #selector(hapticTutorialTapped))
+        stackView.addArrangedSubview(settingPanel(title: "Intensité haptique", detail: "Ajuste les motifs Vision quand l'haptique est activé.", control: hapticIntensityControl))
+        let hapticTutorialButton = actionButton("Essayer le tutoriel haptique", identifier: "jarvis.settings.vision.hapticTutorial", action: #selector(hapticTutorialTapped))
         stackView.addArrangedSubview(hapticTutorialButton)
 
-        stackView.addArrangedSubview(sectionHeading("Privacy and diagnostics"))
-        configureSwitch(sessionMemorySwitch, label: "Temporary Session Memory", hint: "Keeps short-lived scene changes until Vision stops. Images are never stored in session memory.", identifier: "jarvis.settings.vision.sessionMemory", action: #selector(sessionMemoryChanged))
-        stackView.addArrangedSubview(settingRow(title: "Temporary Session Memory", control: sessionMemorySwitch))
-        configureSwitch(debugOverlaySwitch, label: "Diagnostics Overlay", hint: "Shows advanced diagnostic details. Off by default.", identifier: "jarvis.settings.vision.debugOverlay", action: #selector(debugOverlayChanged))
-        stackView.addArrangedSubview(settingRow(title: "Diagnostics Overlay", control: debugOverlaySwitch))
+        stackView.addArrangedSubview(sectionHeading("Vie privée et diagnostics"))
+        configureSwitch(sessionMemorySwitch, label: "Mémoire de session temporaire", hint: "Conserve les changements de scène éphémères jusqu'à l'arrêt de Vision. Les images ne sont jamais stockées en mémoire de session.", identifier: "jarvis.settings.vision.sessionMemory", action: #selector(sessionMemoryChanged))
+        stackView.addArrangedSubview(settingRow(title: "Mémoire de session temporaire", control: sessionMemorySwitch))
+        configureSwitch(debugOverlaySwitch, label: "Superposition diagnostics", hint: "Affiche les détails de diagnostic avancés. Désactivé par défaut.", identifier: "jarvis.settings.vision.debugOverlay", action: #selector(debugOverlayChanged))
+        stackView.addArrangedSubview(settingRow(title: "Superposition diagnostics", control: debugOverlaySwitch))
 
         let privacy = textLabel(
-            "Privacy defaults cannot be disabled: camera images and video are not automatically saved, recognized text and barcode values are not added to general history, and core Vision analysis stays on device.",
+            "Les réglages de vie privée ne peuvent pas être désactivés : les images et vidéos de la caméra ne sont pas sauvegardées automatiquement, les textes et codes-barres reconnus ne sont pas ajoutés à l'historique général, et l'analyse Vision reste sur l'appareil.",
             style: .body,
             color: JarvisTheme.text
         )
@@ -133,30 +501,30 @@ final class JarvisSettingsViewController: UIViewController {
         privacyPanel.layer.borderColor = JarvisTheme.success.cgColor
         stackView.addArrangedSubview(privacyPanel)
 
-        let selfTestButton = actionButton("Run Accessible Vision Self-Test", identifier: "jarvis.settings.vision.selfTest", action: #selector(selfTestTapped))
-        let diagnosticsButton = actionButton("Open Diagnostics", identifier: "jarvis.settings.diagnostics", action: #selector(diagnosticsTapped))
+        let selfTestButton = actionButton("Lancer l'autotest Vision accessible", identifier: "jarvis.settings.vision.selfTest", action: #selector(selfTestTapped))
+        let diagnosticsButton = actionButton("Ouvrir Diagnostics", identifier: "jarvis.settings.diagnostics", action: #selector(diagnosticsTapped))
         stackView.addArrangedSubview(horizontalRow([selfTestButton, diagnosticsButton]))
 
-        stackView.addArrangedSubview(sectionHeading("Local data and voice tools"))
-        let clearNotesButton = actionButton("Clear Notes", identifier: "jarvis.settings.clearNotes", action: #selector(clearNotesTapped))
-        let clearHistoryButton = actionButton("Clear History", identifier: "jarvis.settings.clearHistory", action: #selector(clearHistoryTapped))
+        stackView.addArrangedSubview(sectionHeading("Données locales et outils vocaux"))
+        let clearNotesButton = actionButton("Effacer les notes", identifier: "jarvis.settings.clearNotes", action: #selector(clearNotesTapped))
+        let clearHistoryButton = actionButton("Effacer l'historique", identifier: "jarvis.settings.clearHistory", action: #selector(clearHistoryTapped))
         stackView.addArrangedSubview(horizontalRow([clearNotesButton, clearHistoryButton]))
 
-        let voiceTestButton = actionButton("Voice Test", identifier: "jarvis.settings.voiceTest", action: #selector(voiceTestTapped))
-        let profilePreviewButton = actionButton("Preview Profiles", identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped))
+        let voiceTestButton = actionButton("Test vocal", identifier: "jarvis.settings.voiceTest", action: #selector(voiceTestTapped))
+        let profilePreviewButton = actionButton("Aperçu des profils", identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped))
         stackView.addArrangedSubview(horizontalRow([voiceTestButton, profilePreviewButton]))
 
-        let personalVoiceButton = actionButton("Personal Voice", identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped))
-        let aboutButton = actionButton("About", identifier: "jarvis.settings.about", action: #selector(aboutTapped))
+        let personalVoiceButton = actionButton("Voix personnelle", identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped))
+        let aboutButton = actionButton("À propos", identifier: "jarvis.settings.about", action: #selector(aboutTapped))
         stackView.addArrangedSubview(horizontalRow([personalVoiceButton, aboutButton]))
 
-        let resetButton = actionButton("Reset Vision Settings", identifier: "jarvis.settings.vision.reset", action: #selector(resetVisionTapped))
+        let resetButton = actionButton("Réinitialiser les réglages Vision", identifier: "jarvis.settings.vision.reset", action: #selector(resetVisionTapped))
         resetButton.setTitleColor(JarvisTheme.warning, for: .normal)
         stackView.addArrangedSubview(resetButton)
 
         // Compatibility identifier retained for existing UI automation while the
         // content now comes from real controls and stores rather than a fixed text page.
-        let compatibilityText = textLabel("JARVIS appliance settings", style: .caption1, color: JarvisTheme.mutedText)
+        let compatibilityText = textLabel("Réglages appareil JARVIS", style: .caption1, color: JarvisTheme.mutedText)
         compatibilityText.accessibilityIdentifier = "jarvis.settings.text"
         stackView.addArrangedSubview(compatibilityText)
     }
@@ -185,6 +553,7 @@ final class JarvisSettingsViewController: UIViewController {
         control.accessibilityLabel = label
         control.accessibilityHint = hint
         control.accessibilityIdentifier = identifier
+        registerOption(control, title: label, explanation: hint)
     }
 
     private func configureSegmented(_ control: UISegmentedControl, identifier: String, action: Selector) {
@@ -207,6 +576,7 @@ final class JarvisSettingsViewController: UIViewController {
         row.distribution = .equalSpacing
         let panel = wrapInPanel(row)
         panel.accessibilityElements = [control]
+        linkPanel(panel, to: control)
         return panel
     }
 
@@ -217,7 +587,10 @@ final class JarvisSettingsViewController: UIViewController {
         let stack = UIStackView(arrangedSubviews: [heading, detailLabel, control])
         stack.axis = .vertical
         stack.spacing = 8
-        return wrapInPanel(stack)
+        let panel = wrapInPanel(stack)
+        registerOption(control, title: title, explanation: detail)
+        linkPanel(panel, to: control)
+        return panel
     }
 
     private func sectionHeading(_ title: String) -> UILabel {
@@ -270,7 +643,7 @@ final class JarvisSettingsViewController: UIViewController {
     @objc private func speechChanged() {
         JarvisSpeechService.shared.isEnabled = speechSwitch.isOn
         if speechSwitch.isOn {
-            JarvisSpeechService.shared.speak("Speech output enabled.")
+            JarvisSpeechService.shared.speak("Sortie vocale activée.")
         } else {
             JarvisSpeechService.shared.stop()
         }
@@ -326,18 +699,18 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func hapticTutorialTapped() {
         guard preferencesStore.value.hapticsEnabled else {
-            accessibleAlert(title: "Haptics Are Off", message: "Enable Vision Haptics before starting the tutorial.")
+            accessibleAlert(title: "Haptique désactivé", message: "Activez l'haptique Vision avant de lancer le tutoriel.")
             return
         }
         let sessionID = VisionHapticsService.shared.beginSession()
         let intensity = preferencesStore.value.hapticIntensity
         let cues: [(VisionHapticCue, String)] = [
-            (.directionLeft, "Left"),
-            (.directionCenter, "Center"),
-            (.directionRight, "Right"),
-            (.targetAcquired, "Target found"),
-            (.targetLost, "Target lost"),
-            (.warning, "Warning"),
+            (.directionLeft, "Gauche"),
+            (.directionCenter, "Centre"),
+            (.directionRight, "Droite"),
+            (.targetAcquired, "Cible trouvée"),
+            (.targetLost, "Cible perdue"),
+            (.warning, "Avertissement"),
         ]
         for (index, item) in cues.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.75) {
@@ -353,13 +726,13 @@ final class JarvisSettingsViewController: UIViewController {
     }
 
     @objc private func clearNotesTapped() {
-        confirm(title: "Clear notes?", message: "This removes local JARVIS notes stored on this device.") {
+        confirm(title: "Effacer les notes ?", message: "Cela supprime les notes JARVIS locales stockées sur cet appareil.") {
             JarvisMemoryStore.shared.clearNotes()
         }
     }
 
     @objc private func clearHistoryTapped() {
-        confirm(title: "Clear history?", message: "This removes local command history. Vision OCR and barcode results are not stored there.") {
+        confirm(title: "Effacer l'historique ?", message: "Cela supprime l'historique des commandes locales. Les résultats OCR et codes-barres Vision n'y sont pas stockés.") {
             JarvisMemoryStore.shared.clearHistory()
         }
     }
@@ -370,10 +743,10 @@ final class JarvisSettingsViewController: UIViewController {
     @objc private func personalVoiceTapped() {
         JarvisSpeechService.shared.personalVoiceStatusText { [weak self] message in
             guard let self else { return }
-            let alert = UIAlertController(title: "Personal Voice", message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Use If Available", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = true })
-            alert.addAction(UIAlertAction(title: "Use System Voice", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = false })
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            let alert = UIAlertController(title: "Voix personnelle", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Utiliser si disponible", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = true })
+            alert.addAction(UIAlertAction(title: "Utiliser la voix système", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = false })
+            alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
             self.present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
         }
     }
@@ -391,7 +764,7 @@ final class JarvisSettingsViewController: UIViewController {
     }
 
     @objc private func resetVisionTapped() {
-        confirm(title: "Reset Vision settings?", message: "This restores accessible Vision defaults. It does not change camera permission in iOS Settings.") { [weak self] in
+        confirm(title: "Réinitialiser les réglages Vision ?", message: "Les réglages d'accessibilité de Vision retrouveront leurs valeurs par défaut. L'autorisation d'accès à la caméra se gère dans les réglages iOS.") { [weak self] in
             self?.preferencesStore.reset()
             self?.loadValues()
         }
@@ -399,8 +772,8 @@ final class JarvisSettingsViewController: UIViewController {
 
     private func confirm(title: String, message: String, action: @escaping () -> Void) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Confirm", style: .destructive) { _ in action() })
+        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Confirmer", style: .destructive) { _ in action() })
         present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
     }
 

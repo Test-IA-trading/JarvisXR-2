@@ -10,7 +10,13 @@ enum JarvisVoiceProfile: String {
     case quiet
 
     var displayName: String {
-        rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        switch self {
+        case .natural: return "Naturelle"
+        case .friendly: return "Chaleureuse"
+        case .formal: return "Posée"
+        case .crisp: return "Nette"
+        case .quiet: return "Douce"
+        }
     }
 }
 
@@ -26,6 +32,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     private let volumeKey = "JarvisXR.speechVolume"
     private let profileKey = "JarvisXR.voiceProfile"
     private let personalVoiceKey = "JarvisXR.preferPersonalVoice"
+    private let chosenVoiceKey = "JarvisXR.chosenVoiceIdentifier"
     private var suppressNextCallbacks = false
     private var visionQueue = VisionSpeechPriorityQueue()
     private var activeVisionItem: VisionSpeechQueueItem?
@@ -66,7 +73,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var pitch: Float {
         get {
             switch profile {
-            case .natural: return 1.03
+            // The default profile keeps the voice's own pitch: shifting it makes the
+            // enhanced and premium voices sound metallic.
+            case .natural: return 1.0
             case .friendly: return 1.05
             case .formal: return 0.98
             case .crisp: return 1.04
@@ -107,6 +116,42 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var prefersPersonalVoice: Bool {
         get { UserDefaults.standard.bool(forKey: personalVoiceKey) }
         set { UserDefaults.standard.set(newValue, forKey: personalVoiceKey) }
+    }
+
+    /// Voice picked in Settings; nil means the best French voice installed.
+    var chosenVoiceIdentifier: String? {
+        get { UserDefaults.standard.string(forKey: chosenVoiceKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: chosenVoiceKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: chosenVoiceKey)
+            }
+        }
+    }
+
+    /// French voices offered in Settings, best first.
+    func frenchVoiceChoices() -> [JarvisVoiceCandidate] {
+        JarvisVoiceRanking.ranked(AVSpeechSynthesisVoice.speechVoices().map { JarvisVoiceCandidate($0) })
+    }
+
+    /// How to get a natural voice: Apple's enhanced and premium voices are free, work
+    /// offline once downloaded, and an app cannot download them itself.
+    static let betterVoiceHint = "Pour une voix bien plus naturelle, téléchargez une voix « Améliorée » ou « Premium » : Réglages iOS › Accessibilité › Contenu énoncé › Voix › Français. Jarvis la prend ensuite tout seul."
+
+    /// Says a short sentence with one voice (nil: the automatic choice), so it can be
+    /// heard before it is kept. Works even when spoken replies are off.
+    func previewVoice(identifier: String?) {
+        activeVisionItem = nil
+        activeVisionUtterance = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        let utterance = makeUtterance("Bonjour, je suis Jarvis. Voici ma voix.", profile: profile)
+        if let identifier, let voice = AVSpeechSynthesisVoice(identifier: identifier) {
+            utterance.voice = voice
+        }
+        suppressNextCallbacks = true
+        activateAudioSession()
+        synthesizer.speak(utterance)
     }
 
     private override init() {
@@ -167,7 +212,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         at date: Date = Date()
     ) -> VisionSpeechEnqueueDisposition {
         guard isEnabled else { return .rejectedExpired }
-        if quietVisionGuideEnabled && narration.priority < .target {
+        // Quiet Live Guide drops ambient descriptions but keeps confirmed changes: Live Guide
+        // only emits debounced appear/move/leave events (VisionLiveGuideEngine), each once.
+        if quietVisionGuideEnabled && narration.priority < .change {
             return .suppressedQuietMode
         }
 
@@ -225,6 +272,29 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         visionQueue.lastCompletedText
     }
 
+    /// When the last reply was requested and when speech actually started, for the
+    /// « la voix ne démarre pas » check and Diagnostics. No text is kept.
+    private(set) var lastSpeakRequestAt: Date?
+    private(set) var lastSpeechStartAt: Date?
+
+    /// True when a reply was requested more than `delay` ago and speech never started.
+    func speechFailedToStart(after delay: TimeInterval, now: Date = Date()) -> Bool {
+        guard let requested = lastSpeakRequestAt, now.timeIntervalSince(requested) >= delay else { return false }
+        if let started = lastSpeechStartAt, started >= requested { return false }
+        return !synthesizer.isSpeaking
+    }
+
+    var speechDiagnostic: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "HH:mm:ss"
+        guard let requested = lastSpeakRequestAt else { return "aucune réponse parlée depuis le lancement" }
+        if let started = lastSpeechStartAt, started >= requested {
+            return String(format: "dernière réponse démarrée en %.1f s (%@)", started.timeIntervalSince(requested), formatter.string(from: started))
+        }
+        return "dernière réponse demandée à \(formatter.string(from: requested)), pas encore démarrée"
+    }
+
     func speak(_ text: String, notifyState: Bool = true) {
         guard isEnabled else { return }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -234,6 +304,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         let utterance = makeUtterance(text, profile: profile)
         suppressNextCallbacks = !notifyState
         activateAudioSession()
+        if notifyState {
+            lastSpeakRequestAt = Date()
+        }
         synthesizer.speak(utterance)
     }
 
@@ -242,12 +315,104 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         activeVisionItem = nil
         activeVisionUtterance = nil
         visionQueuePaused = false
+        // A streamed reply ends with the utterance being cancelled now: its didCancel
+        // reports the end once, through the ordinary path.
+        streamUtterances = []
+        streamOpen = false
         synthesizer.stopSpeaking(at: .immediate)
         deactivateAudioSessionIfIdle()
     }
 
+    // MARK: Streamed replies (local brain)
+
+    /// Sentences of the reply being written, queued in the synthesizer and not finished.
+    private var streamUtterances: [AVSpeechUtterance] = []
+    private var streamOpen = false
+    private var streamStarted = false
+
+    var isStreamingReply: Bool { streamOpen || !streamUtterances.isEmpty }
+
+    /// Starts a reply that will arrive sentence by sentence. `onSpeechStart` fires once
+    /// for the first sentence and `onSpeechFinish` once, after the last one.
+    func beginStreamedReply() {
+        guard isEnabled else { return }
+        activeVisionItem = nil
+        activeVisionUtterance = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        suppressNextCallbacks = false
+        streamUtterances = []
+        streamOpen = true
+        streamStarted = false
+        lastSpeakRequestAt = Date()
+    }
+
+    /// Queues one more sentence without interrupting the one being spoken.
+    func appendStreamedReply(_ text: String) {
+        guard isEnabled, streamOpen else { return }
+        let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sentence.isEmpty else { return }
+        let utterance = makeUtterance(sentence, profile: profile)
+        utterance.postUtteranceDelay = 0.05
+        streamUtterances.append(utterance)
+        activateAudioSession()
+        synthesizer.speak(utterance)
+    }
+
+    /// No more sentences will come. If everything was already spoken, the reply ends now.
+    func endStreamedReply() {
+        guard streamOpen else { return }
+        streamOpen = false
+        if streamUtterances.isEmpty {
+            onSpeechFinish?()
+            deactivateAudioSessionIfIdle()
+        }
+    }
+
+    /// Handles a stream utterance's end; returns false for any other utterance.
+    private func finishStreamUtterance(_ utterance: AVSpeechUtterance) -> Bool {
+        guard let index = streamUtterances.firstIndex(where: { $0 === utterance }) else { return false }
+        streamUtterances.remove(at: index)
+        if streamUtterances.isEmpty && !streamOpen {
+            onSpeechFinish?()
+            deactivateAudioSessionIfIdle()
+        }
+        return true
+    }
+
     func testPhrase() -> String {
-        "JARVIS voice output is ready."
+        "Bonjour, je suis JARVIS. Ma voix française est prête."
+    }
+
+    /// Language spoken by Jarvis. The voice is chosen by language and quality rather
+    /// than by a hard-coded voice name, because installed voices differ per iPhone.
+    static let outputLanguage = "fr-FR"
+
+    /// Best installed French voice (see JarvisVoiceRanking): France first, then premium >
+    /// enhanced > standard, then a male voice; the robotic Eloquence voices (Eddy,
+    /// Jacques…) only when nothing else speaks French. Returns nil when no French voice
+    /// exists. Before, equal voices were taken in list order, which could pick Eloquence.
+    static func bestVoice(
+        from voices: [AVSpeechSynthesisVoice],
+        language: String = JarvisSpeechService.outputLanguage
+    ) -> AVSpeechSynthesisVoice? {
+        guard let best = JarvisVoiceRanking.ranked(voices.map { JarvisVoiceCandidate($0) }, language: language).first else {
+            return nil
+        }
+        return voices.first { $0.identifier == best.identifier }
+    }
+
+    /// Short description of the voice Jarvis will use, for Settings and Diagnostics.
+    func currentVoiceDescription() -> String {
+        guard let voice = preferredVoice(for: profile) else {
+            return "Aucune voix française installée : la voix par défaut d'iOS sera utilisée."
+        }
+        let candidate = JarvisVoiceCandidate(voice)
+        let origin = chosenVoiceIdentifier == voice.identifier ? "choisie dans les Réglages" : "choisie automatiquement"
+        var text = "Voix \(voice.name) (\(voice.language), qualité \(candidate.qualityLabel)), \(origin)."
+        if candidate.quality < 2 || candidate.isSynthetic {
+            text += " " + Self.betterVoiceHint
+        }
+        return text
     }
 
     func previewAllProfiles() {
@@ -255,7 +420,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         synthesizer.stopSpeaking(at: .immediate)
         let current = profile
         for previewProfile in JarvisVoiceProfile.ordered {
-            let utterance = makeUtterance("\(previewProfile.displayName). JARVIS is ready.", profile: previewProfile)
+            let utterance = makeUtterance("Voix \(previewProfile.displayName). JARVIS est prêt.", profile: previewProfile)
             utterance.postUtteranceDelay = 0.16
             synthesizer.speak(utterance)
         }
@@ -321,7 +486,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func pitch(for utteranceProfile: JarvisVoiceProfile) -> Float {
         switch utteranceProfile {
-        case .natural: return 1.03
+        case .natural: return 1.0
         case .friendly: return 1.05
         case .formal: return 0.98
         case .crisp: return 1.04
@@ -345,27 +510,13 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         if prefersPersonalVoice, let personal = personalVoices().first {
             return personal
         }
-        let voices = AVSpeechSynthesisVoice.speechVoices()
-        let preferredLanguages: [String]
-        switch voiceProfile {
-        case .formal:
-            preferredLanguages = ["en-GB", "en-US", "en-AU", "en-IE", "en-ZA"]
-        default:
-            preferredLanguages = ["en-US", "en-GB", "en-AU", "en-IE", "en-ZA"]
+        // A voice picked in Settings wins while it is installed.
+        if let identifier = chosenVoiceIdentifier, let chosen = AVSpeechSynthesisVoice(identifier: identifier) {
+            return chosen
         }
-        for language in preferredLanguages {
-            if let enhanced = voices.first(where: { $0.language == language && $0.quality == .enhanced }) {
-                return enhanced
-            }
-        }
-        for language in preferredLanguages {
-            if let voice = voices.first(where: { $0.language == language }) {
-                return voice
-            }
-        }
-        return voices.first(where: { $0.language.hasPrefix("en") && $0.quality == .enhanced }) ??
-            voices.first(where: { $0.language.hasPrefix("en") }) ??
-            AVSpeechSynthesisVoice(language: "en-US")
+        // Profiles change rate, pitch and volume; every profile speaks French.
+        return Self.bestVoice(from: AVSpeechSynthesisVoice.speechVoices()) ??
+            AVSpeechSynthesisVoice(language: Self.outputLanguage)
     }
 
     private func personalVoices() -> [AVSpeechSynthesisVoice] {
@@ -394,6 +545,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     private func activateAudioSession() {
+        // While the microphone is open, its play-and-record session already allows
+        // output; switching to `.playback` here would silently cut the capture.
+        guard !JarvisVoiceInputService.shared.isListening else { return }
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
@@ -410,6 +564,11 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func deactivateAudioSessionIfIdle() {
         guard activeVisionItem == nil, !synthesizer.isSpeaking, !synthesizer.isPaused else { return }
+        // Never release the shared session under an open microphone. Before this guard,
+        // `stop()` (called when listening starts) and the asynchronous didCancel callback
+        // deactivated the session the dictation had just activated, leaving the
+        // recognizer with no usable audio ("Aucune parole détectée").
+        guard !JarvisVoiceInputService.shared.isListening else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -457,11 +616,19 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        lastSpeechStartAt = Date()
+        if streamUtterances.contains(where: { $0 === utterance }) {
+            guard !streamStarted else { return }
+            streamStarted = true
+            onSpeechStart?()
+            return
+        }
         guard !suppressNextCallbacks else { return }
         onSpeechStart?()
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        if finishStreamUtterance(utterance) { return }
         if activeVisionUtterance === utterance, let completed = activeVisionItem {
             visionQueue.markCompleted(completed)
             activeVisionItem = nil
@@ -484,6 +651,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        if finishStreamUtterance(utterance) { return }
         if activeVisionUtterance === utterance {
             activeVisionItem = nil
             activeVisionUtterance = nil

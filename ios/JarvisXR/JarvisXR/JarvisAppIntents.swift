@@ -174,6 +174,21 @@ struct VoiceTestIntent: AppIntent {
     }
 }
 
+/// « Dis Jarvis » : iOS does not let an app listen permanently for a wake word. This
+/// intent opens JARVIS with the microphone already active; attach it to a custom phrase
+/// with Réglages > Accessibilité > Raccourcis vocaux, or call it from Siri.
+@available(iOS 16.0, *)
+struct StartJarvisListeningIntent: AppIntent {
+    static var title: LocalizedStringResource = "Parler à JARVIS"
+    static var description = IntentDescription("Ouvre JARVIS et active immédiatement le micro.")
+    static var openAppWhenRun = true
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        JarvisPendingIntentStore.save(route: "listen")
+        return .result(dialog: "JARVIS vous écoute.")
+    }
+}
+
 @available(iOS 16.0, *)
 struct JarvisAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
@@ -231,11 +246,13 @@ struct JarvisAppShortcuts: AppShortcutsProvider {
             shortTitle: "Mesh",
             systemImageName: "point.3.connected.trianglepath.dotted"
         )
+        // iOS allows ten App Shortcuts: « Parler » replaces « Return », whose intent stays
+        // available in the Shortcuts app.
         AppShortcut(
-            intent: ReturnToJarvisIntent(),
-            phrases: ["Return to \(.applicationName)", "\(.applicationName) return"],
-            shortTitle: "Return",
-            systemImageName: "arrow.uturn.backward"
+            intent: StartJarvisListeningIntent(),
+            phrases: ["Parler à \(.applicationName)", "\(.applicationName) écoute-moi", "Talk to \(.applicationName)"],
+            shortTitle: "Parler",
+            systemImageName: "mic.fill"
         )
     }
 }
