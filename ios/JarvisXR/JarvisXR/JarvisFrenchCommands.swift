@@ -26,6 +26,7 @@ struct JarvisFrenchCommandRouter {
     private let context: JarvisConversationContext
     private let screen: JarvisScreenContext
     private let timers: JarvisTimerStore
+    private let profile: JarvisUserProfile
     private let locale = Locale(identifier: "fr_FR")
 
     /// Prefix of the notes created by « prépare l'essai du bilan ».
@@ -36,13 +37,15 @@ struct JarvisFrenchCommandRouter {
         scene: JarvisSpatialSceneMemory = .shared,
         context: JarvisConversationContext = .shared,
         screen: JarvisScreenContext = .shared,
-        timers: JarvisTimerStore = .shared
+        timers: JarvisTimerStore = .shared,
+        profile: JarvisUserProfile = .shared
     ) {
         self.memory = memory
         self.scene = scene
         self.context = context
         self.screen = screen
         self.timers = timers
+        self.profile = profile
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -61,9 +64,14 @@ struct JarvisFrenchCommandRouter {
         let withoutWakeWord = Self.stripWakeWord(text)
         if Self.greetings.contains(where: { withoutWakeWord == $0 || withoutWakeWord.hasPrefix($0 + " ") }) &&
             withoutWakeWord.split(separator: " ").count <= 3 {
-            return .answer(.ok("Bonjour ! Je vous écoute."))
+            return .answer(.ok(profile.name.map { "Bonjour \($0) ! Je vous écoute." } ?? "Bonjour ! Je vous écoute."))
         }
         let request = withoutWakeWord
+
+        // What Jarvis knows about the person: the first name, and a summary of what it remembers.
+        if let reply = profileAnswer(original: original, normalized: text, request: request) {
+            return .answer(reply)
+        }
 
         // Hands-free conversation controls.
         if containsAny(request, ["c'est tout", "ca sera tout", "ce sera tout", "fin de la conversation", "arrete la conversation", "arrete d'ecouter", "stop conversation", "termine la conversation"]) {
@@ -147,7 +155,8 @@ struct JarvisFrenchCommandRouter {
 
         // Notes, answered natively so the reply stays French.
         for prefix in Self.notePrefixes {
-            if let body = Self.argument(in: original, normalized: request, after: prefix) {
+            // The full normalized text, so a wake word (« Jarvis, prends une note… ») is skipped.
+            if let body = Self.argument(in: original, normalized: text, after: prefix) {
                 guard !body.isEmpty else {
                     return .answer(JarvisResponse(status: .refused, spokenResponse: "Que dois-je noter ?", displayResponse: "Dites par exemple : « Prends une note acheter du pain ».", shouldSpeak: true))
                 }
@@ -205,6 +214,67 @@ struct JarvisFrenchCommandRouter {
 
         guard Self.looksFrench(text) else { return .notHandled }
         return .openQuestion(original)
+    }
+
+    // MARK: What Jarvis knows about the person
+
+    private static let namePrefixes = [
+        "je m'appelle", "appelle moi", "tu peux m'appeler", "vous pouvez m'appeler",
+        "mon prenom est", "mon prenom c'est", "mon nom est", "mon nom c'est",
+    ]
+
+    private func profileAnswer(original: String, normalized: String, request: String) -> JarvisResponse? {
+        if containsAny(request, [
+            "comment je m'appelle", "je m'appelle comment", "quel est mon nom", "quel est mon prenom", "c'est quoi mon nom",
+            "c'est quoi mon prenom", "tu connais mon nom", "tu connais mon prenom", "tu sais comment je m'appelle",
+        ]) {
+            guard let name = profile.name else {
+                return .ok("Je ne connais pas encore votre prénom. Dites par exemple : « Je m'appelle Tony ».")
+            }
+            return .ok("Vous vous appelez \(name).")
+        }
+        if containsAny(request, ["oublie mon nom", "oublie mon prenom", "efface mon nom", "efface mon prenom"]) {
+            profile.name = nil
+            return .ok("C'est oublié : je ne vous appellerai plus par votre prénom.", data: ["mode": "profile_name_forgotten"])
+        }
+        if containsAny(request, [
+            "qu'est ce que tu sais sur moi", "qu'est ce que tu sais de moi", "que sais tu sur moi", "que sais tu de moi",
+            "ce que tu sais sur moi", "ce que tu sais de moi", "tu sais quoi sur moi", "qu'est ce que tu connais de moi",
+        ]) {
+            return knownFactsAnswer()
+        }
+        for prefix in Self.namePrefixes {
+            guard let raw = Self.argument(in: original, normalized: normalized, after: prefix) else { continue }
+            guard let name = JarvisUserProfile.cleanedName(raw) else { return nil }
+            profile.name = name
+            return .ok("Enchanté, \(name). Je m'en souviendrai.", data: ["mode": "profile_name"])
+        }
+        return nil
+    }
+
+    /// « Qu'est-ce que tu sais sur moi ? »: the name and the latest notes, all kept on the iPhone.
+    private func knownFactsAnswer() -> JarvisResponse {
+        let notes = memory.loadNotes().filter { !$0.text.hasPrefix(Self.trialNotePrefix) }
+        var spoken: [String] = []
+        if let name = profile.name {
+            spoken.append("Vous vous appelez \(name).")
+        }
+        guard !notes.isEmpty else {
+            spoken.append(profile.name == nil
+                ? "Je ne sais encore rien de vous. Dites « Je m'appelle… » ou « Souviens-toi que… » : je m'en souviendrai, ici sur l'iPhone."
+                : "Vous ne m'avez encore rien demandé de retenir : dites « Souviens-toi que… ».")
+            return .ok(spoken.joined(separator: " "))
+        }
+        let latest = notes.prefix(3).map(\.text).joined(separator: " ; ")
+        if notes.count == 1 {
+            spoken.append("Vous m'avez demandé de retenir une chose : \(latest).")
+        } else if notes.count <= 3 {
+            spoken.append("Vous m'avez demandé de retenir \(notes.count) choses : \(latest).")
+        } else {
+            spoken.append("Vous m'avez demandé de retenir \(notes.count) choses. Les plus récentes : \(latest).")
+        }
+        let list = notes.prefix(10).enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
+        return .ok(spoken.joined(separator: " "), display: spoken.joined(separator: " ") + "\n" + list)
     }
 
     private func lifeAnswer(request: String, original: String, now: Date) -> JarvisResponse? {

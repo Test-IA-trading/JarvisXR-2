@@ -40,6 +40,8 @@ The core app does not require a project-operated server. When a user opens an ex
 
 The local brain is optional. When the user taps **Télécharger le cerveau** in Settings and confirms, the app downloads one pinned model file, `qwen2.5-1.5b-instruct-q4_k_m.gguf` (Qwen2.5 1.5B Instruct, Apache 2.0, about 1.1 GB), from Hugging Face over HTTPS. The request sends no user data: no questions, notes, audio, or images. Hugging Face may log the request itself (IP address, time) under its own privacy terms. The file is verified by size and SHA-256, stored in the app's Application Support folder, and excluded from iCloud backups. Questions sent to the local brain and its answers are processed on the iPhone and kept only in memory for the current session; the user can delete the model at any time in Settings.
 
+To personalise its answers, the local brain also reads, on the iPhone only, the first name the user gave (« Je m'appelle… », stored in the app's preferences until « Oublie mon prénom ») and the latest notes the user dictated (« Souviens-toi que… », at most eight, shortened). Nothing of this is sent anywhere. « Qu'est-ce que tu sais sur moi ? » lists what Jarvis keeps, and Settings › Effacer les notes removes the notes.
+
 ## Data Sharing and Sale
 
 The project maintainer does not receive, sell, rent, or share personal information from the app because the app does not transmit app data to a maintainer-operated service.

@@ -132,6 +132,8 @@ final class JarvisHelpViewController: UIViewController {
             "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre.",
             "Maintenez l'orbe appuyé pour remettre Jarvis en veille.",
             "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion.",
+            "Dites « Je m'appelle… » et « Souviens-toi que… » : Jarvis s'en sert pour vous répondre. « Qu'est-ce que tu sais sur moi ? » fait le point, tout reste sur l'iPhone.",
+            "Les calculs sont exacts : « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « Dérivée de x au cube ».",
             "Dites aussi : « Mets un minuteur de 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Ouvre le cube ».",
             "Control Mesh explique les commandes vocales d'iOS, les Raccourcis et les liens pris en charge, sans prétendre contrôler le système.",
         ])

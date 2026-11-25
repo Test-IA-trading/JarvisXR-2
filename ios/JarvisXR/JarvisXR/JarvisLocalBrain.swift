@@ -451,6 +451,8 @@ final class JarvisLocalBrain {
     func answerOpenQuestion(
         _ question: String,
         context conversation: JarvisConversationContext = .shared,
+        profile: JarvisUserProfile = .shared,
+        memory: JarvisMemoryStore = .shared,
         now: Date = Date(),
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
@@ -468,7 +470,9 @@ final class JarvisLocalBrain {
         case .ready:
             break
         }
-        let system = JarvisChatPrompt.systemPrompt(now: now, context: conversation.brainContextLines())
+        // The first name and the notes the person dictated (« Souviens-toi que… ») let the
+        // brain answer « Qu'est-ce que je bois le matin ? »; everything stays on the iPhone.
+        let system = JarvisChatPrompt.systemPrompt(now: now, context: conversation.brainContextLines() + profile.brainContextLines(memory: memory))
         let prompt = JarvisChatPrompt.chatML(system: system, history: conversation.recentTurns, question: question)
         generate(prompt: prompt, onPartial: onPartial) { result in
             switch result {
