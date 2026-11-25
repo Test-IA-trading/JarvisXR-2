@@ -114,8 +114,17 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         guard JarvisWakeWordSettings.isEnabled,
               !isUITestMode,
               navigationController?.topViewController === self,
-              presentedViewController == nil,
               UIApplication.shared.applicationState == .active else { return }
+        if presentedViewController != nil {
+            // A sheet or an alert is open (closing it does not call viewDidAppear here).
+            scheduleWakeListening(after: 2.0)
+            return
+        }
+        if commandField.isFirstResponder {
+            // The user is typing a request: the microphone waits for the keyboard to close.
+            scheduleWakeListening(after: 2.0)
+            return
+        }
         if speech.isSpeaking || speech.isStreamingReply || JarvisLocalBrain.shared.isGenerating {
             // Jarvis is talking or thinking: wait until it is quiet.
             scheduleWakeListening(after: 1.0)
@@ -155,8 +164,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func handleWakeTranscript(_ transcript: String) {
-        // A sheet or an alert is open: the request waits for the next call.
-        guard presentedViewController == nil else { return }
+        // A sheet or an alert is open: drop this request and wait for it to close.
+        guard presentedViewController == nil else {
+            scheduleWakeListening(after: 2.0)
+            return
+        }
         guard let request = JarvisWakeWord.command(in: transcript) else {
             // Not addressed to Jarvis: forget it and keep waiting.
             setInterfaceState(interfaceState, hint: "À l'écoute : dites « Jarvis », puis votre demande.")
@@ -885,6 +897,15 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             guard !success else { return }
             self?.showTransient("Use Control Mesh: say Open \(url.host ?? "the app") or open it from Home.")
         }
+    }
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        // Typing a request: the wait for « Jarvis » gives way to the keyboard.
+        stopWakeListening()
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        scheduleWakeListening()
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
