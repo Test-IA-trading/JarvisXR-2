@@ -390,6 +390,16 @@ struct JarvisFrenchCommandRouter {
         if has(["qu'est ce que tu vois", "que vois tu", "decris", "decris moi", "qu'est ce qu'il y a devant moi", "qu'y a t il devant moi"]) {
             return TranslatedAction(command: "describe this", spoken: "Je regarde.", display: nil)
         }
+        // « Où est ma tasse ? », « Cherche mon téléphone » : the camera's Find mode, with the
+        // detector's class name. The local brain cannot see, so it must not get these.
+        if let target = VisionFrenchVocabulary.findTarget(inNormalized: request) {
+            let noun = VisionFrenchVocabulary.noun(for: target)
+            return TranslatedAction(
+                command: "find \(target)",
+                spoken: "Je cherche \(noun.definite) avec la caméra.",
+                display: "Recherche : \(noun.singular). Balayez lentement avec le téléphone."
+            )
+        }
         if (has(["camera", "vision"]) && has(["ouvre", "lance", "active", "allume", "demarre"])) || request == "camera" {
             return TranslatedAction(command: "open camera", spoken: "J'ouvre la caméra.", display: "Ouverture de la caméra.")
         }

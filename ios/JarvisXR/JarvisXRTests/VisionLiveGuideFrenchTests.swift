@@ -232,6 +232,14 @@ final class VisionLiveGuideFrenchTests: XCTestCase {
         XCTAssertNil(target("La tasse est jolie"), "No search verb: no Find.")
     }
 
+    func testHomeSearchPhrasesOpenFindInTheCamera() {
+        XCTAssertEqual(JarvisFrenchCommandRouter.translateAction("Où est ma tasse ?")?.command, "find cup")
+        XCTAssertEqual(JarvisFrenchCommandRouter.translateAction("Cherche mon téléphone")?.command, "find cell phone")
+        XCTAssertNil(JarvisFrenchCommandRouter.translateAction("Où sont mes clés ?"), "Keys are not a detector class.")
+        XCTAssertEqual(JarvisCommandPlanner().plan("find cup").visionLaunchRequest?.mode, .find)
+        XCTAssertEqual(JarvisCommandPlanner().plan("find cup").visionLaunchRequest?.target, "cup")
+    }
+
     // MARK: French wording and safety
 
     func testFrenchNounsAgreeAndElide() {
