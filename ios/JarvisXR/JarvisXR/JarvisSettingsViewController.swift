@@ -14,7 +14,8 @@ final class JarvisSettingsViewController: UIViewController {
 
     private let speechSwitch = UISwitch()
     private let wakeWordSwitch = UISwitch()
-    private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Discrète", "Formelle"])
+    private let clapSwitch = UISwitch()
+    private let voiceProfileControl = UISegmentedControl(items: ["Jarvis", "Naturel", "Amical", "Claire", "Discrète", "Formelle"])
     private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
     private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
     private let defaultModeControl = UISegmentedControl(items: ["Décrire", "Guide", "Trouver", "Lire", "Scanner"])
@@ -481,6 +482,14 @@ final class JarvisSettingsViewController: UIViewController {
         wakeWordSwitch.accessibilityHint = wakeExplanation
         wakeWordSwitch.accessibilityIdentifier = "jarvis.settings.wakeWord"
         stackView.addArrangedSubview(settingPanel(title: "Réveil par la voix (« Jarvis »)", detail: wakeExplanation, control: wakeWordSwitch))
+        configureSwitch(
+            clapSwitch,
+            label: "Aussi deux clappements de mains",
+            hint: "Pendant le réveil par la voix, deux clappements rapprochés appellent aussi Jarvis. Seul le niveau sonore est mesuré, sur l'iPhone ; rien n'est enregistré.",
+            identifier: "jarvis.settings.wakeClaps",
+            action: #selector(clapSwitchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Aussi deux clappements de mains", control: clapSwitch))
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
         stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
@@ -567,6 +576,7 @@ final class JarvisSettingsViewController: UIViewController {
         let preferences = preferencesStore.value
         speechSwitch.isOn = JarvisSpeechService.shared.isEnabled
         wakeWordSwitch.isOn = JarvisWakeWordSettings.isEnabled
+        clapSwitch.isOn = JarvisWakeWordSettings.clapsEnabled
         voiceProfileControl.selectedSegmentIndex = index(for: JarvisSpeechService.shared.profile)
         narrationControl.selectedSegmentIndex = index(for: preferences.narrationVerbosity)
         defaultModeControl.selectedSegmentIndex = index(for: preferences.defaultMode)
@@ -675,6 +685,10 @@ final class JarvisSettingsViewController: UIViewController {
         return label
     }
 
+    @objc private func clapSwitchChanged() {
+        JarvisWakeWordSettings.clapsEnabled = clapSwitch.isOn
+    }
+
     @objc private func wakeWordChanged() {
         JarvisWakeWordSettings.isEnabled = wakeWordSwitch.isOn
         if wakeWordSwitch.isOn {
@@ -693,11 +707,12 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func profileChanged() {
         switch voiceProfileControl.selectedSegmentIndex {
-        case 1: JarvisSpeechService.shared.profile = .friendly
-        case 2: JarvisSpeechService.shared.profile = .crisp
-        case 3: JarvisSpeechService.shared.profile = .quiet
-        case 4: JarvisSpeechService.shared.profile = .formal
-        default: JarvisSpeechService.shared.profile = .natural
+        case 1: JarvisSpeechService.shared.profile = .natural
+        case 2: JarvisSpeechService.shared.profile = .friendly
+        case 3: JarvisSpeechService.shared.profile = .crisp
+        case 4: JarvisSpeechService.shared.profile = .quiet
+        case 5: JarvisSpeechService.shared.profile = .formal
+        default: JarvisSpeechService.shared.profile = .jarvis
         }
         JarvisSpeechService.shared.speak(JarvisSpeechService.shared.testPhrase())
     }
@@ -827,11 +842,12 @@ final class JarvisSettingsViewController: UIViewController {
 
     private func index(for profile: JarvisVoiceProfile) -> Int {
         switch profile {
-        case .natural: return 0
-        case .friendly: return 1
-        case .crisp: return 2
-        case .quiet: return 3
-        case .formal: return 4
+        case .jarvis: return 0
+        case .natural: return 1
+        case .friendly: return 2
+        case .crisp: return 3
+        case .quiet: return 4
+        case .formal: return 5
         }
     }
 

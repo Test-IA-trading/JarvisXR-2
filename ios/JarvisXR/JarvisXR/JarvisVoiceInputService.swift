@@ -166,6 +166,8 @@ final class JarvisVoiceInputService: NSObject {
     var onStateChange: ((JarvisVoiceInputState) -> Void)?
     var onPartialTranscript: ((String) -> Void)?
     var onFinalTranscript: ((String) -> Void)?
+    /// Two hand claps heard while waiting for « Jarvis » (option of the wake word).
+    var onDoubleClap: (() -> Void)?
     /// Mode of the current or last turn.
     private(set) var mode: ListeningMode = .command
     let wakeListenDuration: TimeInterval = 50
@@ -371,10 +373,20 @@ final class JarvisVoiceInputService: NSObject {
 
         inputNode.removeTap(onBus: 0)
         var levelCounter = 0
+        // Only the level of each 10 ms is measured, on the audio thread; nothing is kept.
+        let clapDetector: JarvisClapDetectorBox? = mode == .wake && JarvisWakeWordSettings.clapsEnabled
+            ? JarvisClapDetectorBox(sampleRate: format.sampleRate)
+            : nil
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak recognitionRequest] buffer, _ in
             recognitionRequest?.append(buffer)
             guard let channel = buffer.floatChannelData?[0] else { return }
             let samples = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
+            if let clapDetector, clapDetector.ingest(samples) {
+                DispatchQueue.main.async {
+                    guard let self, self.generation == turn, self.capturing else { return }
+                    self.onDoubleClap?()
+                }
+            }
             var local = JarvisVoiceSignalMeter()
             let level = local.ingest(samples)
             let nonZero = local.nonZeroBufferCount > 0

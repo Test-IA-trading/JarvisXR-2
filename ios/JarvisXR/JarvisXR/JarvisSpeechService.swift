@@ -1,8 +1,12 @@
 import AVFoundation
 
 enum JarvisVoiceProfile: String {
-    static let ordered: [JarvisVoiceProfile] = [.natural, .friendly, .crisp, .quiet, .formal]
+    static let ordered: [JarvisVoiceProfile] = [.jarvis, .natural, .friendly, .crisp, .quiet, .formal]
 
+    /// The default: a calm, measured assistant voice, a little slower and deeper than
+    /// iOS's own, with a male voice preferred when one is installed. It evokes the style
+    /// of a film assistant without imitating anyone's real voice.
+    case jarvis
     case natural
     case friendly
     case formal
@@ -11,6 +15,7 @@ enum JarvisVoiceProfile: String {
 
     var displayName: String {
         switch self {
+        case .jarvis: return "Jarvis"
         case .natural: return "Naturelle"
         case .friendly: return "Chaleureuse"
         case .formal: return "Posée"
@@ -58,6 +63,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var speechRate: Float {
         get {
             switch profile {
+            case .jarvis: return 0.47
             case .natural: return 0.46
             case .friendly: return 0.47
             case .formal: return 0.42
@@ -73,8 +79,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var pitch: Float {
         get {
             switch profile {
-            // The default profile keeps the voice's own pitch: shifting it makes the
-            // enhanced and premium voices sound metallic.
+            // A slight lowering only (under one semitone): larger shifts make the enhanced
+            // and premium voices sound metallic, so Naturelle keeps the voice's own pitch.
+            case .jarvis: return 0.95
             case .natural: return 1.0
             case .friendly: return 1.05
             case .formal: return 0.98
@@ -104,7 +111,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         get {
             guard let raw = UserDefaults.standard.string(forKey: profileKey),
                   let value = JarvisVoiceProfile(rawValue: raw) else {
-                return .natural
+                return .jarvis
             }
             return value
         }
@@ -480,6 +487,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func speechRate(for utteranceProfile: JarvisVoiceProfile) -> Float {
         switch utteranceProfile {
+        case .jarvis: return 0.47
         case .natural: return 0.46
         case .friendly: return 0.47
         case .formal: return 0.42
@@ -490,6 +498,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func pitch(for utteranceProfile: JarvisVoiceProfile) -> Float {
         switch utteranceProfile {
+        case .jarvis: return 0.95
         case .natural: return 1.0
         case .friendly: return 1.05
         case .formal: return 0.98

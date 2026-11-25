@@ -9,6 +9,15 @@ enum JarvisWakeWordSettings {
         get { UserDefaults.standard.bool(forKey: enabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
     }
+
+    static let clapsKey = "JarvisXR.wakeClapsEnabled"
+
+    /// Two hand claps also call Jarvis while it waits for « Jarvis ». On by default; it
+    /// only works when the wake word option is on.
+    static var clapsEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: clapsKey) == nil ? true : UserDefaults.standard.bool(forKey: clapsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: clapsKey) }
+    }
 }
 
 /// Finds the request addressed to Jarvis in what the microphone heard.

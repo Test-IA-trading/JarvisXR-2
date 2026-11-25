@@ -175,18 +175,29 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             return
         }
         if request.isEmpty {
-            // « Jarvis ? » alone: answer, then listen to the request.
-            listenAfterWakeReply = true
-            setInterfaceState(.ready, hint: "Oui ?")
-            if speech.isEnabled {
-                speech.speak("Oui ?")
-            } else {
-                listenAfterWakeReply = false
-                startVoiceTurn()
-            }
+            answerWakeCall()
             return
         }
         execute(request, source: "voice")
+    }
+
+    /// Two claps while waiting for « Jarvis »: the same as calling it by name.
+    private func handleDoubleClap() {
+        guard isWakeListening, presentedViewController == nil else { return }
+        stopWakeListening()
+        answerWakeCall()
+    }
+
+    /// « Jarvis ? » alone or two claps: answer « Oui ? », then listen to the request.
+    private func answerWakeCall() {
+        listenAfterWakeReply = true
+        setInterfaceState(.ready, hint: "Oui ?")
+        if speech.isEnabled {
+            speech.speak("Oui ?")
+        } else {
+            listenAfterWakeReply = false
+            startVoiceTurn()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -535,6 +546,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             }
             if !transcript.isEmpty { self.setVoiceStage(.text) }
             self.hintLabel.text = transcript.isEmpty ? "Micro actif. Parlez maintenant." : transcript
+        }
+        voiceInput.onDoubleClap = { [weak self] in
+            self?.handleDoubleClap()
         }
         voiceInput.onFinalTranscript = { [weak self] transcript in
             guard let self else { return }
