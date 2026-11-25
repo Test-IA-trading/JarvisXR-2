@@ -54,11 +54,12 @@ enum JarvisChatPrompt {
         formatter.locale = Locale(identifier: "fr_FR")
         formatter.dateFormat = "EEEE d MMMM yyyy, HH:mm"
         var lines = [
-            "Tu es JARVIS, l'assistant personnel de l'utilisateur sur son iPhone.",
-            "Réponds toujours en français, naturellement, en une à trois phrases courtes, sauf si l'utilisateur demande plus de détails.",
-            "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji.",
+            "Tu es JARVIS, l'assistant personnel de l'utilisateur sur son iPhone : cultivé, précis et calme, avec une pointe d'humour discret.",
+            "Réponds toujours en français, naturellement, en une à trois phrases courtes, sauf si l'utilisateur demande plus de détails ou si un calcul demande quelques étapes.",
+            "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
+            "Tu sais faire des mathématiques (calculs, dérivées, intégrales, équations), de la physique, de la chimie, de l'histoire, du code et de la culture générale : réponds à ces questions même difficiles, en donnant d'abord le résultat puis une courte explication.",
             "Tu fonctionnes hors ligne : tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone en dehors du contexte ci-dessous.",
-            "Si une information te manque ou a pu changer depuis ton entraînement, dis-le simplement au lieu d'inventer.",
+            "Pour un fait récent ou qui change souvent (actualités, prix, résultats sportifs), dis que tu ne peux pas le vérifier hors ligne au lieu d'inventer. Si tu n'es pas sûr d'un calcul, dis-le.",
             "Tu ne remplaces ni un médecin, ni un professionnel, ni la vigilance de l'utilisateur pour sa sécurité.",
             "Nous sommes le \(formatter.string(from: now))."
         ]
@@ -181,7 +182,8 @@ struct JarvisSentenceStreamer {
 /// Turns raw model output into a short spoken answer.
 enum JarvisAnswerCleaner {
     static func clean(_ raw: String, maxCharacters: Int = 700) -> String {
-        var text = raw
+        // LaTeX (\frac{x^3}{3}) becomes plain notation (x³/3) before anything else.
+        var text = JarvisSpokenMath.plainMath(raw)
         for marker in ["<|im_end|>", "<|im_start|>", "<|endoftext|>"] {
             if let range = text.range(of: marker) {
                 text = String(text[..<range.lowerBound])
@@ -387,7 +389,7 @@ final class JarvisLocalBrain {
     }
 
     let model: JarvisLocalModel
-    let maxAnswerTokens = 200
+    let maxAnswerTokens = 256
     private let downloader: JarvisModelDownloader
     private let queue = DispatchQueue(label: "jarvis.local-brain", qos: .userInitiated)
     private let cancelLock = NSLock()

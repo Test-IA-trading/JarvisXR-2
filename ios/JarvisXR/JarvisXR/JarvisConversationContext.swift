@@ -266,7 +266,11 @@ final class JarvisConversationContext {
         if let question {
             lastQuestion = question
             replies.append(answer(question, explain: wantsExplanation, afterCorrection: isCorrection || asksAgain))
-        } else if (asksAgain || wantsExplanation), let previous = lastQuestion {
+        } else if (asksAgain || wantsExplanation),
+                  // « Pourquoi ? », « Et maintenant ? », « Pourquoi le bus ? » follow the
+                  // departures; « Pourquoi le ciel est-il bleu ? » goes to the local brain.
+                  !stated.isEmpty || mentionedSubject(tokens) != nil || tokens.count <= 4,
+                  let previous = lastQuestion {
             replies.append(answer(previous, explain: wantsExplanation, afterCorrection: true))
         } else if !stated.isEmpty {
             if isCorrection, let first = stated.first {

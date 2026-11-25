@@ -464,7 +464,8 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     private func makeUtterance(_ text: String, profile utteranceProfile: JarvisVoiceProfile) -> AVSpeechUtterance {
-        let utterance = AVSpeechUtterance(string: text)
+        // Formulas are read as words: « x³/3 » becomes « x au cube sur 3 ».
+        let utterance = AVSpeechUtterance(string: JarvisSpokenMath.speakable(text))
         utterance.rate = speechRate(for: utteranceProfile)
         utterance.pitchMultiplier = pitch(for: utteranceProfile)
         utterance.volume = volume(for: utteranceProfile)

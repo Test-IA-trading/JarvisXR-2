@@ -118,6 +118,12 @@ struct JarvisFrenchCommandRouter {
             return .answer(notesAnswer)
         }
 
+        // Calculations get an exact answer instead of a language model's estimate:
+        // « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré ».
+        if !isNoteDictation, let math = JarvisMathSolver.answer(to: original) {
+            return .answer(.ok(math.spoken, display: math.display))
+        }
+
         if containsAny(request, ["quelle heure", "l'heure", "il est quelle heure"]) {
             let formatter = DateFormatter()
             formatter.locale = locale
@@ -134,8 +140,8 @@ struct JarvisFrenchCommandRouter {
 
         if request == "aide" || containsAny(request, ["que sais tu faire", "qu'est ce que tu sais faire", "que peux tu faire", "qu'est ce que tu peux faire", "liste des commandes", "quelles commandes"]) {
             return .answer(.ok(
-                "Je peux lancer des minuteurs, créer des rappels, lire votre agenda, faire le point, retenir des horaires, compter vos notes, poser un cube ou un bilan en réalité augmentée, et répondre à vos questions avec le cerveau local.",
-                display: "Essayez : « Minuteur pâtes 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
+                "Je peux lancer des minuteurs, créer des rappels, lire votre agenda, faire le point, retenir des horaires, compter vos notes, faire des calculs exacts, dérivées et intégrales comprises, poser un cube ou un bilan en réalité augmentée, et répondre à vos questions avec le cerveau local.",
+                display: "Essayez : « Minuteur pâtes 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
             ))
         }
 
