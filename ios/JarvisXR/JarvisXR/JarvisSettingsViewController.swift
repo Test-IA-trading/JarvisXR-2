@@ -16,6 +16,7 @@ final class JarvisSettingsViewController: UIViewController {
     private let wakeWordSwitch = UISwitch()
     private let clapSwitch = UISwitch()
     private let interruptSwitch = UISwitch()
+    private let backgroundWatchSwitch = UISwitch()
     private let thinkingSwitch = UISwitch()
     private let voiceProfileControl = UISegmentedControl(items: ["Jarvis", "Naturel", "Amical", "Claire", "Discrète", "Formelle"])
     private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
@@ -662,6 +663,14 @@ final class JarvisSettingsViewController: UIViewController {
         )
         stackView.addArrangedSubview(settingRow(title: "Aussi deux clappements de mains", control: clapSwitch))
         configureSwitch(
+            backgroundWatchSwitch,
+            label: "Veille en arrière-plan (Dynamic Island)",
+            hint: "Quand vous quittez l'app sans la fermer, deux clappements appellent encore Jarvis ; la Dynamic Island montre qu'il veille et ce qu'il répond. Seuls les clappements sont écoutés hors de l'écran ; le micro reste actif (point orange) et la batterie s'use davantage ; rien n'est enregistré. Un appel ou un message attend que vous touchiez la Dynamic Island.",
+            identifier: "jarvis.settings.backgroundWatch",
+            action: #selector(backgroundWatchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Veille en arrière-plan (Dynamic Island)", control: backgroundWatchSwitch))
+        configureSwitch(
             interruptSwitch,
             label: "Interrompre Jarvis en parlant",
             hint: "En conversation, parlez par-dessus Jarvis : il baisse la voix, puis s'arrête et vous écoute dès qu'il reconnaît vos mots. Le micro reste ouvert pendant l'échange, avec l'annulation d'écho de l'iPhone ; rien n'est enregistré.",
@@ -769,6 +778,7 @@ final class JarvisSettingsViewController: UIViewController {
         wakeWordSwitch.isOn = JarvisWakeWordSettings.isEnabled
         clapSwitch.isOn = JarvisWakeWordSettings.clapsEnabled
         interruptSwitch.isOn = JarvisConversationSettings.interruptsByVoice
+        backgroundWatchSwitch.isOn = JarvisWakeWordSettings.worksInBackground
         thinkingSwitch.isOn = JarvisConversationSettings.thinksAloud
         voiceProfileControl.selectedSegmentIndex = index(for: JarvisSpeechService.shared.profile)
         narrationControl.selectedSegmentIndex = index(for: preferences.narrationVerbosity)
@@ -880,6 +890,28 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func clapSwitchChanged() {
         JarvisWakeWordSettings.clapsEnabled = clapSwitch.isOn
+        if !JarvisWakeWordSettings.watchesInBackground { stopBackgroundWatch() }
+    }
+
+    @objc private func backgroundWatchChanged() {
+        JarvisWakeWordSettings.worksInBackground = backgroundWatchSwitch.isOn
+        guard backgroundWatchSwitch.isOn else {
+            stopBackgroundWatch()
+            return
+        }
+        // The watch needs the wake word and the claps.
+        JarvisWakeWordSettings.isEnabled = true
+        JarvisWakeWordSettings.clapsEnabled = true
+        wakeWordSwitch.setOn(true, animated: true)
+        clapSwitch.setOn(true, animated: true)
+        JarvisLiveActivity.shared.start()
+        let problem = JarvisLiveActivity.shared.lastFailure.map { " Dynamic Island indisponible : \($0)" } ?? ""
+        showAssistant("Veille en arrière-plan activée : revenez à l'accueil, quittez l'app sans la fermer, puis tapez deux fois dans vos mains.\(problem)")
+    }
+
+    private func stopBackgroundWatch() {
+        JarvisLiveActivity.shared.stop()
+        JarvisVoiceInputService.shared.closeConversationAudio()
     }
 
     @objc private func interruptSwitchChanged() {
@@ -895,6 +927,7 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func wakeWordChanged() {
         JarvisWakeWordSettings.isEnabled = wakeWordSwitch.isOn
+        if !JarvisWakeWordSettings.watchesInBackground { stopBackgroundWatch() }
         if wakeWordSwitch.isOn {
             showAssistant("Réveil par la voix activé : revenez à l'accueil et dites « Jarvis », puis votre demande.")
         }

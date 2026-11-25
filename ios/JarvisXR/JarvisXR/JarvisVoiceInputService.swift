@@ -364,6 +364,11 @@ final class JarvisVoiceInputService: NSObject {
             beginConversationRecognition(with: recognizer, turn: turn)
             return
         }
+        // The background watch keeps one microphone open, without echo cancellation.
+        if mode == .wake, JarvisWakeWordSettings.watchesInBackground, openWatchAudio() {
+            beginConversationRecognition(with: recognizer, turn: turn)
+            return
+        }
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
@@ -506,25 +511,96 @@ final class JarvisVoiceInputService: NSObject {
     /// user can interrupt Jarvis by speaking (Réglages › Voix › Interrompre Jarvis en parlant).
     var usesConversationAudio: Bool { JarvisDuplexAudio.shared.isRunning }
 
+    /// The microphone hears the user over Jarvis's voice (echo cancellation on).
+    var hearsOverJarvis: Bool { JarvisDuplexAudio.shared.isRunning && JarvisDuplexAudio.shared.usesVoiceProcessing }
+
     /// Opens the conversation audio when the setting allows it. False keeps the classic
-    /// microphone, opened for each turn (setting off, app in the background, or failure).
+    /// microphone, opened for each turn (setting off, or failure). In the background, the
+    /// microphone the watch keeps open is used as it is (iOS does not let it start again).
     @discardableResult
     func openConversationAudio() -> Bool {
-        guard JarvisConversationSettings.interruptsByVoice, UIApplication.shared.applicationState == .active else { return false }
-        if JarvisDuplexAudio.shared.isRunning { return true }
+        let audio = JarvisDuplexAudio.shared
+        let onScreen = UIApplication.shared.applicationState == .active
+        if audio.isRunning {
+            // On screen, the watch's plain microphone gives way to echo cancellation.
+            guard onScreen, !audio.usesVoiceProcessing, JarvisConversationSettings.interruptsByVoice, !(capturing && duplexTurn) else { return true }
+            audio.stop()
+        }
+        guard JarvisConversationSettings.interruptsByVoice, onScreen else { return false }
         // The plain microphone of the wake word must be closed first.
         guard audioEngine == nil else { return false }
-        let opened = JarvisDuplexAudio.shared.start(voiceRate: JarvisSpeechService.shared.voiceSampleRate)
+        let opened = audio.start(voiceRate: JarvisSpeechService.shared.voiceSampleRate, voiceProcessing: true)
         lastDiagnostic = opened
             ? "Son de conversation ouvert (annulation d'écho) : vous pouvez interrompre Jarvis en parlant."
-            : "Son de conversation indisponible (\(JarvisDuplexAudio.shared.lastFailure ?? "cause inconnue")) : micro classique."
+            : "Son de conversation indisponible (\(audio.lastFailure ?? "cause inconnue")) : micro classique."
+        if !opened, JarvisWakeWordSettings.watchesInBackground {
+            // Without echo cancellation, the watch's microphone still serves the conversation.
+            return openWatchAudio()
+        }
         return opened
     }
 
-    /// Closes the conversation audio, unless a turn is listening through it.
+    /// The microphone of the background watch: plain (the claps are heard best without echo
+    /// cancellation) and kept open, so the watch goes on once Jarvis leaves the screen.
+    @discardableResult
+    func openWatchAudio() -> Bool {
+        let audio = JarvisDuplexAudio.shared
+        let onScreen = UIApplication.shared.applicationState == .active
+        if audio.isRunning {
+            guard onScreen, audio.usesVoiceProcessing, !(capturing && duplexTurn) else { return true }
+            audio.stop()
+        }
+        guard onScreen, audioEngine == nil else { return false }
+        let opened = audio.start(voiceRate: JarvisSpeechService.shared.voiceSampleRate, voiceProcessing: false)
+        if !opened {
+            lastDiagnostic = "Micro de veille indisponible (\(audio.lastFailure ?? "cause inconnue"))."
+        }
+        return opened
+    }
+
+    /// Closes the conversation audio, unless a turn is listening through it. With the
+    /// background watch on, the microphone stays open (plain again, on screen).
     func closeConversationAudio() {
-        guard JarvisDuplexAudio.shared.isRunning, !(capturing && duplexTurn) else { return }
-        JarvisDuplexAudio.shared.stop()
+        let audio = JarvisDuplexAudio.shared
+        guard audio.isRunning, !(capturing && duplexTurn) else { return }
+        if JarvisWakeWordSettings.watchesInBackground {
+            if audio.usesVoiceProcessing, UIApplication.shared.applicationState == .active {
+                openWatchAudio()
+            }
+            return
+        }
+        audio.stop()
+    }
+
+    /// In the background: only the two claps are listened to, without speech recognition
+    /// (which would drain the battery), on the microphone kept open. False when it is not
+    /// open (iOS does not let an app open it from the background).
+    @discardableResult
+    func startBackgroundWatch() -> Bool {
+        guard JarvisWakeWordSettings.watchesInBackground, JarvisDuplexAudio.shared.isRunning else { return false }
+        if capturing || starting {
+            // A request being said goes on; a wait for « Jarvis » becomes the claps' watch.
+            guard mode == .wake else { return false }
+            cancel()
+        }
+        clearTimers()
+        mode = .wake
+        generation += 1
+        let turn = generation
+        lastTranscript = ""
+        meter = JarvisVoiceSignalMeter()
+        duplexTurn = true
+        starting = false
+        capturing = true
+        let listener = JarvisDuplexAudio.shared.listener
+        listener.detach()
+        listener.detectClaps(sampleRate: JarvisDuplexAudio.shared.microphoneSampleRate) { [weak self] in
+            guard let self, self.generation == turn, self.capturing else { return }
+            self.onDoubleClap?()
+        }
+        lastDiagnostic = "Veille en arrière-plan : seuls les deux clappements sont écoutés, rien n'est enregistré."
+        onStateChange?(.listening)
+        return true
     }
 
     /// Listens for the user speaking over Jarvis while it talks (`onPossibleBargeIn`).
@@ -552,9 +628,16 @@ final class JarvisVoiceInputService: NSObject {
         }
         // The last second heard comes first: words said as the turn started are kept.
         listener.attach(recognitionRequest, withPreRoll: true)
+        if mode == .wake, JarvisWakeWordSettings.clapsEnabled {
+            listener.detectClaps(sampleRate: JarvisDuplexAudio.shared.microphoneSampleRate) { [weak self] in
+                guard let self, self.generation == turn, self.capturing else { return }
+                self.onDoubleClap?()
+            }
+        }
         starting = false
         capturing = true
-        lastDiagnostic = "Écoute \(locale.identifier), moteur \(onDevice ? "local (sur l'iPhone)" : "Apple en ligne"), son de conversation (annulation d'écho)."
+        let echo = JarvisDuplexAudio.shared.usesVoiceProcessing ? "son de conversation (annulation d'écho)" : "micro de veille"
+        lastDiagnostic = "Écoute \(locale.identifier), moteur \(onDevice ? "local (sur l'iPhone)" : "Apple en ligne"), \(echo)."
         onStateChange?(.listening)
         startEndpointTimers(turn: turn)
         startRecognitionTask(with: recognizer, request: recognitionRequest, onDevice: onDevice, turn: turn)
@@ -608,6 +691,7 @@ final class JarvisVoiceInputService: NSObject {
             // turn's request stops receiving the microphone.
             JarvisDuplexAudio.shared.listener.detach()
             JarvisDuplexAudio.shared.listener.setLevelHandler(nil)
+            JarvisDuplexAudio.shared.listener.detectClaps(sampleRate: nil, handler: nil)
         } else if let engine = audioEngine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
@@ -721,14 +805,22 @@ final class JarvisVoiceInputService: NSObject {
             // A permission prompt also resigns the app: only stop an open microphone,
             // never a turn that is waiting for the user's answer to iOS.
             guard let self, self.capturing else { return }
+            // The background watch keeps waiting (it becomes claps-only in the background).
+            if self.mode == .wake, self.duplexTurn, JarvisWakeWordSettings.watchesInBackground { return }
             self.stopListening(process: false)
         }
     }
 
     @objc private func handleDidEnterBackground() {
         DispatchQueue.main.async { [weak self] in
-            // Jarvis does not listen in the background: the conversation audio closes.
-            guard let self, !self.capturing else { return }
+            guard let self else { return }
+            // Background watch: only the claps are listened to, on the microphone kept open.
+            if JarvisWakeWordSettings.watchesInBackground {
+                self.startBackgroundWatch()
+                return
+            }
+            // Otherwise Jarvis does not listen in the background: the conversation audio closes.
+            guard !self.capturing else { return }
             self.closeConversationAudio()
         }
     }

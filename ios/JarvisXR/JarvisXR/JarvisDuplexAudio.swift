@@ -15,6 +15,10 @@ final class JarvisDuplexAudio {
     /// Receives each microphone buffer, on the audio thread.
     let listener = JarvisDuplexListener()
     private(set) var isRunning = false
+    /// Echo cancellation on (a conversation) or off (the claps' watch, heard best raw).
+    private(set) var usesVoiceProcessing = false
+    /// The microphone's sample rate while running (the clap detector needs it).
+    private(set) var microphoneSampleRate: Double = 48_000
     /// Why the last start failed (Diagnostics), without any audio.
     private(set) var lastFailure: String?
     private var engine: AVAudioEngine?
@@ -26,20 +30,27 @@ final class JarvisDuplexAudio {
     /// Called on the main queue when iOS stops the engine (a call, a route change).
     var onStopped: (() -> Void)?
 
-    /// Opens the microphone with echo cancellation and Jarvis's voice output. `voiceRate` is
-    /// the sample rate of the voice that will speak (its buffers are played without
-    /// resampling). Main thread.
+    /// Opens the microphone, with echo cancellation when `voiceProcessing`, and Jarvis's voice
+    /// output. `voiceRate` is the sample rate of the voice that will speak (its buffers are
+    /// played without resampling). Without echo cancellation the user's music is not
+    /// lowered (the claps' watch can last for hours). Main thread.
     @discardableResult
-    func start(voiceRate: Double = 22_050) -> Bool {
+    func start(voiceRate: Double = 22_050, voiceProcessing: Bool = true) -> Bool {
         if isRunning { return true }
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
+            if voiceProcessing {
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
+            } else {
+                try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .mixWithOthers])
+            }
             try session.setActive(true)
             let engine = AVAudioEngine()
             let input = engine.inputNode
             // Must come before any format is read or any node is connected.
-            try input.setVoiceProcessingEnabled(true)
+            if voiceProcessing {
+                try input.setVoiceProcessingEnabled(true)
+            }
             let microphoneFormat = input.outputFormat(forBus: 0)
             guard microphoneFormat.sampleRate > 0, microphoneFormat.channelCount > 0,
                   let voiceFormat = AVAudioFormat(standardFormatWithSampleRate: voiceRate > 0 ? voiceRate : 22_050, channels: 1) else {
@@ -63,6 +74,8 @@ final class JarvisDuplexAudio {
             converter = nil
             converterInput = nil
             isRunning = true
+            usesVoiceProcessing = voiceProcessing
+            microphoneSampleRate = microphoneFormat.sampleRate
             lastFailure = nil
             configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
                 // The route or the hardware changed: the next turn opens the audio again.
@@ -86,6 +99,7 @@ final class JarvisDuplexAudio {
         configurationObserver = nil
         listener.detach()
         listener.monitor(false)
+        listener.detectClaps(sampleRate: nil, handler: nil)
         listener.clearPreRoll()
         player?.stop()
         if let engine {
@@ -99,6 +113,7 @@ final class JarvisDuplexAudio {
         converter = nil
         converterInput = nil
         isRunning = false
+        usesVoiceProcessing = false
         if wasRunning {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
@@ -201,6 +216,17 @@ final class JarvisDuplexListener {
         lock.unlock()
     }
 
+    /// Two hand claps call Jarvis (`handler` on the main queue); nil `sampleRate` stops it.
+    private var clapDetector: JarvisClapDetectorBox?
+    private var onDoubleClap: (() -> Void)?
+
+    func detectClaps(sampleRate: Double?, handler: (() -> Void)?) {
+        lock.lock()
+        clapDetector = sampleRate.map { JarvisClapDetectorBox(sampleRate: $0) }
+        onDoubleClap = sampleRate == nil ? nil : handler
+        lock.unlock()
+    }
+
     func ingest(_ buffer: AVAudioPCMBuffer) {
         guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
         let samples = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
@@ -223,11 +249,17 @@ final class JarvisDuplexListener {
         }
         let onLevel = self.onLevel
         let onPossibleBargeIn = self.onPossibleBargeIn
+        let clapDetector = self.clapDetector
+        let onDoubleClap = self.onDoubleClap
         lock.unlock()
         current?.append(buffer)
         onLevel?(level, meter.nonZeroBufferCount > 0, meter.hasHeardSound, meter.peakDecibels)
         if fired, let onPossibleBargeIn {
             DispatchQueue.main.async(execute: onPossibleBargeIn)
+        }
+        // Only the level of each 10 ms is measured; nothing is kept.
+        if let clapDetector, clapDetector.ingest(samples), let onDoubleClap {
+            DispatchQueue.main.async(execute: onDoubleClap)
         }
     }
 

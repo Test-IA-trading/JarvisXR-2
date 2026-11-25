@@ -37,6 +37,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private var brainReplyStreaming = false
     /// Each request and each question to the brain: a late answer to an earlier one is dropped.
     private var brainTurn = 0
+    /// The request being handled, and one that waits for the screen (background watch).
+    private var lastCommandText = ""
+    private var pendingScreenCommand: (text: String, date: Date)?
+    private var pendingRanAt: Date?
     /// The user started speaking over Jarvis: the microphone listens, and Jarvis stops once
     /// real words of the user are heard (JarvisEchoFilter), not its own echo or a noise.
     private var bargeInProbe = false
@@ -76,6 +80,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         wireVoice()
         NotificationCenter.default.addObserver(self, selector: #selector(deepLinkReceived(_:)), name: .jarvisDeepLinkReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         observeBrainDownload()
         setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
     }
@@ -108,8 +113,60 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     @objc private func appBecameActive() {
+        // Background watch: the Dynamic Island can only be started on screen.
+        if JarvisWakeWordSettings.watchesInBackground {
+            JarvisLiveActivity.shared.start()
+        } else {
+            JarvisLiveActivity.shared.stop()
+        }
+        if runPendingScreenCommand() { return }
         scheduleWakeListening()
         synchronizeWithPC()
+    }
+
+    @objc private func appEnteredBackground() {
+        let watching = JarvisActivityAttributes.ContentState.watching
+        liveShow(watching.phase, title: watching.title, detail: watching.detail)
+    }
+
+    // MARK: - Background watch (Dynamic Island)
+
+    private var isOffScreen: Bool { UIApplication.shared.applicationState != .active }
+
+    /// What Jarvis does, on the Dynamic Island and the lock screen, while it is off screen.
+    private func liveShow(_ phase: JarvisActivityAttributes.ContentState.Phase, title: String, detail: String, backToWatch: TimeInterval? = nil) {
+        guard isOffScreen, JarvisWakeWordSettings.watchesInBackground else { return }
+        JarvisLiveActivity.shared.show(phase, title: title, detail: detail, backToWatch: backToWatch)
+    }
+
+    /// A call, a message or the photos need the screen: the request waits for Jarvis to
+    /// open (a tap on the Dynamic Island), then runs.
+    private func waitForScreen(_ response: JarvisResponse) {
+        pendingScreenCommand = (lastCommandText, Date())
+        liveShow(.needsScreen, title: lastCommandText, detail: "Touchez ici pour continuer : \(response.spokenResponse)")
+        if speech.isEnabled {
+            setInterfaceState(.speaking, hint: JarvisBackgroundPolicy.waitingForScreen)
+            say(JarvisBackgroundPolicy.waitingForScreen)
+        } else {
+            setInterfaceState(.ready, hint: JarvisBackgroundPolicy.waitingForScreen)
+        }
+    }
+
+    /// Runs the request that waited for the screen, once. True when one ran.
+    @discardableResult
+    private func runPendingScreenCommand() -> Bool {
+        guard let pending = pendingScreenCommand, !isOffScreen else { return false }
+        pendingScreenCommand = nil
+        guard Date().timeIntervalSince(pending.date) < JarvisBackgroundPolicy.pendingLifetime, !pending.text.isEmpty else { return false }
+        pendingRanAt = Date()
+        execute(pending.text, source: "voice")
+        return true
+    }
+
+    /// After an answer given off screen: back to waiting for the claps.
+    private func returnToBackgroundWatch() {
+        guard isOffScreen, JarvisWakeWordSettings.watchesInBackground, !voiceInput.isListening else { return }
+        voiceInput.startBackgroundWatch()
     }
 
     /// Shares the first name and the notes with Jarvis PC, then says its messages
@@ -228,6 +285,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             // Said through the conversation audio, whose open microphone keeps the words
             // the user says right after « Oui ? ».
             voiceInput.openConversationAudio()
+            liveShow(.listening, title: "Oui ?", detail: "Je vous écoute.")
             speech.speak("Oui ?")
         } else {
             listenAfterWakeReply = false
@@ -529,6 +587,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 // No hands-free exchange goes on here: the microphone closes.
                 self.voiceInput.closeConversationAudio()
             }
+            // Off screen, the answer given: back to waiting for the claps.
+            self.returnToBackgroundWatch()
         }
         voiceInput.onPossibleBargeIn = { [weak self] in
             self?.handlePossibleBargeIn()
@@ -653,7 +713,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     /// Jarvis starts a reply in a hands-free conversation: the microphone listens for the
     /// user speaking over it (conversation audio, with echo cancellation).
     private func armBargeIn() {
-        guard conversationActive, JarvisConversationSettings.interruptsByVoice, voiceInput.usesConversationAudio,
+        guard conversationActive, JarvisConversationSettings.interruptsByVoice, voiceInput.hearsOverJarvis,
               speech.isSpeaking, !voiceInput.isListening, !bargeInProbe else { return }
         voiceInput.monitorBargeIn(true)
     }
@@ -858,6 +918,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         conversationActive = source == "voice" && JarvisConversationSettings.isContinuous
         // A new request: an answer still coming for the previous one is dropped.
         brainTurn += 1
+        lastCommandText = commandText
+        liveShow(.thinking, title: commandText, detail: "Je réfléchis…")
         if !speech.isStreamingReply { brainReplyStreaming = false }
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
@@ -875,6 +937,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
            plan.route == .inAppMessage,
            let rawAction = plan.data["message_action"],
            let action = JarvisMessageAction(rawValue: rawAction) {
+            if isOffScreen {
+                waitForScreen(decision.response)
+                return
+            }
             messageComposition.handle(JarvisMessageCommandDetails(
                 action: action,
                 recipientHint: plan.data["message_recipient_hint"],
@@ -895,6 +961,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             return
         }
         memory.appendHistory(command: "voice: \(question)", response: decision.response.displayResponse)
+        lastCommandText = command
         run(decision, source: "voice")
     }
 
@@ -1015,6 +1082,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func render(response: JarvisResponse, visionRequest: JarvisVisionLaunchRequest? = nil) {
+        // Off screen, what iOS shows only on screen (a call, the photos) waits for a tap.
+        if isOffScreen, JarvisBackgroundPolicy.needsScreen(response, opensVision: visionRequest != nil) {
+            waitForScreen(response)
+            return
+        }
         if JarvisLifeActionPerformer.handles(response) {
             performLifeAction(response)
             return
@@ -1066,6 +1138,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         let spokenStatus = response.status == .ok || response.status == .confirmationRequired || (response.status == .unavailable && conversationActive)
         if response.shouldSpeak && speech.isEnabled && spokenStatus && !response.spokenResponse.isEmpty {
             setInterfaceState(.speaking, hint: "JARVIS parle.")
+            liveShow(.answering, title: lastCommandText, detail: response.spokenResponse, backToWatch: 20)
             say(response.spokenResponse)
             scheduleSpeechStartCheck()
         } else {
@@ -1380,6 +1453,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         case .controlMesh:
             controlMeshTapped()
         case .listen:
+            // A tap on the Dynamic Island: first what waited for the screen.
+            if runPendingScreenCommand() { return }
+            if let ran = pendingRanAt, Date().timeIntervalSince(ran) < 3 { return }
             startListeningFromShortcut()
         case .unknown(let raw):
             render(response: JarvisResponse(status: .refused, spokenResponse: "Deep link not recognized.", displayResponse: "Unknown JARVIS deep link: \(raw)", shouldSpeak: false))
