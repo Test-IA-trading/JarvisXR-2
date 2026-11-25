@@ -171,7 +171,7 @@ enum JarvisAgendaSummary {
 /// Runs the side effects of life requests decided by the French router, then gives the
 /// response to show and speak. Shared by every screen that takes voice.
 enum JarvisLifeActionPerformer {
-    static let actions: Set<String> = ["timer_start", "timer_cancel", "reminder_create", "agenda_read", "briefing"]
+    static let actions: Set<String> = ["timer_start", "timer_cancel", "reminder_create", "agenda_read", "briefing", "pc_command", "pc_say"]
 
     static func handles(_ response: JarvisResponse) -> Bool {
         guard let action = response.data["action"] else { return false }
@@ -186,6 +186,24 @@ enum JarvisLifeActionPerformer {
     static func perform(_ response: JarvisResponse, now: Date = Date(), completion: @escaping (JarvisResponse) -> Void) {
         let data = response.data
         switch data["action"] {
+        case "pc_command":
+            JarvisPCLink.shared.command(data["text"] ?? "") { result in
+                switch result {
+                case .success(let answer):
+                    completion(.ok(answer.spoken, display: "PC : \(answer.display)"))
+                case .failure(let error):
+                    completion(JarvisResponse(status: .unavailable, spokenResponse: error.message, displayResponse: error.message))
+                }
+            }
+        case "pc_say":
+            JarvisPCLink.shared.say(data["text"] ?? "") { result in
+                switch result {
+                case .success:
+                    completion(.ok("C'est dit sur le PC.", display: response.displayResponse))
+                case .failure(let error):
+                    completion(JarvisResponse(status: .unavailable, spokenResponse: error.message, displayResponse: error.message))
+                }
+            }
         case "timer_start":
             guard let idText = data["timer_id"], let id = UUID(uuidString: idText),
                   let timer = JarvisTimerStore.shared.active(at: now).first(where: { $0.id == id }) else {

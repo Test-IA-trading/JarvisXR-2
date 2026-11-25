@@ -73,6 +73,11 @@ struct JarvisFrenchCommandRouter {
             return .answer(reply)
         }
 
+        // Jarvis PC: « Sur le PC, ouvre Spotify », « Dis sur le PC que le dîner est prêt ».
+        if let reply = pcRequest(original: original, normalized: text, request: request) {
+            return .answer(reply)
+        }
+
         // Hands-free conversation controls.
         if containsAny(request, ["c'est tout", "ca sera tout", "ce sera tout", "fin de la conversation", "arrete la conversation", "arrete d'ecouter", "stop conversation", "termine la conversation"]) {
             return .answer(.ok("Très bien. Touchez l'orbe quand vous voudrez reprendre.", data: ["mode": "conversation_end"]))
@@ -220,6 +225,48 @@ struct JarvisFrenchCommandRouter {
 
         guard Self.looksFrench(text) else { return .notHandled }
         return .openQuestion(original)
+    }
+
+    // MARK: Jarvis PC
+
+    private static let pcSayPrefixes = ["dis sur le pc", "dis sur mon pc", "annonce sur le pc", "annonce sur mon pc"]
+    private static let pcCommandPrefixes = [
+        "sur le pc", "sur mon pc", "demande au pc de", "demande au pc", "demande a mon pc de", "demande a mon pc",
+        "sur l'ordinateur", "sur l'ordi",
+    ]
+
+    /// A request for the user's PC, run there by Jarvis PC (JarvisLifeActionPerformer).
+    private func pcRequest(original: String, normalized: String, request: String) -> JarvisResponse? {
+        for prefix in Self.pcSayPrefixes {
+            guard let body = Self.argument(in: original, normalized: normalized, after: prefix) else { continue }
+            // « que le dîner est prêt », « qu'il pleut » — but « quelqu'un » stays whole.
+            let text = body.replacingOccurrences(of: "^(que\\s+|qu['’]\\s*)", with: "", options: [.regularExpression, .caseInsensitive])
+            guard !text.isEmpty else { return .ok("Que dois-je dire sur le PC ?") }
+            return .ok("Je le dis sur le PC.", display: "Sur le PC : « \(text) »", data: ["action": "pc_say", "text": text])
+        }
+        var body: String?
+        for prefix in Self.pcCommandPrefixes {
+            if let found = Self.argument(in: original, normalized: normalized, after: prefix) {
+                body = found
+                break
+            }
+        }
+        // « Ouvre Spotify sur le PC »: the same, said the other way round.
+        let pcVerbs: Set<String> = ["ouvre", "lance", "demarre", "cherche", "recherche", "mets", "joue", "ferme", "affiche", "montre", "eteins"]
+        if body == nil, request.hasSuffix(" sur le pc") || request.hasSuffix(" sur mon pc"),
+           let verb = request.split(separator: " ").first, pcVerbs.contains(String(verb)) {
+            body = Self.stripWakeWordPrefix(original)
+                .replacingOccurrences(of: "\\s+sur\\s+(le|mon)\\s+pc\\s*[.!?]*$", with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        guard let body else { return nil }
+        let command = body.trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;!?"))
+        guard !command.isEmpty else { return .ok("Que dois-je demander au PC ?") }
+        return .ok("Je demande au PC.", display: "Pour le PC : « \(command) »", data: ["action": "pc_command", "text": command])
+    }
+
+    /// The original wording without a leading « Jarvis, ».
+    private static func stripWakeWordPrefix(_ original: String) -> String {
+        original.replacingOccurrences(of: "^\\s*((dis|hey|ok|okay|eh)\\s+)?jarvis[\\s,.:;!?]*", with: "", options: [.regularExpression, .caseInsensitive])
     }
 
     // MARK: What Jarvis knows about the person

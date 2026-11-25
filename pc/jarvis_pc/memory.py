@@ -18,6 +18,15 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def parse_time(stamp: str) -> datetime:
+    """« 2026-11-25T10:00:00Z » (iPhone) or « …+00:00 » (PC); the oldest date when unreadable."""
+    try:
+        moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
 class Memory:
     def __init__(self, path: Path | None = None):
         self.path = path or data_dir() / "memory.json"
@@ -61,16 +70,21 @@ class Memory:
         return [n["text"] for n in self.notes if not n["text"].startswith(TRIAL_PREFIX)][:limit]
 
     def merge(self, other: dict) -> dict:
-        """Union of both note lists (by id, newest first); the most recent first name wins."""
+        """Union of both note lists (by id, newest first); the most recent first name wins.
+        The iPhone writes ids in capitals (« 8D6E… ») and the PC in small letters: same note."""
         with self.lock:
-            known = {n["id"] for n in self.notes if "id" in n}
+            known = {str(n["id"]).lower() for n in self.notes if "id" in n}
             for note in other.get("notes", []) or []:
-                if isinstance(note, dict) and note.get("text") and note.get("id") not in known:
-                    self.notes.append({"id": note.get("id") or str(uuid.uuid4()), "text": note["text"], "created": note.get("created") or now_iso()})
-                    known.add(self.notes[-1]["id"])
-            self.notes.sort(key=lambda n: n.get("created", ""), reverse=True)
+                if not (isinstance(note, dict) and note.get("text")):
+                    continue
+                note_id = str(note.get("id") or uuid.uuid4())
+                if note_id.lower() in known:
+                    continue
+                self.notes.append({"id": note_id, "text": note["text"], "created": note.get("created") or now_iso()})
+                known.add(note_id.lower())
+            self.notes.sort(key=lambda n: parse_time(n.get("created", "")), reverse=True)
             other_updated = other.get("name_updated") or ""
-            if "name" in other and other_updated > self.name_updated:
+            if "name" in other and parse_time(other_updated) > parse_time(self.name_updated):
                 self.name = other.get("name") or None
                 self.name_updated = other_updated
             self._save()

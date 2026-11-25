@@ -80,6 +80,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             didCheckFirstLaunch = true
             showFirstLaunchIfNeeded()
         }
+        // Back from Settings or another screen: share notes and hear the PC's messages.
+        if !isUITestMode { synchronizeWithPC() }
         scheduleWakeListening()
     }
 
@@ -91,6 +93,20 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     @objc private func appBecameActive() {
         scheduleWakeListening()
+        synchronizeWithPC()
+    }
+
+    /// Shares the first name and the notes with Jarvis PC, then says its messages
+    /// (« Envoie sur mon téléphone que… » on the PC).
+    private func synchronizeWithPC() {
+        JarvisPCLink.shared.synchronize { [weak self] messages in
+            guard let self else { return }
+            let text = messages.count == 1 ? "Message du PC : \(messages[0])" : "Messages du PC : " + messages.joined(separator: " ; ")
+            self.showTransient(text)
+            if self.speech.isEnabled, !self.voiceInput.isListening, !self.speech.isSpeaking {
+                self.speech.speak(text)
+            }
+        }
     }
 
     // MARK: - Réveil par la voix

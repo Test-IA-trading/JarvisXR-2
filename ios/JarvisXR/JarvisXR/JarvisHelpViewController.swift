@@ -132,7 +132,7 @@ final class JarvisHelpViewController: UIViewController {
             "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre.",
             "Maintenez l'orbe appuyé pour remettre Jarvis en veille.",
             "Réveil par la voix (Réglages) : JARVIS ouvert sur l'accueil, dites « Jarvis, quelle heure est-il ? » ou tapez deux fois dans vos mains, sans toucher l'écran.",
-            "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion.",
+            "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion ; relié à votre PC (Réglages › Jarvis PC), il répond avec le cerveau du PC et exécute « Sur le PC, ouvre Spotify ».",
             "Dites « Je m'appelle… » et « Souviens-toi que… » : Jarvis s'en sert pour vous répondre. « Qu'est-ce que tu sais sur moi ? » fait le point, tout reste sur l'iPhone.",
             "Calculs, conversions et dates exacts, sans Internet : « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « 10 miles en kilomètres », « Combien de jours avant Noël ? ».",
             "Dites aussi : « Mets un minuteur de 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Ouvre le cube ».",

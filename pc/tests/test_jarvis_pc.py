@@ -109,6 +109,21 @@ def test_memory_merges_with_the_iphone(memory):
     assert any("Tony" in line for line in memory.context_lines())
 
 
+def test_memory_reads_the_iphones_formats(memory):
+    """The iPhone sends its ids in capitals and its dates with « Z »."""
+    pc_note = memory.add_note("note du PC")
+    merged = memory.merge({"notes": [
+        {"id": pc_note["id"].upper(), "text": "note du PC", "created": "2026-11-25T08:00:00Z"},
+        {"id": "AAAAAAAA-1111-4A4A-9B9B-123456789ABC", "text": "plus récente", "created": "2099-01-01T00:00:00Z"},
+    ]})
+    assert [n["text"] for n in merged["notes"]] == ["plus récente", "note du PC"], "same note, newest first"
+    memory.set_name("Tony")
+    memory.merge({"name": "Pepper", "name_updated": "2001-01-01T00:00:00Z"})
+    assert memory.name == "Tony", "an older first name does not win"
+    memory.merge({"name": "Pepper", "name_updated": "2099-01-01T00:00:00Z"})
+    assert memory.name == "Pepper"
+
+
 def test_wake_word_like_the_iphone():
     assert wake.command("Jarvis, quelle heure est-il ?") == "quelle heure est-il"
     assert wake.command("Quelle heure est-il, Jarvis ?") == "Quelle heure est-il"

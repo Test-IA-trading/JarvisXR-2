@@ -509,7 +509,44 @@ final class JarvisLocalBrain {
         context conversation: JarvisConversationContext = .shared,
         profile: JarvisUserProfile = .shared,
         memory: JarvisMemoryStore = .shared,
+        pcLink: JarvisPCLink = .shared,
         now: Date = Date(),
+        onPartial: @escaping (String) -> Void,
+        completion: @escaping (JarvisResponse) -> Void
+    ) {
+        // Jarvis PC's large brain first when it is paired and answers; otherwise the
+        // iPhone's own brain, so a PC that is off never leaves a question unanswered.
+        guard pcLink.isConfigured, pcLink.usesPCBrain else {
+            answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
+            return
+        }
+        let context = conversation.brainContextLines() + profile.brainContextLines(memory: memory)
+        var heardFromPC = false
+        pcLink.ask(question: question, history: conversation.recentTurns, context: context, onPartial: { partial in
+            heardFromPC = true
+            onPartial(partial)
+        }, completion: { [weak self] result in
+            switch result {
+            case .success(let answer):
+                conversation.recordTurn(user: question, assistant: answer)
+                completion(.ok(answer))
+            case .failure:
+                if heardFromPC {
+                    let message = "La liaison avec Jarvis PC s'est coupée pendant la réponse."
+                    completion(JarvisResponse(status: .unavailable, spokenResponse: message, displayResponse: message))
+                } else {
+                    self?.answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
+                }
+            }
+        })
+    }
+
+    private func answerOnDevice(
+        _ question: String,
+        conversation: JarvisConversationContext,
+        profile: JarvisUserProfile,
+        memory: JarvisMemoryStore,
+        now: Date,
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
     ) {

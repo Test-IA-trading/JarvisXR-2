@@ -25,6 +25,9 @@ NETWORK_TOKENS = (
 # embed URLs itself; the pinned Hugging Face URL lives in the model catalogue.
 NETWORK_ALLOWLIST = {
     "JarvisModelDownloader.swift": "one-time, user-approved download of the pinned local-brain model; no user data sent",
+    # The user's own PC (pc/jarvis_pc), reached only at the address the user typed and with
+    # the PC's pairing code: questions, commands, first name and notes go nowhere else.
+    "JarvisPCLink.swift": "the user's own Jarvis PC, paired with its code, at the address the user typed",
 }
 TELEMETRY_TOKENS = (
     "FirebaseAnalytics",

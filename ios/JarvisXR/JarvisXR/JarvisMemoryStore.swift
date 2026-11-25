@@ -49,6 +49,19 @@ final class JarvisMemoryStore {
         return note
     }
 
+    /// A note that already exists elsewhere (Jarvis PC), kept with its identifier so it is
+    /// never duplicated. Returns false when the iPhone already has it (same identifier or
+    /// same words).
+    @discardableResult
+    func importNote(id: UUID, text: String, createdAt: Date) -> Bool {
+        var notes = loadNotes()
+        guard !notes.contains(where: { $0.id == id || $0.text == text }) else { return false }
+        notes.append(JarvisNote(id: id, text: text, createdAt: createdAt))
+        notes.sort { $0.createdAt > $1.createdAt }
+        saveNotes(notes)
+        return true
+    }
+
     /// Removes the notes matching `predicate` and returns how many were removed.
     @discardableResult
     func removeNotes(where predicate: (JarvisNote) -> Bool) -> Int {

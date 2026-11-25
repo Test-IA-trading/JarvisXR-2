@@ -1,13 +1,14 @@
 import Foundation
 
-/// What Jarvis knows about the person it serves, kept on the iPhone only: the first name
-/// to use (« Je m'appelle… »). With the notes (« Souviens-toi que… »), it is given to the
-/// local brain so its answers can use it. Nothing leaves the iPhone.
+/// What Jarvis knows about the person it serves: the first name to use (« Je m'appelle… »).
+/// With the notes (« Souviens-toi que… »), it is given to the local brain so its answers can
+/// use it. It leaves the iPhone only for the user's own Jarvis PC, once paired with its code.
 final class JarvisUserProfile {
     static let shared = JarvisUserProfile()
 
     private let defaults: UserDefaults
     private let nameKey = "JarvisXR.userName"
+    private let nameUpdatedKey = "JarvisXR.userNameUpdated"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -19,11 +20,28 @@ final class JarvisUserProfile {
             return stored
         }
         set {
-            if let newValue, !newValue.isEmpty {
-                defaults.set(newValue, forKey: nameKey)
-            } else {
-                defaults.removeObject(forKey: nameKey)
-            }
+            store(newValue)
+            defaults.set(Date().timeIntervalSince1970, forKey: nameUpdatedKey)
+        }
+    }
+
+    /// When the first name was last given or forgotten, so the iPhone and Jarvis PC keep
+    /// the most recent one.
+    var nameUpdated: Date {
+        Date(timeIntervalSince1970: defaults.double(forKey: nameUpdatedKey))
+    }
+
+    /// The first name known by Jarvis PC, more recent than the iPhone's.
+    func adoptName(_ name: String?, updated: Date) {
+        store(name)
+        defaults.set(updated.timeIntervalSince1970, forKey: nameUpdatedKey)
+    }
+
+    private func store(_ name: String?) {
+        if let name, !name.isEmpty {
+            defaults.set(name, forKey: nameKey)
+        } else {
+            defaults.removeObject(forKey: nameKey)
         }
     }
 

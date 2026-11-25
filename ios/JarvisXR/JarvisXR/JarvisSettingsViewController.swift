@@ -48,6 +48,12 @@ final class JarvisSettingsViewController: UIViewController {
     private var brainActionButton: UIButton?
     private var brainObserver: NSObjectProtocol?
 
+    // Jarvis PC: the same assistant on the user's PC, paired with its code.
+    private let pcAddressField = UITextField()
+    private let pcCodeField = UITextField()
+    private let pcStatusLabel = UILabel()
+    private let pcBrainSwitch = UISwitch()
+
     // Voice of Jarvis: which installed French voice speaks, and how to get a better one.
     private let voiceStatusLabel = UILabel()
     private var voiceObservers: [NSObjectProtocol] = []
@@ -92,6 +98,109 @@ final class JarvisSettingsViewController: UIViewController {
             NotificationCenter.default.removeObserver(brainObserver)
         }
         voiceObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    // MARK: - Jarvis PC
+
+    private func buildPCSection() {
+        let link = JarvisPCLink.shared
+        stackView.addArrangedSubview(sectionHeading("Jarvis PC"))
+        stackView.addArrangedSubview(textLabel(
+            "Jarvis tourne aussi sur votre PC (Jarvis.bat). Relié par son code, il répond avec le cerveau du PC, exécute « Sur le PC, ouvre Spotify » et partage votre prénom et vos notes. À la maison par le Wi-Fi ; ailleurs avec Tailscale.",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        ))
+        configurePCField(pcAddressField, placeholder: "Adresse du PC, par exemple 192.168.1.23", identifier: "jarvis.settings.pc.address")
+        pcAddressField.keyboardType = .URL
+        pcAddressField.autocapitalizationType = .none
+        pcAddressField.text = link.address
+        configurePCField(pcCodeField, placeholder: "Code d'appairage affiché par le PC", identifier: "jarvis.settings.pc.code")
+        pcCodeField.autocapitalizationType = .allCharacters
+        pcCodeField.text = link.pairingCode
+        let fields = UIStackView(arrangedSubviews: [pcAddressField, pcCodeField])
+        fields.axis = .vertical
+        fields.spacing = 10
+        stackView.addArrangedSubview(wrapInPanel(fields))
+
+        pcStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        pcStatusLabel.adjustsFontForContentSizeCategory = true
+        pcStatusLabel.textColor = JarvisTheme.text
+        pcStatusLabel.numberOfLines = 0
+        pcStatusLabel.accessibilityIdentifier = "jarvis.settings.pc.status"
+        pcStatusLabel.text = link.isConfigured
+            ? "Adresse enregistrée : \(link.address). Touchez « Tester la liaison »."
+            : "Non relié : lancez Jarvis.bat sur le PC, puis saisissez l'adresse et le code qu'il affiche."
+        stackView.addArrangedSubview(wrapInPanel(pcStatusLabel))
+
+        let findButton = actionButton("Chercher mon PC", identifier: "jarvis.settings.pc.find", action: #selector(findPCTapped))
+        let testButton = actionButton("Tester la liaison", identifier: "jarvis.settings.pc.test", action: #selector(testPCTapped))
+        stackView.addArrangedSubview(horizontalRow([findButton, testButton]))
+
+        configureSwitch(
+            pcBrainSwitch,
+            label: "Poser les questions au cerveau du PC",
+            hint: "Quand le PC répond, les questions libres vont à son grand modèle ; sinon, l'iPhone répond lui-même.",
+            identifier: "jarvis.settings.pc.brain",
+            action: #selector(pcBrainChanged)
+        )
+        pcBrainSwitch.isOn = link.usesPCBrain
+        stackView.addArrangedSubview(settingRow(title: "Poser les questions au cerveau du PC", control: pcBrainSwitch))
+    }
+
+    private func configurePCField(_ field: UITextField, placeholder: String, identifier: String) {
+        field.placeholder = placeholder
+        field.borderStyle = .roundedRect
+        field.font = UIFont.preferredFont(forTextStyle: .body)
+        field.adjustsFontForContentSizeCategory = true
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.clearButtonMode = .whileEditing
+        field.returnKeyType = .done
+        field.accessibilityIdentifier = identifier
+        field.addTarget(self, action: #selector(pcFieldsChanged), for: .editingDidEnd)
+        field.addTarget(self, action: #selector(pcFieldReturn(_:)), for: .editingDidEndOnExit)
+    }
+
+    @objc private func pcFieldsChanged() {
+        JarvisPCLink.shared.address = pcAddressField.text ?? ""
+        JarvisPCLink.shared.pairingCode = pcCodeField.text
+    }
+
+    @objc private func pcFieldReturn(_ field: UITextField) {
+        field.resignFirstResponder()
+    }
+
+    @objc private func findPCTapped() {
+        pcStatusLabel.text = "Recherche de Jarvis PC sur le Wi-Fi…"
+        JarvisPCLink.shared.discover { [weak self] address in
+            guard let self else { return }
+            guard let address else {
+                self.pcStatusLabel.text = "Je ne trouve pas Jarvis PC sur ce Wi-Fi : vérifiez qu'il est lancé, ou saisissez l'adresse qu'il affiche."
+                return
+            }
+            self.pcAddressField.text = address
+            JarvisPCLink.shared.address = address
+            self.pcStatusLabel.text = "Jarvis PC trouvé à l'adresse \(address). Saisissez son code, puis touchez « Tester la liaison »."
+        }
+    }
+
+    @objc private func testPCTapped() {
+        view.endEditing(true)
+        pcFieldsChanged()
+        pcStatusLabel.text = "Test de la liaison…"
+        JarvisPCLink.shared.checkConnection { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let model):
+                self.pcStatusLabel.text = "Relié à Jarvis PC. Cerveau du PC : \(model)."
+            case .failure(let error):
+                self.pcStatusLabel.text = error.message
+            }
+        }
+    }
+
+    @objc private func pcBrainChanged() {
+        JarvisPCLink.shared.usesPCBrain = pcBrainSwitch.isOn
     }
 
     // MARK: - Voice of Jarvis
@@ -497,6 +606,8 @@ final class JarvisSettingsViewController: UIViewController {
         buildVoiceSection()
 
         buildBrainSection()
+
+        buildPCSection()
 
         stackView.addArrangedSubview(sectionHeading("Narration Vision"))
         configureSegmented(defaultModeControl, identifier: "jarvis.settings.vision.defaultMode", action: #selector(defaultModeChanged))
