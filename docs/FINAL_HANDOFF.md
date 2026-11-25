@@ -254,7 +254,8 @@ Ce qui change :
 | Disparition, « Elle est où maintenant ? » | ✓ | ✓ | tests unitaires | à faire |
 | Arrêt du mode : plus d'observation ni d'annonce | ✓ | ✓ | tests unitaires | à faire |
 | Narration Vision en français, règles de sécurité françaises | ✓ | ✓ | tests unitaires + audits | à faire |
-| Boutons et états de l'écran Vision en français (dépend des tests UI) | ✓ | — | — | — |
+| Boutons, états, modes et erreurs de l'écran Vision en français, tests UI alignés (branche `feature/vision-ecran-fr`) | ✓ | ✓ | en attente | à faire |
+| Aide, autotest, accueil Vision et Réglages Vision en français | ✓ | — | — | — |
 
 Essai sur l'iPhone, en posant le téléphone :
 1. Caméra > Guide en direct (« Live Guide »), puis démarrez.

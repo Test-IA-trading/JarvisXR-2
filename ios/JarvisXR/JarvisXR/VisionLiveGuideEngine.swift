@@ -308,9 +308,10 @@ final class VisionLiveGuideEngine: @unchecked Sendable {
         }
 
         // 4. Objects whose presence has not been spoken yet: new, or back after being gone.
-        for index in records.indices
-        where records[index].isVisible && !records[index].presenceAnnounced && matched.contains(records[index].id) {
-            guard canAnnounce(records[index], now: now) else { continue }
+        for index in records.indices {
+            guard records[index].isVisible, !records[index].presenceAnnounced,
+                  matched.contains(records[index].id),
+                  canAnnounce(records[index], now: now) else { continue }
             let kind: VisionLiveGuideEventKind = records[index].hasBeenGone ? .reappeared : .appeared
             let region = records[index].region
             produced.append(Self.announce(kind, record: &records[index], from: nil, to: region, now: now))
