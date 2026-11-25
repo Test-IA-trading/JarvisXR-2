@@ -12,7 +12,7 @@ final class JarvisSettingsViewController: UIViewController {
     private let stackView = UIStackView()
 
     private let speechSwitch = UISwitch()
-    private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Silencieuse", "Formelle"])
+    private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Discrète", "Formelle"])
     private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
     private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
     private let defaultModeControl = UISegmentedControl(items: ["Décrire", "Guide", "Trouver", "Lire", "Scanner"])
