@@ -16,11 +16,12 @@
   - #23 Jarvis PC (`pc/`) : Qwen3 30B dans Ollama, voix Piper, oreille faster-whisper, serveur pour l'iPhone ;
   - #24 iPhone relié à Jarvis PC : cerveau du PC d'abord, « Sur le PC, … », prénom et notes partagés ;
   - #25 mode connecté, en option : météo Open-Meteo, titres franceinfo, Wikipédia, « Où suis-je ? » ;
-  - #26 données de l'iPhone : appeler et écrire aux contacts, pas (podomètre), photos.
+  - #26 données de l'iPhone : appeler et écrire aux contacts, pas (podomètre), photos ;
+  - #27 réveil « Jarvis » plus fiable (PC : consigne d'amorce, 12 sur 12 au banc d'essai ; PC et iPhone : « Dijarvis », une lettre près) et vouvoiement des deux cerveaux.
 
   Les fusions restent la décision du propriétaire.
-- **Dernière préversion publiée** : `v2.0.0-preversion.5`, commit `fe5241b` (PR #20), avec la copie dans `OneDrive\Desktop\Jarvis\IPA`, LISEZMOI et TUTO à jour et la page tuto republiée.
-- **Prochaine action exacte** : publier `v2.0.0-preversion.6` depuis le haut de la pile (#26) dès que sa CI est verte. Mêmes étapes que pour les préversions 4 et 5 :
+- **Dernière préversion publiée** : `v2.0.0-preversion.6`, commit `9dfa94a` (PR #26), run 45656947483. IPA `JarvisXR-jarvis-pc-9dfa94a-NON-SIGNEE.ipa`, SHA-256 `660408edf9606859629eef87724aac1b14eac70dccb273a92c53d83c0b3f0761`. Lien public testé sans compte, copie dans `OneDrive\Desktop\Jarvis\IPA` avec LISEZMOI et TUTO à jour, page tuto republiée.
+- **Prochaine action exacte** : recueillir les essais du propriétaire sur la préversion 6. Publier `v2.0.0-preversion.7` depuis #27 si sa CI est verte et si les essais le justifient. Mêmes étapes que pour les préversions 4 à 6 :
   1. télécharger l'artefact `JarvisXR-unsigned-ipa` dans un dossier vide ;
   2. vérifier `llama.framework` ;
   3. publier en préversion ;
