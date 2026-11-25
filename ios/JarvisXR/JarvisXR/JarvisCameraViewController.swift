@@ -1306,7 +1306,9 @@ final class JarvisCameraViewController: UIViewController {
                 self.showResult("Nommez un objet avant de lancer la recherche.", announce: true)
                 return
             }
-            self.currentTarget = target
+            // « tasse » or « cup »: a French name is turned into the detector's class first.
+            let normalized = JarvisFrenchCommandRouter.normalize(target)
+            self.currentTarget = VisionFrenchVocabulary.classesMentioned(in: normalized).first ?? target
             self.primaryButton.setTitle(self.primaryTitle(), for: .normal)
             self.beginCurrentMode()
         })
