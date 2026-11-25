@@ -3,8 +3,16 @@ import Network
 import Security
 
 /// The pairing code of Jarvis PC, kept in the iOS keychain rather than in preferences.
+/// When the keychain refuses it (an unsigned build, such as the simulator's in CI), the
+/// code stays in the app's own preferences, so pairing still works.
 enum JarvisKeychain {
     private static let service = "JarvisXR"
+    /// Swapped by the tests.
+    static var fallback: UserDefaults = .standard
+
+    private static func fallbackKey(_ account: String) -> String {
+        "JarvisXR.keychainFallback.\(account)"
+    }
 
     static func string(for account: String) -> String? {
         let query: [String: Any] = [
@@ -15,8 +23,10 @@ enum JarvisKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        return fallback.string(forKey: fallbackKey(account))
     }
 
     static func set(_ value: String?, for account: String) {
@@ -26,11 +36,14 @@ enum JarvisKeychain {
             kSecAttrAccount as String: account,
         ]
         SecItemDelete(base as CFDictionary)
+        fallback.removeObject(forKey: fallbackKey(account))
         guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
         var attributes = base
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(attributes as CFDictionary, nil)
+        if SecItemAdd(attributes as CFDictionary, nil) != errSecSuccess {
+            fallback.set(value, forKey: fallbackKey(account))
+        }
     }
 }
 
