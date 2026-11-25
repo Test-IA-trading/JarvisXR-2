@@ -173,7 +173,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         at date: Date = Date()
     ) -> VisionSpeechEnqueueDisposition {
         guard isEnabled else { return .rejectedExpired }
-        if quietVisionGuideEnabled && narration.priority < .target {
+        // Quiet Live Guide drops ambient descriptions but keeps confirmed changes: Live Guide
+        // only emits debounced appear/move/leave events (VisionLiveGuideEngine), each once.
+        if quietVisionGuideEnabled && narration.priority < .change {
             return .suppressedQuietMode
         }
 

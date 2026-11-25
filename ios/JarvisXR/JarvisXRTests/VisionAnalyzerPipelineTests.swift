@@ -252,8 +252,8 @@ final class VisionAnalyzerPipelineTests: XCTestCase {
             ]
         }
         let narration = chair.map {
-            "I may be seeing a \($0.name) \($0.horizontalRegion.spokenLocation)."
-        } ?? "I do not have enough evidence to describe this image."
+            "Je vois peut-être \(VisionFrenchVocabulary.noun(for: $0.classIdentifier).indefinite) \($0.horizontalRegion.spokenLocation)."
+        } ?? "Je n'ai pas assez d'indices pour décrire cette image."
         let payload: [String: Any] = [
             "schema_version": 1,
             "fixtures": [[

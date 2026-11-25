@@ -162,6 +162,13 @@ Choix techniques :
 | Exception réseau unique dans l'audit de confidentialité | ✓ | ✓ | test Python | — |
 | Lecture de la réponse au fil de l'écriture | ✓ | ✓ | tests (découpe en phrases) | à faire |
 
+Essai sur l'iPhone :
+1. Réglages > Cerveau local > « Télécharger le cerveau (1,1 Go) », en Wi-Fi, en gardant l'app ouverte.
+2. Mode avion activé, touchez l'orbe et dites « Pourquoi le ciel est-il bleu ? ».
+3. Attendu : « Je réfléchis… », la réponse qui s'écrit, puis une réponse française parlée en une à trois phrases.
+
+À rapporter : le délai entre la fin de la question et le début de la voix, et la vitesse affichée dans Réglages > Cerveau local (« jetons/s »).
+
 ## Minuteurs, rappels, agenda et point du jour — suivi (lot 6, branche `feature/agenda-minuteurs`)
 
 - **Minuteurs nommés**, persistants (`JarvisTimerStore`) :
@@ -184,12 +191,80 @@ Choix techniques :
 | Rappels datés dans l'app Rappels | ✓ | ✓ | tests (analyse) | à faire |
 | Agenda du jour demandé, point du jour | ✓ | ✓ | tests (analyse, résumé) | à faire |
 
-Essai sur l'iPhone :
-1. Réglages > Cerveau local > « Télécharger le cerveau (1,1 Go) », en Wi-Fi, en gardant l'app ouverte.
-2. Mode avion activé, touchez l'orbe et dites « Pourquoi le ciel est-il bleu ? ».
-3. Attendu : « Je réfléchis… », la réponse qui s'écrit, puis une réponse française parlée en une à trois phrases.
+Essai sur l'iPhone : dites « Mets un minuteur de 2 minutes pour le thé », verrouillez l'écran et attendez. Attendu : une notification « thé » au bout de 2 minutes. Dites ensuite « Rappelle-moi d'appeler maman demain à 18 h ». Attendu : le rappel apparaît dans l'app Rappels, daté de demain 18 h.
 
-À rapporter : le délai entre la fin de la question et le début de la voix, et la vitesse affichée dans Réglages > Cerveau local (« jetons/s »).
+## Guide en direct en français et vraie tasse — suivi (lot 7, branche `feature/vision-francais`)
+
+Scénario 4 de la checklist. Téléphone immobile, une vraie tasse est posée devant la caméra.
+- Jarvis annonce son apparition une seule fois.
+- Il signale son déplacement vers la droite, puis se tait tant qu'elle ne bouge plus.
+- Une fois la tasse retirée, il répond à « Elle est où maintenant ? ».
+- Couper le mode arrête l'observation et les annonces.
+
+Ce qui bloquait :
+- Le guide en direct parlait anglais.
+- En mode « changements importants » (réglage par défaut), toute annonce de priorité inférieure à `.target` était coupée. Les apparitions et déplacements n'étaient donc jamais dits.
+- Les annonces brutes du suivi (`TemporalObjectTracker`) posaient d'autres problèmes :
+  - elles se répétaient dès que le détecteur perdait la tasse un instant ;
+  - elles rataient les déplacements lents, car seul le déplacement entre deux images était mesuré ;
+  - elles confondaient un mouvement du téléphone avec un déplacement de la tasse.
+
+Ce qui change :
+- **`VisionLiveGuideEngine`** garde en mémoire les objets réels de la session, uniquement en mémoire vive. Il n'émet que trois sortes d'événements :
+  - une apparition, une seule fois par objet ;
+  - un déplacement, mesuré depuis la dernière place annoncée, et annoncé seulement quand l'objet est de nouveau immobile depuis 2 images ;
+  - une disparition, après 2,5 s et 3 images analysées sans l'objet.
+
+  Les points délicats sont traités ainsi :
+  - Une piste perdue puis retrouvée par le suivi reste le même objet, y compris quand la main la cache en la portant.
+  - Une image floue ne compte pas comme « non vue ».
+  - Si l'objet clignote, le délai avant « disparu » s'allonge.
+- **Le téléphone qui bouge n'est pas la tasse qui bouge** : `VisionCameraMotionMonitor` lit l'attitude CoreMotion (gyroscope et accéléromètre, sans autorisation à demander, rien n'est stocké). Dans trois cas, la nouvelle place est acceptée en silence au lieu d'être annoncée comme un déplacement :
+  - une rotation de plus de 1,2° entre deux images ;
+  - une rotation de plus de 4° depuis la dernière place connue ;
+  - une secousse de plus de 0,1 g.
+- **Français partout dans la narration Vision** :
+  - noms des 80 classes du détecteur, avec genre et élision (`VisionFrenchVocabulary`) ;
+  - positions « à gauche / au centre / à droite » ;
+  - qualité d'image et réponses de Décrire et de Trouver.
+- **Phrases du guide** :
+  - « Je vois une tasse au centre. » (ou « Je crois voir… » si la confiance est moyenne) ;
+  - « La tasse s'est déplacée du centre vers la droite. » ;
+  - « Je ne vois plus la tasse. » ;
+  - « Je revois la tasse à gauche. ».
+- **Questions pendant le guide** (bouton Voix, sans quitter le mode) :
+  - « Elle est où maintenant ? » / « Où est la tasse ? » / « Tu vois mon téléphone ? » ;
+  - « Qu'est-ce que tu vois ? » ;
+  - « Qu'est-ce qui a bougé ? ».
+
+  Les pronoms suivent le genre (« elle » pour la tasse, « il » pour le livre). Exemple de réponse : « Je ne la vois plus. Je l'ai vue pour la dernière fois à droite, il y a 8 secondes. ».
+- **Arrêt** :
+  - « Stop », « Arrête d'observer », « Coupe la caméra » coupent caméra, capteurs et voix, et effacent la mémoire de la session.
+  - Pendant que le micro écoute, les annonces sont suspendues pour que Jarvis ne s'entende pas lui-même.
+- **Sécurité** : la politique de sécurité bloque aussi les affirmations françaises interdites :
+  - « le chemin est libre », « vous pouvez traverser » ;
+  - « il n'y a aucun obstacle » ;
+  - distances chiffrées, certitudes.
+
+| Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
+|---|---|---|---|---|
+| Apparition annoncée une fois, silence ensuite | ✓ | ✓ | tests unitaires | à faire |
+| Déplacement vers la droite repéré à l'arrêt de la tasse | ✓ | ✓ | tests unitaires | à faire |
+| Mouvement du téléphone non confondu (gyroscope) | ✓ | ✓ | tests unitaires | à faire |
+| Disparition, « Elle est où maintenant ? » | ✓ | ✓ | tests unitaires | à faire |
+| Arrêt du mode : plus d'observation ni d'annonce | ✓ | ✓ | tests unitaires | à faire |
+| Narration Vision en français, règles de sécurité françaises | ✓ | ✓ | tests unitaires + audits | à faire |
+| Boutons et états de l'écran Vision en français (dépend des tests UI) | ✓ | — | — | — |
+
+Essai sur l'iPhone, en posant le téléphone :
+1. Caméra > Guide en direct (« Live Guide »), puis démarrez.
+2. Posez une tasse au centre. Attendu : une seule annonce, « Je vois une tasse au centre. » ou « Je crois voir une tasse au centre. ».
+3. Faites-la glisser vers la droite et lâchez-la. Attendu : « La tasse s'est déplacée du centre vers la droite. » environ une seconde après l'arrêt, puis le silence.
+4. Retirez-la. Touchez « Voix » et dites « Elle est où maintenant ? ». Attendu : « Je ne la vois plus. Je l'ai vue pour la dernière fois à droite… ».
+5. Touchez Stop. Attendu : plus aucune annonce.
+
+À rapporter : les annonces manquées ou répétées, et le délai de chacune.
+
 
 ## Preserved Boundaries
 

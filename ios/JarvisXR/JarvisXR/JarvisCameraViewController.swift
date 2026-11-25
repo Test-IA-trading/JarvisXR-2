@@ -10,6 +10,10 @@ final class JarvisCameraViewController: UIViewController {
     private let voiceInput = JarvisVoiceInputService.shared
     private let haptics = VisionHapticsService.shared
     private let preferencesStore = VisionPreferencesStore.shared
+    /// The phone's own rotation during Live Guide, so a pan is not announced as a move.
+    private let motionMonitor = VisionCameraMotionMonitor()
+    /// Vision speech is held while the microphone listens, so Jarvis does not hear itself.
+    private var narrationPausedForListening = false
 
     private var launchRequest: JarvisVisionLaunchRequest
     private var currentMode: VisionMode
@@ -108,6 +112,7 @@ final class JarvisCameraViewController: UIViewController {
         pipeline.unbindCamera()
         camera.shutdown()
         voiceInput.cancel()
+        motionMonitor.stop()
     }
 
     func apply(_ request: JarvisVisionLaunchRequest) {
@@ -157,7 +162,7 @@ final class JarvisCameraViewController: UIViewController {
                 if request.mode == .liveGuide { $0.importantChangesOnly = true }
             }
             showResult(
-                request.mode == .liveGuide ? "Live Guide will speak only important changes." : "Descriptions are now concise.",
+                request.mode == .liveGuide ? "Le guide en direct n'annoncera que les changements importants." : "Les descriptions sont maintenant concises.",
                 announce: true
             )
         case .whatChanged:
@@ -559,6 +564,8 @@ final class JarvisCameraViewController: UIViewController {
     private func wireServices() {
         pipeline.bind(to: camera)
         pipeline.apply(preferences: preferences)
+        let motionMonitor = self.motionMonitor
+        pipeline.cameraPoseProvider = { motionMonitor.sample() }
 
         pipeline.onStateChange = { [weak self] mode, state in
             DispatchQueue.main.async { self?.pipelineStateChanged(mode: mode, state: state) }
@@ -588,8 +595,10 @@ final class JarvisCameraViewController: UIViewController {
             switch state {
             case .standby:
                 self.voiceButton.setTitle("Voix", for: .normal)
+                self.resumeNarrationAfterListening()
             case .listening:
                 self.voiceButton.setTitle("Terminer", for: .normal)
+                self.pauseNarrationForListening()
                 self.renderState(self.currentState, guidance: "Micro actif : dites une commande Vision.", announce: true)
             case .hearingSound:
                 if self.voiceInput.currentTranscript.isEmpty {
@@ -600,8 +609,10 @@ final class JarvisCameraViewController: UIViewController {
             case .processing:
                 self.guidanceLabel.text = "Traitement de la commande vocale."
             case .noSpeech:
+                self.resumeNarrationAfterListening()
                 self.renderState(self.currentState, guidance: "Aucune parole détectée. Réessayez ou utilisez un bouton.", announce: true)
             case .unavailable(let failure):
+                self.resumeNarrationAfterListening()
                 self.showFailure(failure.message, offersSettings: failure.offersSettings)
             }
         }
@@ -709,6 +720,11 @@ final class JarvisCameraViewController: UIViewController {
                 )
                 self.pipeline.apply(preferences: self.preferences)
                 self.speech.setQuietVisionGuideEnabled(self.preferences.importantChangesOnly)
+                if self.currentMode == .liveGuide {
+                    self.motionMonitor.start()
+                } else {
+                    self.motionMonitor.stop()
+                }
                 self.pipeline.start(mode: self.currentMode, target: self.currentTarget)
                 self.updateScreenAwake()
                 switch self.currentMode {
@@ -751,6 +767,7 @@ final class JarvisCameraViewController: UIViewController {
             return
         }
         pipeline.pause()
+        motionMonitor.stop()
         speech.pauseVisionNarration()
         renderState(.paused, guidance: "Vision paused. The camera is not being analyzed.", announce: true)
         updateScreenAwake()
@@ -761,6 +778,9 @@ final class JarvisCameraViewController: UIViewController {
             beginCurrentMode()
             return
         }
+        if currentMode == .liveGuide {
+            motionMonitor.start()
+        }
         pipeline.resume()
         speech.resumeVisionNarration()
         renderState(.active, guidance: activeGuidance(), announce: true)
@@ -769,8 +789,10 @@ final class JarvisCameraViewController: UIViewController {
 
     private func stopVision(announce: Bool, message: String) {
         voiceInput.cancel()
+        narrationPausedForListening = false
         pipeline.stop()
         camera.stop()
+        motionMonitor.stop()
         if let speechSessionID {
             speech.cancelVisionNarrationSession(speechSessionID)
             self.speechSessionID = nil
@@ -968,7 +990,7 @@ final class JarvisCameraViewController: UIViewController {
 
     private func activeGuidance() -> String {
         switch currentMode {
-        case .liveGuide: return "Live Guide is active in the foreground. Stop is always available below."
+        case .liveGuide: return "Guide en direct actif : j'annonce une fois ce qui apparaît, bouge ou disparaît. Demandez « Elle est où ? » avec Voix. Stop reste en bas."
         case .find: return "Searching for \(currentTarget ?? "the selected object"). Pan slowly."
         case .scanBarcode: return "Scanning for a barcode. Jarvis will not open links automatically."
         case .readText: return "Reading captured text on this device."
@@ -1176,8 +1198,28 @@ final class JarvisCameraViewController: UIViewController {
         view.setNeedsLayout()
     }
 
+    private static let frenchStopPhrases: Set<String> = [
+        "stop", "arrete", "arrete tout", "annule", "coupe", "coupe tout", "stop vision", "stop jarvis",
+        "arrete le guide", "arrete le guide en direct", "coupe le guide", "coupe le guide en direct",
+        "arrete d'observer", "arrete de regarder", "arrete la camera", "coupe la camera", "ferme la camera",
+        "eteins la camera", "arrete la vision", "coupe la vision"
+    ]
+
     private func handleVisionVoiceCommand(_ spokenText: String) {
         voiceButton.setTitle("Voix", for: .normal)
+        resumeNarrationAfterListening()
+        let frenchRequest = JarvisFrenchCommandRouter.stripWakeWord(JarvisFrenchCommandRouter.normalize(spokenText))
+        if Self.frenchStopPhrases.contains(frenchRequest) {
+            apply(JarvisVisionLaunchRequest(mode: currentMode, command: .stop, source: "vision_voice"))
+            return
+        }
+        // Live Guide answers from what it saw: « Elle est où maintenant ? », « Qu'est-ce qui a bougé ? ».
+        // Once stopped, « décris » still starts a description instead.
+        if currentMode == .liveGuide, let answer = pipeline.liveGuide.answer(to: spokenText),
+           pipeline.liveGuide.isObserving || JarvisFrenchCommandRouter.translateAction(spokenText)?.command != "describe this" {
+            presentSpokenAnswer(answer)
+            return
+        }
         // Dictation is French: translate the French wording of a Vision action first.
         let raw = JarvisFrenchCommandRouter.translateAction(spokenText)?.command ?? spokenText
         let normalized = JarvisCommandPlanner().normalize(raw)
@@ -1201,6 +1243,37 @@ final class JarvisCameraViewController: UIViewController {
         var sourced = request
         sourced.source = "vision_voice"
         apply(sourced)
+    }
+
+    /// Shows and speaks an answer through the Vision speech queue, so Stop silences it too.
+    private func presentSpokenAnswer(_ text: String) {
+        let narration = SceneNarration(
+            snapshotIdentifier: latestSnapshot?.id ?? UUID(),
+            text: VisionSafetyPolicy().safeNarration(text),
+            priority: .target,
+            verbosity: preferences.narrationVerbosity,
+            contentKind: .target
+        )
+        lastPresentedNarration = narration
+        showResult(narration.text, announce: !speech.isEnabled)
+        ensureFeedbackSessions()
+        if let speechSessionID {
+            speech.enqueueVisionNarration(narration, sessionID: speechSessionID)
+        }
+    }
+
+    private func pauseNarrationForListening() {
+        guard !narrationPausedForListening, currentState == .active else { return }
+        narrationPausedForListening = true
+        speech.pauseVisionNarration()
+    }
+
+    private func resumeNarrationAfterListening() {
+        guard narrationPausedForListening else { return }
+        narrationPausedForListening = false
+        if currentState == .active {
+            speech.resumeVisionNarration()
+        }
     }
 
     private func promptForFindTarget() {

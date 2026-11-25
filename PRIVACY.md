@@ -26,6 +26,8 @@ JARVIS XR does not provide a background wake word and does not intentionally rec
 
 Camera access is used for the inspection screen. Captured frames are analyzed in the app with Apple Vision for text, barcode, QR, classification, and compatible bundled model requests. The app does not upload camera images to a developer-operated server. The current inspection flow does not intentionally save captured images to the photo library.
 
+During Live Guide, the app also reads the phone's motion sensors (Core Motion attitude and acceleration, which need no permission) so that turning the phone is not announced as an object moving. These readings and the list of objects seen in the session stay in memory, are never written to storage or sent anywhere, and are erased when Live Guide stops.
+
 ### Device diagnostics
 
 The diagnostics screen may display information available through public iOS APIs, including system version, battery state, app version, permissions, feature availability, and local record counts. This information is displayed locally.

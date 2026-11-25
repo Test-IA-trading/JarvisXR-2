@@ -13,6 +13,7 @@
 - Accessible contact selection and in-memory message drafting with readback, explicit confirmation, and the standard iOS message composer
 - AVFoundation rear or front camera preview, still capture, torch, focus, exposure, white balance, interruption handling, and foreground lifecycle
 - Six Jarvis Vision modes: Describe, Live Guide, Find, Read Text, Barcode, and Color
+- French Live Guide: each real object is announced once, a move is reported once the object rests, a removal is noticed, and « Elle est où maintenant ? » is answered from session memory; the phone's own motion (Core Motion) is not reported as an object moving
 - Checksum-pinned `YOLOv3TinyInt8LUT` Core ML detector with 80 documented classes, manifest validation, and bundled license notice
 - Model-agnostic detector interface, frame backpressure, generation-token cancellation, temporal tracking, scene fusion, and bounded session memory
 - Vision OCR, reading order, barcode and QR deduplication, face and person counting, common-color naming, and camera-quality guidance
