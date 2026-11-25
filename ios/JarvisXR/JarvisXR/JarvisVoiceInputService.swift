@@ -193,6 +193,11 @@ final class JarvisVoiceInputService: NSObject {
     private var meter = JarvisVoiceSignalMeter()
     private var reportedSound = false
     private var preferServerRecognition = false
+    /// This turn listens through the conversation audio (echo cancellation), whose
+    /// microphone stays open between turns (JarvisDuplexAudio).
+    private var duplexTurn = false
+    /// The user may have started speaking over Jarvis (conversation audio only).
+    var onPossibleBargeIn: (() -> Void)?
 
     /// Short mid-sentence pauses must not end the turn.
     let silenceAfterSpeech: TimeInterval = 1.6
@@ -221,6 +226,15 @@ final class JarvisVoiceInputService: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(handleRouteChange(_:)), name: AVAudioSession.routeChangeNotification, object: AVAudioSession.sharedInstance())
         NotificationCenter.default.addObserver(self, selector: #selector(handleMediaServicesReset), name: AVAudioSession.mediaServicesWereResetNotification, object: AVAudioSession.sharedInstance())
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        JarvisDuplexAudio.shared.listener.setBargeInHandler { [weak self] in
+            self?.onPossibleBargeIn?()
+        }
+        JarvisDuplexAudio.shared.onStopped = { [weak self] in
+            // iOS took the conversation audio (a call, another route): end this turn cleanly.
+            guard let self, self.duplexTurn, self.capturing else { return }
+            self.finishRecognition(process: true, turn: self.generation)
+        }
     }
 
     deinit {
@@ -236,6 +250,10 @@ final class JarvisVoiceInputService: NSObject {
     func startListening(mode: ListeningMode = .command) {
         guard !isListening else { return }
         self.mode = mode
+        if mode == .wake {
+            // Waiting for « Jarvis » and the claps uses the plain microphone (no echo cancellation).
+            closeConversationAudio()
+        }
         starting = true
         generation += 1
         let turn = generation
@@ -339,6 +357,13 @@ final class JarvisVoiceInputService: NSObject {
         meter = JarvisVoiceSignalMeter()
         reportedSound = false
         listenStartedAt = Date()
+        duplexTurn = false
+
+        // A request in conversation: the microphone already open, with echo cancellation.
+        if mode == .command, openConversationAudio() {
+            beginConversationRecognition(with: recognizer, turn: turn)
+            return
+        }
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
@@ -363,12 +388,7 @@ final class JarvisVoiceInputService: NSObject {
             return
         }
 
-        let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.addsPunctuation = true
-        recognitionRequest.contextualStrings = ["Jarvis", "JARVIS"]
-        let onDevice = mode == .wake || (recognizer.supportsOnDeviceRecognition && !preferServerRecognition)
-        recognitionRequest.requiresOnDeviceRecognition = onDevice
+        let (recognitionRequest, onDevice) = makeRequest(for: recognizer)
         request = recognitionRequest
 
         inputNode.removeTap(onBus: 0)
@@ -421,7 +441,30 @@ final class JarvisVoiceInputService: NSObject {
 
         onStateChange?(.listening)
         startEndpointTimers(turn: turn)
+        startRecognitionTask(with: recognizer, request: recognitionRequest, onDevice: onDevice, turn: turn)
+    }
 
+    /// The speech request of a turn: French, partial results as they come, punctuation (it
+    /// helps to hear the end of a sentence), and the words the recognizer must not miss.
+    private func makeRequest(for recognizer: SFSpeechRecognizer) -> (SFSpeechAudioBufferRecognitionRequest, Bool) {
+        let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+        recognitionRequest.shouldReportPartialResults = true
+        recognitionRequest.addsPunctuation = true
+        recognitionRequest.taskHint = .dictation
+        recognitionRequest.contextualStrings = Self.contextualStrings
+        let onDevice = mode == .wake || (recognizer.supportsOnDeviceRecognition && !preferServerRecognition)
+        recognitionRequest.requiresOnDeviceRecognition = onDevice
+        return (recognitionRequest, onDevice)
+    }
+
+    /// Words of Jarvis's commands that a general recognizer tends to write otherwise.
+    static let contextualStrings = [
+        "Jarvis", "JARVIS", "Jarvis PC", "sur le PC", "YouTube", "Spotify", "Netflix", "Wikipédia", "minuteur", "rappelle-moi",
+        "envoie un message", "prends une note", "souviens-toi", "c'est tout",
+    ]
+
+    /// Same handling for both microphones: the text so far, the end of the turn, the errors.
+    private func startRecognitionTask(with recognizer: SFSpeechRecognizer, request recognitionRequest: SFSpeechAudioBufferRecognitionRequest, onDevice: Bool, turn: Int) {
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             let transcript = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
@@ -455,6 +498,66 @@ final class JarvisVoiceInputService: NSObject {
                 }
             }
         }
+    }
+
+    // MARK: - Conversation audio (echo cancellation)
+
+    /// The conversation's microphone stays open, with Apple's echo cancellation, so the
+    /// user can interrupt Jarvis by speaking (Réglages › Voix › Interrompre Jarvis en parlant).
+    var usesConversationAudio: Bool { JarvisDuplexAudio.shared.isRunning }
+
+    /// Opens the conversation audio when the setting allows it. False keeps the classic
+    /// microphone, opened for each turn (setting off, app in the background, or failure).
+    @discardableResult
+    func openConversationAudio() -> Bool {
+        guard JarvisConversationSettings.interruptsByVoice, UIApplication.shared.applicationState == .active else { return false }
+        if JarvisDuplexAudio.shared.isRunning { return true }
+        // The plain microphone of the wake word must be closed first.
+        guard audioEngine == nil else { return false }
+        let opened = JarvisDuplexAudio.shared.start(voiceRate: JarvisSpeechService.shared.voiceSampleRate)
+        lastDiagnostic = opened
+            ? "Son de conversation ouvert (annulation d'écho) : vous pouvez interrompre Jarvis en parlant."
+            : "Son de conversation indisponible (\(JarvisDuplexAudio.shared.lastFailure ?? "cause inconnue")) : micro classique."
+        return opened
+    }
+
+    /// Closes the conversation audio, unless a turn is listening through it.
+    func closeConversationAudio() {
+        guard JarvisDuplexAudio.shared.isRunning, !(capturing && duplexTurn) else { return }
+        JarvisDuplexAudio.shared.stop()
+    }
+
+    /// Listens for the user speaking over Jarvis while it talks (`onPossibleBargeIn`).
+    func monitorBargeIn(_ on: Bool) {
+        JarvisDuplexAudio.shared.listener.monitor(on && JarvisDuplexAudio.shared.isRunning)
+    }
+
+    private func beginConversationRecognition(with recognizer: SFSpeechRecognizer, turn: Int) {
+        let (recognitionRequest, onDevice) = makeRequest(for: recognizer)
+        request = recognitionRequest
+        duplexTurn = true
+        let counter = JarvisLevelCounter()
+        let listener = JarvisDuplexAudio.shared.listener
+        listener.setLevelHandler { [weak self] level, nonZero, sound, peak in
+            let publishLevel = counter.next() % 3 == 0
+            DispatchQueue.main.async {
+                guard let self, self.generation == turn, self.capturing, self.duplexTurn else { return }
+                self.meter.record(nonZero: nonZero, sound: sound, peakDecibels: peak)
+                if sound && !self.reportedSound {
+                    self.reportedSound = true
+                    self.onStateChange?(.hearingSound)
+                }
+                if publishLevel { self.onInputLevel?(level) }
+            }
+        }
+        // The last second heard comes first: words said as the turn started are kept.
+        listener.attach(recognitionRequest, withPreRoll: true)
+        starting = false
+        capturing = true
+        lastDiagnostic = "Écoute \(locale.identifier), moteur \(onDevice ? "local (sur l'iPhone)" : "Apple en ligne"), son de conversation (annulation d'écho)."
+        onStateChange?(.listening)
+        startEndpointTimers(turn: turn)
+        startRecognitionTask(with: recognizer, request: recognitionRequest, onDevice: onDevice, turn: turn)
     }
 
     private func finishRecognition(process: Bool, turn: Int) {
@@ -499,7 +602,13 @@ final class JarvisVoiceInputService: NSObject {
 
     private func tearDownAudio(endRequest: Bool, cancelTask: Bool) {
         clearTimers()
-        if let engine = audioEngine {
+        let conversationTurn = duplexTurn
+        if conversationTurn {
+            // The conversation audio stays open for the reply and the next turn: only this
+            // turn's request stops receiving the microphone.
+            JarvisDuplexAudio.shared.listener.detach()
+            JarvisDuplexAudio.shared.listener.setLevelHandler(nil)
+        } else if let engine = audioEngine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
         }
@@ -511,7 +620,8 @@ final class JarvisVoiceInputService: NSObject {
         let wasCapturing = capturing
         capturing = false
         starting = false
-        if wasCapturing {
+        duplexTurn = false
+        if wasCapturing && !conversationTurn {
             // Release the microphone before any reply is spoken so the speech service can
             // take the session with its own playback category.
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -540,9 +650,18 @@ final class JarvisVoiceInputService: NSObject {
         }
     }
 
+    /// The silence that ends this turn, from what was said so far: short after a finished
+    /// sentence, longer after « et », « de » or a bare verb (JarvisTurnEndDetector).
+    func silenceNeeded(after transcript: String) -> TimeInterval {
+        guard mode == .wake else { return JarvisTurnEndDetector.silence(after: transcript) }
+        guard let request = JarvisWakeWord.command(in: transcript) else { return silenceAfterSpeech }
+        // « Jarvis ? » alone: answer « Oui ? » quickly.
+        return request.isEmpty ? 1.0 : JarvisTurnEndDetector.silence(after: request)
+    }
+
     private func scheduleSilenceEndpoint(turn: Int) {
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceAfterSpeech, repeats: false) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceNeeded(after: lastTranscript), repeats: false) { [weak self] _ in
             guard let self, self.generation == turn else { return }
             let elapsed = Date().timeIntervalSince(self.listenStartedAt ?? Date())
             if elapsed < self.minimumListenDuration {
@@ -604,6 +723,24 @@ final class JarvisVoiceInputService: NSObject {
             guard let self, self.capturing else { return }
             self.stopListening(process: false)
         }
+    }
+
+    @objc private func handleDidEnterBackground() {
+        DispatchQueue.main.async { [weak self] in
+            // Jarvis does not listen in the background: the conversation audio closes.
+            guard let self, !self.capturing else { return }
+            self.closeConversationAudio()
+        }
+    }
+}
+
+/// Counts the microphone buffers on the audio thread (one in three updates the level shown).
+final class JarvisLevelCounter {
+    private var count = 0
+
+    func next() -> Int {
+        count += 1
+        return count
     }
 }
 

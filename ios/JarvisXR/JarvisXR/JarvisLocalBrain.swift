@@ -95,7 +95,7 @@ enum JarvisChatPrompt {
         var lines = [
             "Tu es JARVIS, l'assistant personnel de l'utilisateur sur son iPhone : cultivé, précis et calme, avec une pointe d'humour discret.",
             "Vouvoie toujours l'utilisateur, avec la courtoisie d'un majordome.",
-            "Réponds toujours en français, naturellement, en une à trois phrases courtes, sauf si l'utilisateur demande plus de détails ou si un calcul demande quelques étapes.",
+            "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées entre elles, comme le dirait une personne cultivée, jamais un style télégraphique. Va droit à l'essentiel en deux ou trois phrases, sauf si l'utilisateur demande plus de détails ou si un calcul demande quelques étapes.",
             "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
             "Tu sais faire des mathématiques (calculs, dérivées, intégrales, équations), de la physique, de la chimie, de l'histoire, du code et de la culture générale : réponds à ces questions même difficiles, en donnant d'abord le résultat puis une courte explication.",
             "Tu fonctionnes hors ligne : tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone en dehors du contexte ci-dessous.",
@@ -505,6 +505,8 @@ final class JarvisLocalBrain {
 
     /// Shared entry point for every screen: answers an open question, or explains in
     /// French why it cannot. `onPartial` receives the answer as it is written.
+    /// `allowCommands`: the PC's brain may reword a free request into a command the iPhone
+    /// knows; the answer then carries `action: reroute` and the command (JarvisBrainCommand).
     func answerOpenQuestion(
         _ question: String,
         context conversation: JarvisConversationContext = .shared,
@@ -512,28 +514,39 @@ final class JarvisLocalBrain {
         memory: JarvisMemoryStore = .shared,
         pcLink: JarvisPCLink = .shared,
         now: Date = Date(),
+        allowCommands: Bool = true,
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
     ) {
-        // Connected mode: « Qui est Marie Curie ? » is answered by Wikipédia, and by the
-        // brains when Wikipédia has nothing.
+        // Connected mode: « Qu'est-ce que l'arrêt Blanco ? » is looked up on Wikipédia; the
+        // PC's brain then explains the article in its own words, or the article's first
+        // sentences are said. The brains answer alone when Wikipédia has nothing.
         if JarvisInternetSettings.isEnabled, let subject = JarvisWikipediaAnswer.subject(in: question) {
-            JarvisInternetClient.shared.wikipedia(subject) { [weak self] result in
+            let explained = pcLink.isConfigured && pcLink.usesPCBrain
+            JarvisInternetClient.shared.wikipedia(subject, sentences: explained ? 6 : 3) { [weak self] result in
                 guard case .success(let article) = result else {
-                    self?.answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now, onPartial: onPartial, completion: completion)
+                    self?.answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now,
+                                           allowCommands: allowCommands, onPartial: onPartial, completion: completion)
                     return
                 }
-                let answer = JarvisWikipediaAnswer.spoken(article.extract)
-                conversation.recordTurn(user: question, assistant: answer)
-                completion(.ok("D'après Wikipédia : \(answer)", display: "\(article.title) — \(article.extract)\nSource : Wikipédia"))
+                self?.answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now,
+                                       article: article, allowCommands: false, onPartial: onPartial, completion: completion)
             }
             return
         }
-        answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now, onPartial: onPartial, completion: completion)
+        answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now,
+                         allowCommands: allowCommands, onPartial: onPartial, completion: completion)
+    }
+
+    /// What Wikipédia says, when no brain explains it.
+    static func wikipediaResponse(_ article: (title: String, extract: String)) -> JarvisResponse {
+        let answer = JarvisWikipediaAnswer.summary(article.extract)
+        return .ok("D'après Wikipédia : \(answer)", display: "\(article.title) — \(JarvisWikipediaAnswer.cleaned(article.extract))\nSource : Wikipédia")
     }
 
     /// Jarvis PC's large brain first when it is paired and answers; otherwise the
-    /// iPhone's own brain, so a PC that is off never leaves a question unanswered.
+    /// iPhone's own brain (or Wikipédia's text), so a PC that is off never leaves a
+    /// question unanswered.
     private func answerWithBrains(
         _ question: String,
         conversation: JarvisConversationContext,
@@ -541,21 +554,42 @@ final class JarvisLocalBrain {
         memory: JarvisMemoryStore,
         pcLink: JarvisPCLink,
         now: Date,
+        article: (title: String, extract: String)? = nil,
+        allowCommands: Bool,
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
     ) {
+        let withoutPC = { [weak self] in
+            if let article {
+                // The small brain of the iPhone would embroider: Wikipédia's own words instead.
+                let response = Self.wikipediaResponse(article)
+                conversation.recordTurn(user: question, assistant: response.spokenResponse)
+                completion(response)
+            } else {
+                self?.answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
+            }
+        }
         guard pcLink.isConfigured, pcLink.usesPCBrain else {
-            answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
+            withoutPC()
             return
         }
-        let context = conversation.brainContextLines() + profile.brainContextLines(memory: memory)
+        var context = conversation.brainContextLines() + profile.brainContextLines(memory: memory)
+        if let article {
+            context.append("Extrait de Wikipédia sur « \(article.title) » : \(JarvisWikipediaAnswer.cleaned(article.extract))")
+        }
         var heardFromPC = false
-        pcLink.ask(question: question, history: conversation.recentTurns, context: context, onPartial: { partial in
+        pcLink.ask(question: question, history: conversation.recentTurns, context: context, commands: allowCommands, onPartial: { partial in
+            // « COMMANDE: … » is a rewording for the iPhone, never shown or said.
+            guard !JarvisBrainCommand.mayBeCommand(partial) else { return }
             heardFromPC = true
             onPartial(partial)
-        }, completion: { [weak self] result in
+        }, completion: { result in
             switch result {
             case .success(let answer):
+                if let command = JarvisBrainCommand.parse(answer) {
+                    completion(.ok("", display: "", data: ["action": "reroute", "text": command, "question": question], shouldSpeak: false))
+                    return
+                }
                 conversation.recordTurn(user: question, assistant: answer)
                 completion(.ok(answer))
             case .failure:
@@ -563,7 +597,7 @@ final class JarvisLocalBrain {
                     let message = "La liaison avec Jarvis PC s'est coupée pendant la réponse."
                     completion(JarvisResponse(status: .unavailable, spokenResponse: message, displayResponse: message))
                 } else {
-                    self?.answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
+                    withoutPC()
                 }
             }
         })

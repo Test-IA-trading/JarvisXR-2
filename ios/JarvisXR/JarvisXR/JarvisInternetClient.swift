@@ -205,12 +205,13 @@ final class JarvisInternetClient {
     // MARK: Wikipédia
 
     /// The best article for `subject`: its title and its first two sentences.
-    func wikipedia(_ subject: String, completion: @escaping (Result<(title: String, extract: String), JarvisInternetFailure>) -> Void) {
+    /// The best article for `subject`: its title and the first `sentences` of its introduction.
+    func wikipedia(_ subject: String, sentences: Int = 2, completion: @escaping (Result<(title: String, extract: String), JarvisInternetFailure>) -> Void) {
         let url = Self.url(host: "fr.wikipedia.org", path: "/w/api.php", query: [
             ("action", "query"), ("format", "json"), ("formatversion", "2"),
             ("generator", "search"), ("gsrsearch", subject), ("gsrlimit", "1"),
             ("prop", "extracts|pageprops"), ("ppprop", "disambiguation"),
-            ("exintro", "1"), ("explaintext", "1"), ("exsentences", "2"), ("redirects", "1"),
+            ("exintro", "1"), ("explaintext", "1"), ("exsentences", String(max(1, min(sentences, 10)))), ("redirects", "1"),
         ])
         fetchJSON(url) { result in
             completion(result.flatMap { (object: [String: Any]) -> Result<(title: String, extract: String), JarvisInternetFailure> in

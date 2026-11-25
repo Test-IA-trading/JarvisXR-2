@@ -235,7 +235,9 @@ final class JarvisPCLink {
     }
 
     /// An open question for the PC's brain; `onPartial` receives the answer as it is written.
-    func ask(question: String, history: [JarvisChatTurn], context: [String], onPartial: @escaping (String) -> Void, completion: @escaping (Result<String, LinkError>) -> Void) {
+    /// With `commands`, the brain may answer « COMMANDE: appelle Paul » for a request the
+    /// iPhone can run (JarvisBrainCommand).
+    func ask(question: String, history: [JarvisChatTurn], context: [String], commands: Bool = false, onPartial: @escaping (String) -> Void, completion: @escaping (Result<String, LinkError>) -> Void) {
         guard isConfigured else {
             completion(.failure(.notConfigured))
             return
@@ -245,14 +247,21 @@ final class JarvisPCLink {
                 completion(.failure(.unreachable("pas de réponse")))
                 return
             }
-            self.stream(question: question, history: history, context: context, onPartial: onPartial, completion: completion)
+            self.stream(question: question, history: history, context: context, commands: commands, onPartial: onPartial, completion: completion)
         }
     }
 
-    private func stream(question: String, history: [JarvisChatTurn], context: [String], onPartial: @escaping (String) -> Void, completion: @escaping (Result<String, LinkError>) -> Void) {
+    static func askBody(question: String, history: [JarvisChatTurn], context: [String], commands: Bool) -> [String: Any] {
         let turns = history.suffix(6).map { ["user": $0.user, "assistant": $0.assistant] }
+        var body: [String: Any] = ["question": question, "history": turns, "context": context]
+        if commands { body["commands"] = "iphone" }
+        return body
+    }
+
+    private func stream(question: String, history: [JarvisChatTurn], context: [String], commands: Bool, onPartial: @escaping (String) -> Void, completion: @escaping (Result<String, LinkError>) -> Void) {
+        let body = Self.askBody(question: question, history: history, context: context, commands: commands)
         // The PC may need a few seconds to load its model the first time.
-        guard let request = request("/v1/ask", method: "POST", body: ["question": question, "history": turns, "context": context], timeout: 30) else {
+        guard let request = request("/v1/ask", method: "POST", body: body, timeout: 30) else {
             completion(.failure(.notConfigured))
             return
         }

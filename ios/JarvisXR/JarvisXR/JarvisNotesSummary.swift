@@ -145,6 +145,8 @@ struct JarvisARSummaryCard: Equatable {
 /// Opt-in or default-on behaviour of the hands-free conversation.
 enum JarvisConversationSettings {
     private static let continuousKey = "JarvisXR.continuousConversation"
+    private static let interruptKey = "JarvisXR.interruptByVoice"
+    private static let thinkingKey = "JarvisXR.thinkingAloud"
 
     /// After a spoken reply to a spoken request, Jarvis listens again without a tap.
     static var isContinuous: Bool {
@@ -153,5 +155,24 @@ enum JarvisConversationSettings {
             return UserDefaults.standard.bool(forKey: continuousKey)
         }
         set { UserDefaults.standard.set(newValue, forKey: continuousKey) }
+    }
+
+    /// The user can speak over Jarvis to interrupt it (on by default): the conversation's
+    /// microphone uses Apple's echo cancellation (JarvisDuplexAudio).
+    static var interruptsByVoice: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: interruptKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: interruptKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: interruptKey) }
+    }
+
+    /// While an answer takes time, Jarvis says a few words (« Voyons voir. ») instead of a silence.
+    static var thinksAloud: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: thinkingKey) == nil { return true }
+            return UserDefaults.standard.bool(forKey: thinkingKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: thinkingKey) }
     }
 }

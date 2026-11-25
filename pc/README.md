@@ -11,8 +11,18 @@ Le même Jarvis que sur l'iPhone, sur Windows. Il fonctionne seul, et il parle a
 - **Mêmes commandes que l'iPhone** :
   - calculs exacts (intégrales, dérivées), conversions, dates, minuteurs ;
   - prénom et notes.
-- **Commandes du PC** : « Ouvre Spotify », « Ouvre YouTube », « Cherche … sur Internet ».
-- **Internet, gratuit et sans compte** : météo (Open-Meteo), « Qui est… ? » (Wikipédia), titres de l'actualité (franceinfo).
+- **Commandes du PC** :
+  - « Ouvre YouTube », « Lance Word », « Mets Lofi Girl sur YouTube », « Cherche … sur Internet » ;
+  - toutes les applications du menu Démarrer s'ouvrent par leur nom, même mal prononcé (« You Tube », « la page YouTube ») ;
+  - un nom inconnu ouvre le site qui y correspond le mieux.
+- **On parle comme on veut** :
+  - « Est-ce que tu pourrais m'ouvrir YouTube ? » est compris comme « Ouvre YouTube » ;
+  - le reste passe par le cerveau, qui traduit la demande en commande (« J'ai envie de voir des vidéos de chats » ouvre la recherche YouTube) ;
+  - le même cerveau traduit aussi les demandes libres de l'iPhone (« Préviens Marie que je serai en retard »).
+- **Pas de blanc** : quand la réponse tarde, Jarvis dit quelques mots (« Voyons voir. »).
+- **Internet, gratuit et sans compte** :
+  - météo (Open-Meteo) et titres de l'actualité (franceinfo) ;
+  - pour « Qu'est-ce que l'arrêt Blanco ? » ou « Qui était Marie Curie ? », Jarvis lit l'introduction de l'article Wikipédia, puis le cerveau l'explique avec ses mots.
 - **Lien avec l'iPhone** :
   - l'iPhone peut poser ses questions au cerveau du PC et lui donner des commandes ;
   - les deux partagent le prénom et les notes ;

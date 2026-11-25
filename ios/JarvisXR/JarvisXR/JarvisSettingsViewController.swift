@@ -15,6 +15,8 @@ final class JarvisSettingsViewController: UIViewController {
     private let speechSwitch = UISwitch()
     private let wakeWordSwitch = UISwitch()
     private let clapSwitch = UISwitch()
+    private let interruptSwitch = UISwitch()
+    private let thinkingSwitch = UISwitch()
     private let voiceProfileControl = UISegmentedControl(items: ["Jarvis", "Naturel", "Amical", "Claire", "Discrète", "Formelle"])
     private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
     private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
@@ -659,6 +661,22 @@ final class JarvisSettingsViewController: UIViewController {
             action: #selector(clapSwitchChanged)
         )
         stackView.addArrangedSubview(settingRow(title: "Aussi deux clappements de mains", control: clapSwitch))
+        configureSwitch(
+            interruptSwitch,
+            label: "Interrompre Jarvis en parlant",
+            hint: "En conversation, parlez par-dessus Jarvis : il baisse la voix, puis s'arrête et vous écoute dès qu'il reconnaît vos mots. Le micro reste ouvert pendant l'échange, avec l'annulation d'écho de l'iPhone ; rien n'est enregistré.",
+            identifier: "jarvis.settings.interruptByVoice",
+            action: #selector(interruptSwitchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Interrompre Jarvis en parlant", control: interruptSwitch))
+        configureSwitch(
+            thinkingSwitch,
+            label: "Parler pendant la réflexion",
+            hint: "Quand une réponse tarde, Jarvis dit quelques mots (« Voyons voir. », « Je regarde la météo. ») au lieu d'un silence.",
+            identifier: "jarvis.settings.thinkingAloud",
+            action: #selector(thinkingSwitchChanged)
+        )
+        stackView.addArrangedSubview(settingRow(title: "Parler pendant la réflexion", control: thinkingSwitch))
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
         stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
@@ -750,6 +768,8 @@ final class JarvisSettingsViewController: UIViewController {
         speechSwitch.isOn = JarvisSpeechService.shared.isEnabled
         wakeWordSwitch.isOn = JarvisWakeWordSettings.isEnabled
         clapSwitch.isOn = JarvisWakeWordSettings.clapsEnabled
+        interruptSwitch.isOn = JarvisConversationSettings.interruptsByVoice
+        thinkingSwitch.isOn = JarvisConversationSettings.thinksAloud
         voiceProfileControl.selectedSegmentIndex = index(for: JarvisSpeechService.shared.profile)
         narrationControl.selectedSegmentIndex = index(for: preferences.narrationVerbosity)
         defaultModeControl.selectedSegmentIndex = index(for: preferences.defaultMode)
@@ -860,6 +880,17 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func clapSwitchChanged() {
         JarvisWakeWordSettings.clapsEnabled = clapSwitch.isOn
+    }
+
+    @objc private func interruptSwitchChanged() {
+        JarvisConversationSettings.interruptsByVoice = interruptSwitch.isOn
+        if !interruptSwitch.isOn {
+            JarvisVoiceInputService.shared.closeConversationAudio()
+        }
+    }
+
+    @objc private func thinkingSwitchChanged() {
+        JarvisConversationSettings.thinksAloud = thinkingSwitch.isOn
     }
 
     @objc private func wakeWordChanged() {

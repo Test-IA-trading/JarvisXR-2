@@ -7,8 +7,8 @@ from datetime import datetime
 
 import pytest
 
-from jarvis_pc import wake
-from jarvis_pc.brain import SentenceStreamer, clean, system_prompt
+from jarvis_pc import apps, internet, phrasing, research, wake
+from jarvis_pc.brain import PC_COMMANDS, SentenceStreamer, clean, command_in, may_be_command, system_prompt
 from jarvis_pc.claps import Detector
 from jarvis_pc.core import JarvisCore
 from jarvis_pc.memory import Memory
@@ -34,11 +34,27 @@ class FakeBrain:
     def active_model(self):
         return "faux-modele"
 
-    def ask(self, question, history=None, context=None, on_text=None, timeout=300):
+    def ask(self, question, history=None, context=None, on_text=None, timeout=300, commands=None):
         if on_text:
             on_text("Bonjour.")
             on_text("Bonjour. Je suis Jarvis.")
         return "Bonjour. Je suis Jarvis."
+
+
+class CommandBrain(FakeBrain):
+    """Rewords every request into the same command, as Qwen does for free phrasing."""
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.asked = []
+
+    def ask(self, question, history=None, context=None, on_text=None, timeout=300, commands=None):
+        self.asked.append({"question": question, "commands": commands, "context": list(context or [])})
+        reply = self.reply if commands else "Voici une vraie réponse."
+        if on_text:
+            on_text(reply[:4])
+            on_text(reply)
+        return reply
 
 
 @pytest.fixture
@@ -84,6 +100,111 @@ def test_the_pc_opens_apps_sites_and_searches(router):
     assert spoken(router, "Cherche la recette des crêpes sur Internet") == "Je cherche « la recette des crêpes » sur Internet."
     assert router.opened[:2] == ["spotify:", "https://www.youtube.com"]
     assert router.opened[2].endswith("la%20recette%20des%20cr%C3%AApes")
+
+
+def test_free_phrasing_becomes_the_commands_wording():
+    """The owner's test (25/11): Jarvis understood only one wording per command."""
+    cases = {
+        "Est-ce que tu pourrais m'ouvrir YouTube, s'il te plaît ?": "ouvre-moi YouTube ?",
+        "Jarvis, tu peux appeler maman ?": "appelle maman ?",
+        "J'aimerais que tu appelles Paul": "appelle Paul",
+        "Je voudrais que tu me rappelles d'acheter du pain": "rappelle-moi d'acheter du pain",
+        "Tu peux me dire quelle heure il est ?": "quelle heure il est ?",
+        "Je voudrais savoir quel temps il fait": "quel temps il fait",
+        "Pourrais-tu me donner la météo ?": "donne-moi la météo ?",
+        "Dis-moi ce qu'est l'arrêt Blanco": "qu'est-ce que l'arrêt Blanco",
+        "Qu'est-ce que c'est, l'arrêt Blanco ?": "qu'est-ce que l'arrêt Blanco ?",
+        "Tu connais l'arrêt Blanco ?": "parle-moi de l'arrêt Blanco ?",
+        "Préviens Marie que je serai en retard": "dis à Marie que je serai en retard",
+        "Envoie un texto à Paul pour lui dire que j'arrive": "envoie un message à Paul pour lui dire que j'arrive",
+        "Va sur leboncoin.fr": "ouvre leboncoin.fr",
+        "Tu peux te souvenir que je bois mon café noir ?": "souviens-toi que je bois mon café noir ?",
+        "Ouvre YouTube, merci beaucoup !": "Ouvre YouTube !",
+        "Euh, est-ce que tu peux mettre un minuteur de 10 minutes": "mets un minuteur de 10 minutes",
+        "Tu peux m'appeler Tony": "appelle-moi Tony",
+    }
+    for said, routed in cases.items():
+        assert phrasing.rewrite(said) == routed, said
+    for unchanged in ["Pourquoi le ciel est-il bleu ?", "Je veux dormir", "Merci", "Non merci", "Bonjour Jarvis", "Jarvis",
+                      "Tu connais mon nom ?", "Tu m'entends ?", "C'est quoi mon prénom ?", "Qu'est-ce que tu sais sur moi ?"]:
+        assert phrasing.rewrite(unchanged) == unchanged, unchanged
+
+
+def test_the_pc_opens_what_is_asked_however_it_is_said(router):
+    for phrase in ["Ouvre You Tube", "ouvre youtube.com", "Ouvre la page YouTube", "Tu peux ouvrir YouTube ?", "Va sur YouTube",
+                   "Est-ce que tu pourrais m'ouvrir YouTube s'il te plaît", "Lance le site de YouTube", "Mets YouTube", "Ouvre Youtub"]:
+        router.opened.clear()
+        assert spoken(router, phrase) == "J'ouvre YouTube.", phrase
+        assert router.opened == ["https://www.youtube.com"], phrase
+    assert spoken(router, "Ouvre l'application Spotify") == "J'ouvre Spotify."
+    assert spoken(router, "Ouvre mes téléchargements") == "J'ouvre vos Téléchargements."
+    assert spoken(router, "Ouvre Photoshop").startswith("Je ne trouve pas « Photoshop » parmi les applications du PC")
+    assert router.opened[-1] == "https://duckduckgo.com/?q=%21ducky%20Photoshop"
+    assert spoken(router, "Mets Lofi Girl sur YouTube") == "Je cherche « Lofi Girl » sur YouTube."
+    assert router.opened[-1] == "https://www.youtube.com/results?search_query=Lofi%20Girl"
+    assert router.route("Mets de la musique", now=NOW) is None, "for the brain"
+    assert router.route("Ouvre le truc", now=NOW) is None
+
+
+def test_the_start_menu_apps_are_found():
+    catalog = apps.Catalog(loader=lambda: [("Microsoft Word", "Microsoft.Office.WINWORD.EXE.15"), ("WhatsApp", "WhatsAppDesktop!App"),
+                                           ("Calculatrice", "Microsoft.WindowsCalculator!App")])
+    assert catalog.find("Word") == ("Microsoft Word", "shell:AppsFolder\\Microsoft.Office.WINWORD.EXE.15")
+    assert catalog.find("l'application WhatsApp") == ("WhatsApp", "shell:AppsFolder\\WhatsAppDesktop!App"), "the app before the site"
+    assert catalog.find("la calculatrice") == ("la Calculatrice", "shell:AppsFolder\\Microsoft.WindowsCalculator!App")
+    assert catalog.find("leboncoin point fr") == ("leboncoin", "https://www.leboncoin.fr")
+    assert catalog.find("monsite.fr") == ("monsite.fr", "https://monsite.fr")
+    assert apps.Catalog(loader=lambda: 1 / 0).find("YouTube")[1] == "https://www.youtube.com", "a failing Start menu is no problem"
+
+
+def test_the_brain_turns_free_requests_into_commands(memory):
+    settings = FakeSettings()
+    opened = []
+    router = Router(memory, settings, opener=opened.append, browser=opened.append)
+    brain = CommandBrain("COMMANDE: ouvre YouTube")
+    core = JarvisCore(settings, memory, brain, router)
+    heard = []
+    answer = core.handle("J'ai envie de regarder des vidéos de chats", on_text=heard.append)
+    assert answer.spoken == "J'ouvre YouTube." and opened == ["https://www.youtube.com"]
+    assert heard == [], "« COMMANDE: … » is never spoken"
+    assert brain.asked[0]["commands"] == PC_COMMANDS
+    # A rewording that is no command: the brain answers for real.
+    core = JarvisCore(settings, memory, CommandBrain("COMMANDE: danse la salsa"), router)
+    assert core.handle("Fais-moi danser").spoken == "Voici une vraie réponse."
+    assert command_in("COMMANDE: « appelle Paul »") == "appelle Paul"
+    assert command_in("Commande : ouvre Word\nautre ligne") == "ouvre Word"
+    assert command_in("Comme vous voulez.") is None
+    assert may_be_command("COM") and may_be_command("COMMANDE: ou") and not may_be_command("Comme")
+
+
+def test_knowledge_questions_bring_wikipedia(memory, monkeypatch):
+    class Online(FakeSettings):
+        internet = True
+
+    looked_up = []
+
+    def fake_wikipedia(subject, sentences=2):
+        looked_up.append(subject)
+        return ("Arrêt Blanco", "L'arrêt Blanco (8 février 1873) est un arrêt du Tribunal des conflits.")
+
+    monkeypatch.setattr(internet, "wikipedia", fake_wikipedia)
+    brain = CommandBrain("Voici une vraie réponse.")
+    core = JarvisCore(Online(), memory, brain, Router(memory, Online(), opener=lambda _: None, browser=lambda _: None))
+    assert core.handle("Qu'est-ce que c'est, l'arrêt Blanco ?").spoken == "Voici une vraie réponse."
+    assert "Extrait de Wikipédia sur « Arrêt Blanco » : L'arrêt Blanco est un arrêt du Tribunal des conflits." in brain.asked[0]["context"]
+    for question in ["Dis-moi ce qu'est l'arrêt Blanco", "Tu connais l'arrêt Blanco ?", "Explique-moi l'arrêt Blanco",
+                     "C'est quoi l'arrêt Blanco ?", "Qu'est-ce que l'arrêt Blanco ?"]:
+        assert research.knowledge_subject(question) == "l'arrêt Blanco", question
+    for other in ["Qui est-ce ?", "C'est quoi ton prénom ?", "Pourquoi le ciel est bleu ?", "Explique-moi comment faire des crêpes"]:
+        assert research.knowledge_subject(other) is None, other
+    core.research("C'est quoi l'arrêt Blanco ?")
+    assert looked_up == ["l'arrêt Blanco"], "one lookup per subject"
+
+
+def test_addresses_for_the_iphone_leave_virtual_switches_out():
+    from jarvis_pc.server import is_tailscale
+
+    assert is_tailscale("100.101.12.3") and not is_tailscale("100.20.1.1") and not is_tailscale("172.17.80.1")
 
 
 def test_timers_and_messages_for_the_phone(router):

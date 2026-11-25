@@ -49,7 +49,10 @@ struct JarvisFrenchCommandRouter {
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
-        let original = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let spoken = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Free phrasing: « Est-ce que tu pourrais appeler Paul ? » is routed as « appelle Paul ? »
+        // (JarvisPhrasing); an open question still reaches the brain in the user's own words.
+        let original = JarvisPhrasing.rewrite(spoken)
         let text = Self.normalize(original)
         guard !text.isEmpty else { return .notHandled }
 
@@ -57,7 +60,7 @@ struct JarvisFrenchCommandRouter {
         if containsAny(text, ["tu m'entends", "vous m'entendez", "tu m'ecoutes", "tu me recois", "est ce que ca marche", "test micro", "test du micro"]) {
             return .answer(.ok(
                 "Oui, je vous entends bien.",
-                display: "Oui, je vous entends bien. J'ai compris : « \(original) »"
+                display: "Oui, je vous entends bien. J'ai compris : « \(spoken) »"
             ))
         }
 
@@ -235,7 +238,8 @@ struct JarvisFrenchCommandRouter {
         }
 
         guard Self.looksFrench(text) else { return .notHandled }
-        return .openQuestion(original)
+        // The brain hears the user's own words, not the rewording made for the commands.
+        return .openQuestion(spoken)
     }
 
     // MARK: The iPhone's own data

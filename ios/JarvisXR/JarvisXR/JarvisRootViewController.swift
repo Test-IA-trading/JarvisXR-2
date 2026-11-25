@@ -30,6 +30,18 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     /// said to a bare « Jarvis » (the request is listened to right after).
     private var wakeRestartWorkItem: DispatchWorkItem?
     private var listenAfterWakeReply = false
+    /// A few words while an answer takes time (« Voyons voir. »), as in a conversation.
+    private var thinkingFiller = JarvisThinkingFiller()
+    private var fillerWorkItem: DispatchWorkItem?
+    /// The reply being said is a stream (sentences as they come, or the filler first).
+    private var brainReplyStreaming = false
+    /// Each request and each question to the brain: a late answer to an earlier one is dropped.
+    private var brainTurn = 0
+    /// The user started speaking over Jarvis: the microphone listens, and Jarvis stops once
+    /// real words of the user are heard (JarvisEchoFilter), not its own echo or a noise.
+    private var bargeInProbe = false
+    private var bargeInConfirmed = false
+    private var bargeInTimeout: DispatchWorkItem?
     private var didOfferBrainDownload = false
     private var wasDownloadingBrain = false
     private var brainDownloadObserver: NSObjectProtocol?
@@ -89,6 +101,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         super.viewWillDisappear(animated)
         // Vision, the cube and Settings own the microphone while they are on screen.
         stopWakeListening()
+        cancelThinkingFiller()
+        if !voiceInput.isListening && !speech.isSpeaking {
+            voiceInput.closeConversationAudio()
+        }
     }
 
     @objc private func appBecameActive() {
@@ -209,6 +225,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         listenAfterWakeReply = true
         setInterfaceState(.ready, hint: "Oui ?")
         if speech.isEnabled {
+            // Said through the conversation audio, whose open microphone keeps the words
+            // the user says right after « Oui ? ».
+            voiceInput.openConversationAudio()
             speech.speak("Oui ?")
         } else {
             listenAfterWakeReply = false
@@ -478,16 +497,22 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             self?.stopWakeListening()
             self?.setVoiceStage(.reply)
             self?.setInterfaceState(.speaking, hint: "JARVIS parle.")
+            // In a conversation, the user may interrupt Jarvis by speaking.
+            self?.armBargeIn()
         }
         speech.onSpeechFinish = { [weak self] in
             guard let self else { return }
+            self.voiceInput.monitorBargeIn(false)
+            self.brainReplyStreaming = false
             // A reply interrupted by a new turn reports didCancel asynchronously; it must
             // not pull the screen out of the listening state the user just entered.
             guard !self.voiceInput.isListening else { return }
             if self.listenAfterWakeReply {
                 self.listenAfterWakeReply = false
                 self.setVoiceStage(.idle)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                // The conversation audio already listens: no need to wait for the voice's tail.
+                let delay = self.voiceInput.usesConversationAudio ? 0.1 : 0.35
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     guard let self, !self.voiceInput.isListening else { return }
                     self.startVoiceTurn()
                 }
@@ -500,6 +525,13 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             } else {
                 self.setInterfaceState(.quiet, hint: "Mode silencieux.")
             }
+            if !self.conversationActive || self.navigationController?.topViewController !== self {
+                // No hands-free exchange goes on here: the microphone closes.
+                self.voiceInput.closeConversationAudio()
+            }
+        }
+        voiceInput.onPossibleBargeIn = { [weak self] in
+            self?.handlePossibleBargeIn()
         }
         voiceInput.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -507,8 +539,14 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 self.handleWakeState(state)
                 return
             }
+            if self.bargeInProbe && !self.bargeInConfirmed {
+                // Listening over Jarvis's voice, before the user's words are confirmed.
+                self.handleProbeState(state)
+                return
+            }
             switch state {
             case .standby:
+                self.resetBargeIn()
                 self.endConversation()
                 self.setVoiceStage(.idle)
                 self.setInterfaceState(.standby, hint: "JARVIS est prêt.")
@@ -529,6 +567,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             case .processing:
                 self.setInterfaceState(.processing, hint: "Traitement en cours.")
             case .noSpeech:
+                self.resetBargeIn()
                 if self.currentTurnIsAutomatic {
                     // Silence after a reply ends the hands-free exchange quietly.
                     self.endConversation()
@@ -542,6 +581,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                     ? "J'ai capté du son mais aucun mot. Parlez un peu plus près du téléphone, puis touchez l'orbe."
                     : "Le micro n'a capté qu'un son très faible. Parlez plus fort ou plus près, puis touchez l'orbe.")
             case .unavailable(let failure):
+                self.resetBargeIn()
                 self.endConversation()
                 self.setVoiceStage(self.voiceStage, failed: true)
                 self.setInterfaceState(.attention, hint: failure.message)
@@ -560,6 +600,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 }
                 return
             }
+            if self.bargeInProbe && !self.bargeInConfirmed {
+                // Jarvis's echo or a noise is never shown; the user's words stop Jarvis.
+                self.handleProbeTranscript(transcript)
+                return
+            }
             if !transcript.isEmpty { self.setVoiceStage(.text) }
             self.hintLabel.text = transcript.isEmpty ? "Micro actif. Parlez maintenant." : transcript
         }
@@ -572,6 +617,12 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 self.handleWakeTranscript(transcript)
                 return
             }
+            if self.bargeInProbe && !self.bargeInConfirmed {
+                // Only Jarvis's own words were heard: nothing to run, the reply goes on.
+                self.endBargeInProbe()
+                return
+            }
+            self.resetBargeIn()
             self.execute(transcript, source: "voice")
         }
         voiceInput.onInputLevel = { [weak self] level in
@@ -586,6 +637,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         // the microphone takes it, then listen.
         rearmWorkItem?.cancel()
         rearmWorkItem = nil
+        cancelThinkingFiller()
+        resetBargeIn()
         // A wait for « Jarvis » gives the microphone to this request.
         stopWakeListening()
         currentTurnIsAutomatic = automatic
@@ -593,6 +646,124 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         voiceStageFailed = false
         voiceLevel = 0
         voiceInput.startListening()
+    }
+
+    // MARK: - Interrupting Jarvis by speaking
+
+    /// Jarvis starts a reply in a hands-free conversation: the microphone listens for the
+    /// user speaking over it (conversation audio, with echo cancellation).
+    private func armBargeIn() {
+        guard conversationActive, JarvisConversationSettings.interruptsByVoice, voiceInput.usesConversationAudio,
+              speech.isSpeaking, !voiceInput.isListening, !bargeInProbe else { return }
+        voiceInput.monitorBargeIn(true)
+    }
+
+    /// The level says the user may be speaking over Jarvis: listen at once, Jarvis's voice
+    /// lowered, and stop Jarvis when real words come (handleProbeTranscript).
+    private func handlePossibleBargeIn() {
+        guard conversationActive, speech.isSpeaking, !voiceInput.isListening, presentedViewController == nil else { return }
+        voiceInput.monitorBargeIn(false)
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
+        bargeInProbe = true
+        bargeInConfirmed = false
+        currentTurnIsAutomatic = true
+        speech.setVoiceLowered(true)
+        voiceInput.startListening()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.bargeInProbe, !self.bargeInConfirmed else { return }
+            // Only a noise, or Jarvis's own voice: the reply goes on.
+            self.voiceInput.cancel()
+        }
+        bargeInTimeout?.cancel()
+        bargeInTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: timeout)
+    }
+
+    private func handleProbeTranscript(_ transcript: String) {
+        guard JarvisEchoFilter.isInterruption(transcript, spoken: speech.currentReplyText) else { return }
+        // The user speaks: Jarvis stops, and this turn goes on with the user's words.
+        bargeInConfirmed = true
+        bargeInTimeout?.cancel()
+        bargeInTimeout = nil
+        speech.setVoiceLowered(false)
+        JarvisLocalBrain.shared.cancel()
+        speech.stop()
+        setVoiceStage(.text)
+        setInterfaceState(.listening, hint: transcript)
+    }
+
+    private func handleProbeState(_ state: JarvisVoiceInputState) {
+        switch state {
+        case .standby, .noSpeech, .unavailable:
+            endBargeInProbe()
+        case .listening, .hearingSound, .heardYou, .processing:
+            // Jarvis keeps speaking, lowered, until the user's words are heard.
+            break
+        }
+    }
+
+    /// The probe heard no words of the user: Jarvis goes on as if nothing happened.
+    private func endBargeInProbe() {
+        resetBargeIn()
+        if speech.isSpeaking {
+            setVoiceStage(.reply)
+            setInterfaceState(.speaking, hint: "JARVIS parle.")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.armBargeIn()
+            }
+        } else {
+            // The reply ended meanwhile: the conversation listens again, as after any reply.
+            setVoiceStage(.idle)
+            setInterfaceState(.ready, hint: "JARVIS vous écoute à nouveau…")
+            scheduleConversationRearm()
+        }
+    }
+
+    private func resetBargeIn() {
+        guard bargeInProbe || bargeInTimeout != nil else { return }
+        bargeInProbe = false
+        bargeInConfirmed = false
+        bargeInTimeout?.cancel()
+        bargeInTimeout = nil
+        speech.setVoiceLowered(false)
+    }
+
+    // MARK: - Thinking aloud
+
+    /// A few words when the answer is slow to come (« Voyons voir. »), so the conversation
+    /// has no blank; the answer then follows without cutting them. `phrase` replaces the
+    /// usual words (« Je regarde la météo. »).
+    private func scheduleThinkingFiller(for question: String, phrase: String? = nil) {
+        fillerWorkItem?.cancel()
+        fillerWorkItem = nil
+        guard speech.isEnabled, JarvisConversationSettings.thinksAloud, !brainReplyStreaming else { return }
+        let words = phrase ?? thinkingFiller.next(for: question)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.interfaceState == .processing, !self.brainReplyStreaming, !self.voiceInput.isListening,
+                  !self.speech.isSpeaking else { return }
+            self.brainReplyStreaming = true
+            self.speech.beginStreamedReply()
+            self.speech.appendStreamedReply(words)
+        }
+        fillerWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + JarvisThinkingFiller.delay, execute: work)
+    }
+
+    private func cancelThinkingFiller() {
+        fillerWorkItem?.cancel()
+        fillerWorkItem = nil
+    }
+
+    /// Says a reply. After a filler, the reply follows it in the same stream.
+    private func say(_ text: String) {
+        if brainReplyStreaming, speech.isStreamingReply {
+            brainReplyStreaming = false
+            speech.appendStreamedReply(text)
+            speech.endStreamedReply()
+        } else {
+            speech.speak(text)
+        }
     }
 
     /// After a spoken reply to a spoken request, listen again without a tap. The short
@@ -614,7 +785,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             self.startVoiceTurn(automatic: true)
         }
         rearmWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+        // With the conversation audio, the echo is cancelled and the microphone already
+        // open: the next turn starts at once (its first second is kept anyway).
+        DispatchQueue.main.asyncAfter(deadline: .now() + (voiceInput.usesConversationAudio ? 0.15 : 0.45), execute: work)
     }
 
     private func endConversation() {
@@ -622,6 +795,13 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         currentTurnIsAutomatic = false
         rearmWorkItem?.cancel()
         rearmWorkItem = nil
+        cancelThinkingFiller()
+        resetBargeIn()
+        voiceInput.monitorBargeIn(false)
+        // The conversation's microphone closes once Jarvis has finished speaking.
+        if !speech.isSpeaking {
+            voiceInput.closeConversationAudio()
+        }
     }
 
     private func setVoiceStage(_ stage: JarvisVoiceStage, failed: Bool = false) {
@@ -676,13 +856,19 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         setInterfaceState(.processing, hint: "Traitement en cours.")
         // A spoken request keeps the hands-free exchange going; typing ends it.
         conversationActive = source == "voice" && JarvisConversationSettings.isContinuous
+        // A new request: an answer still coming for the previous one is dropped.
+        brainTurn += 1
+        if !speech.isStreamingReply { brainReplyStreaming = false }
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
-        let response = decision.response
         if decision.plan?.shouldPersistGeneralHistory != false {
             let historyCommand = source == "typed" ? command.rawText : "\(source): \(command.rawText)"
-            memory.appendHistory(command: historyCommand, response: response.displayResponse)
+            memory.appendHistory(command: historyCommand, response: decision.response.displayResponse)
         }
+        run(decision, source: source)
+    }
+
+    private func run(_ decision: JarvisAssistantDecision, source: String) {
         var visionRequest = decision.plan?.visionLaunchRequest
         visionRequest?.source = source
         if let plan = decision.plan,
@@ -696,35 +882,59 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             ))
             return
         }
-        render(response: response, visionRequest: visionRequest)
+        render(response: decision.response, visionRequest: visionRequest)
+    }
+
+    /// The PC's brain understood a free request as a command (« Préviens Marie que… » →
+    /// « envoie un message à Marie pour lui dire que… »): it runs as if said that way.
+    private func runBrainCommand(_ command: String, question: String) {
+        let decision = assistant.decide(command)
+        if decision.response.data["action"] == "local_brain" {
+            // Not a command of the iPhone after all: the brain answers the question itself.
+            askLocalBrain(question, allowCommands: false)
+            return
+        }
+        memory.appendHistory(command: "voice: \(question)", response: decision.response.displayResponse)
+        run(decision, source: "voice")
     }
 
     /// Open question: the local brain writes the answer (shown as it comes), then the
     /// normal rendering speaks it. A tap on the orb interrupts it.
-    private func askLocalBrain(_ question: String) {
+    private func askLocalBrain(_ question: String, allowCommands: Bool = true) {
         setInterfaceState(.processing, hint: "Je réfléchis…")
         showTransient("…")
+        brainTurn += 1
+        let turn = brainTurn
+        if !speech.isStreamingReply { brainReplyStreaming = false }
+        // No blank while the answer is written: a few words if it is slow to come.
+        scheduleThinkingFiller(for: question)
         // Speech starts with the first complete sentence while the rest is written.
         var streamer = JarvisSentenceStreamer()
-        var streaming = false
-        JarvisLocalBrain.shared.answerOpenQuestion(question, onPartial: { [weak self] partial in
-            guard let self, !partial.isEmpty, !self.voiceInput.isListening,
+        JarvisLocalBrain.shared.answerOpenQuestion(question, allowCommands: allowCommands, onPartial: { [weak self] partial in
+            guard let self, self.brainTurn == turn, !partial.isEmpty, !self.voiceInput.isListening,
                   self.interfaceState == .processing || self.interfaceState == .speaking else { return }
             self.showTransient(partial)
             guard self.speech.isEnabled else { return }
             let sentences = streamer.newSentences(in: partial, final: false)
             guard !sentences.isEmpty else { return }
-            if !streaming {
-                streaming = true
+            self.cancelThinkingFiller()
+            if !self.brainReplyStreaming {
+                self.brainReplyStreaming = true
                 self.speech.beginStreamedReply()
                 self.scheduleSpeechStartCheck()
             }
             sentences.forEach { self.speech.appendStreamedReply($0) }
         }, completion: { [weak self] answer in
-            guard let self else { return }
+            guard let self, self.brainTurn == turn else { return }
+            self.cancelThinkingFiller()
             // A new turn already started (the user tapped and spoke): drop this answer.
             guard !self.voiceInput.isListening else { return }
-            guard streaming else {
+            // The PC's brain reworded the request into a command: run it.
+            if answer.data["action"] == "reroute", let command = answer.data["text"] {
+                self.runBrainCommand(command, question: answer.data["question"] ?? question)
+                return
+            }
+            guard self.brainReplyStreaming else {
                 self.render(response: answer)
                 self.offerBrainDownloadIfNeeded()
                 return
@@ -792,8 +1002,14 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     /// Timers, reminders, agenda, briefing: run the side effect, then render its result.
     private func performLifeAction(_ response: JarvisResponse) {
         setInterfaceState(.processing, hint: response.displayResponse)
+        // « Je regarde la météo. », « Je demande au PC. » is said when the result is slow to come.
+        let announce = response.spokenResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+        scheduleThinkingFiller(for: response.displayResponse, phrase: announce.isEmpty ? nil : announce)
+        let turn = brainTurn
         JarvisLifeActionPerformer.perform(response) { [weak self] final in
-            guard let self, !self.voiceInput.isListening else { return }
+            guard let self, self.brainTurn == turn else { return }
+            self.cancelThinkingFiller()
+            guard !self.voiceInput.isListening else { return }
             self.render(response: JarvisLifeActionPerformer.withoutAction(final))
         }
     }
@@ -846,12 +1062,21 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             setInterfaceState(.quiet, hint: "La sortie vocale est muette.")
         }
 
-        if response.shouldSpeak && speech.isEnabled && (response.status == .ok || response.status == .confirmationRequired) {
+        // In a hands-free conversation, what cannot be done is said too, not only shown.
+        let spokenStatus = response.status == .ok || response.status == .confirmationRequired || (response.status == .unavailable && conversationActive)
+        if response.shouldSpeak && speech.isEnabled && spokenStatus && !response.spokenResponse.isEmpty {
             setInterfaceState(.speaking, hint: "JARVIS parle.")
-            speech.speak(response.spokenResponse)
+            say(response.spokenResponse)
             scheduleSpeechStartCheck()
-        } else if response.status == .ok && response.data["action"] == nil {
-            setInterfaceState(speech.isEnabled ? .done : .quiet, hint: response.spokenResponse)
+        } else {
+            // A filler said while waiting ends here when nothing follows it.
+            if brainReplyStreaming, speech.isStreamingReply {
+                brainReplyStreaming = false
+                speech.endStreamedReply()
+            }
+            if response.status == .ok && response.data["action"] == nil {
+                setInterfaceState(speech.isEnabled ? .done : .quiet, hint: response.spokenResponse)
+            }
         }
     }
 
@@ -977,6 +1202,12 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             }
         case .speaking:
             JarvisLocalBrain.shared.cancel()
+            if bargeInProbe && !bargeInConfirmed {
+                // A tap ends the listening over Jarvis's voice too.
+                resetBargeIn()
+                voiceInput.cancel()
+            }
+            cancelThinkingFiller()
             speech.stop()
             setVoiceStage(.idle)
             setInterfaceState(.ready, hint: "Parole arrêtée.")

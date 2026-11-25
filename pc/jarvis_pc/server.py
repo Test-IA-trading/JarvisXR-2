@@ -14,22 +14,35 @@ from . import __version__
 MAX_BODY = 64 * 1024
 
 
+def is_tailscale(address: str) -> bool:
+    """Tailscale gives each device an address in 100.64.0.0/10."""
+    parts = address.split(".")
+    return len(parts) == 4 and parts[0] == "100" and parts[1].isdigit() and 64 <= int(parts[1]) <= 127
+
+
 def local_addresses() -> list[str]:
-    """IPv4 addresses of this PC (home network, Tailscale), for the pairing screen."""
+    """IPv4 addresses the iPhone can reach, for the pairing screen and Bonjour: the home
+    network's first (the interface of the default route), then Tailscale's. The virtual
+    switches of Hyper-V, WSL or Docker (often 172.x) are left out: the iPhone cannot reach them."""
     addresses = set()
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             addresses.add(info[4][0])
     except OSError:
         pass
+    primary = None
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("192.0.2.1", 9))  # no packet is sent: only picks the outgoing interface
-        addresses.add(probe.getsockname()[0])
+        primary = probe.getsockname()[0]
         probe.close()
     except OSError:
         pass
-    return sorted(a for a in addresses if not a.startswith("127."))
+    chosen = [primary] if primary and not primary.startswith(("127.", "169.254.", "0.")) else []
+    chosen += sorted(a for a in addresses if is_tailscale(a) and a not in chosen)
+    if not chosen:
+        chosen = sorted(a for a in addresses if not a.startswith(("127.", "169.254.")))
+    return chosen
 
 
 class JarvisServer:
@@ -152,6 +165,8 @@ class JarvisServer:
                     return self._json(400, {"error": "Question vide."})
                 history = [t for t in data.get("history", []) if isinstance(t, dict)][-6:]
                 context = [str(c) for c in data.get("context", []) if isinstance(c, str)][:12]
+                # « iphone »: the brain may answer « COMMANDE: appelle Paul » for the iPhone to run.
+                commands = data.get("commands") if data.get("commands") == "iphone" else None
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
                 self.end_headers()
@@ -161,7 +176,8 @@ class JarvisServer:
                     self.wfile.flush()
 
                 try:
-                    answer = server.core.ask_brain(question, history, context, on_text=lambda partial: send({"partial": partial}))
+                    answer = server.core.ask_brain(question, history, context, on_text=lambda partial: send({"partial": partial}),
+                                                   commands=commands)
                     send({"final": answer, "tokens_per_second": round(server.core.brain.last_tokens_per_second, 1)})
                 except (BrokenPipeError, ConnectionResetError):
                     return

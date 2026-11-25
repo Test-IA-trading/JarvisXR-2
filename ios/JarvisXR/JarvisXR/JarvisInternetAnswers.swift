@@ -268,13 +268,13 @@ enum JarvisWikipediaAnswer {
         "cherche sur wikipedia", "wikipedia", "dis moi qui est", "dis moi qui etait", "sais tu qui est", "tu sais qui est",
         "qui est", "qui etait", "qui sont", "qui etaient", "c'est qui", "qu'est ce que c'est que", "qu'est ce qu'un",
         "qu'est ce qu'une", "qu'est ce que", "c'est quoi", "parle moi de", "parle moi du", "parle moi des", "parle moi",
-        "definition de", "definis",
+        "explique moi", "definition de", "definis", "que veut dire", "que signifie",
     ]
     /// A question about the person or the conversation, which the brain answers better.
     static let personalWords: Set<String> = [
         "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles", "ce", "ca", "cela", "ceci", "moi", "toi", "lui",
         "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "notre", "nos", "votre", "vos", "leur", "leurs",
-        "jarvis", "que", "quoi", "qui", "y", "l'on",
+        "jarvis", "que", "quoi", "qui", "y", "l'on", "comment", "pourquoi", "combien",
     ]
     static let personalElisions = ["j'", "t'", "m'", "s'", "c'", "qu'", "n'"]
     static let lonelyWords: Set<String> = ["la", "le", "les", "la bas", "ici", "present", "presente", "dehors"]
@@ -282,7 +282,9 @@ enum JarvisWikipediaAnswer {
 
     /// The subject in the user's own words, or nil when the question is not one for
     /// Wikipédia (« Qui est-ce ? », « C'est quoi ton prénom ? », « Qui est le plus fort ? »).
-    static func subject(in question: String) -> String? {
+    static func subject(in asked: String) -> String? {
+        // « Dis-moi ce qu'est l'arrêt Blanco », « Tu connais l'arrêt Blanco ? » (JarvisPhrasing).
+        let question = JarvisPhrasing.rewrite(asked)
         let normalized = JarvisFrenchCommandRouter.normalize(question)
         for prefix in prefixes {
             guard let raw = JarvisFrenchCommandRouter.argument(in: question, normalized: normalized, after: prefix) else { continue }
@@ -310,6 +312,33 @@ enum JarvisWikipediaAnswer {
         guard let title = page["title"] as? String,
               let extract = (page["extract"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !extract.isEmpty else { return nil }
         return (title, extract)
+    }
+
+    /// The extract without brackets or parentheses (pronunciation, dates), on one line.
+    static func cleaned(_ extract: String) -> String {
+        var text = extract.replacingOccurrences(of: "\n", with: " ")
+        var previous = ""
+        while previous != text {
+            previous = text
+            text = text.replacingOccurrences(of: "\\s*\\([^()]*\\)", with: "", options: .regularExpression)
+        }
+        return text.replacingOccurrences(of: "\\s*\\[[^\\[\\]]*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s{2,}", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: " ,", with: ",")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The first sentences of the extract that fit in `limit` characters (at least one).
+    static func summary(_ extract: String, limit: Int = 360) -> String {
+        var rest = cleaned(extract)
+        var kept = ""
+        while !rest.isEmpty {
+            let sentence = firstSentence(of: rest) ?? rest
+            if !kept.isEmpty, kept.count + 1 + sentence.count > limit { break }
+            kept = kept.isEmpty ? sentence : kept + " " + sentence
+            rest = String(rest.dropFirst(sentence.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return kept
     }
 
     /// The extract to say: without brackets or parentheses (pronunciation, dates), and only

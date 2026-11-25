@@ -67,18 +67,23 @@ def weather(city: str, tomorrow: bool = False) -> str:
 
 
 def wikipedia(query: str, sentences: int = 2) -> tuple[str, str] | None:
-    """(title, the first sentences of the article) for the best match, or None."""
-    search = urllib.parse.urlencode({"action": "query", "list": "search", "srsearch": query, "srlimit": 1, "format": "json"})
-    hits = _json("https://fr.wikipedia.org/w/api.php?" + search).get("query", {}).get("search", [])
-    if not hits:
+    """(title, the first sentences of the article's introduction) for the best match, or None
+    (nothing found, or a disambiguation page). One request, as on the iPhone."""
+    search = urllib.parse.urlencode({
+        "action": "query", "format": "json", "formatversion": 2, "generator": "search", "gsrsearch": query, "gsrlimit": 1,
+        "prop": "extracts|pageprops", "ppprop": "disambiguation", "exintro": 1, "explaintext": 1,
+        "exsentences": max(1, min(sentences, 10)), "redirects": 1,
+    })
+    pages = _json("https://fr.wikipedia.org/w/api.php?" + search).get("query", {}).get("pages", [])
+    if not pages:
         return None
-    title = hits[0]["title"]
-    summary = _json("https://fr.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title.replace(" ", "_")))
-    extract = (summary.get("extract") or "").strip()
+    page = min(pages, key=lambda p: p.get("index", 0))
+    if "disambiguation" in (page.get("pageprops") or {}):
+        return None
+    extract = " ".join((page.get("extract") or "").split())
     if not extract:
         return None
-    parts = re.split(r"(?<=[.!?])\s+", extract)
-    return title, " ".join(parts[:sentences])
+    return page.get("title", query), extract
 
 
 def news(limit: int = 5) -> list[str]:

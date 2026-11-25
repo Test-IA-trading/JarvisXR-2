@@ -27,6 +27,10 @@ from .router import Router
 from .server import JarvisServer, local_addresses
 
 
+# Said when the answer takes more than a second, as in a conversation, never twice in a row.
+THINKING = ["Voyons voir.", "Laissez-moi réfléchir un instant.", "Bonne question.", "Un instant, je regarde.", "Alors, voyons."]
+
+
 class VoiceLoop:
     """« Jarvis, … », « Jarvis ? » then the request, or two claps then the request."""
 
@@ -35,6 +39,7 @@ class VoiceLoop:
         self.speaker = speaker
         self.listen_until = 0.0
         self.busy = threading.Lock()
+        self.fillers = 0
 
     def on_utterance(self, text: str) -> None:
         if time.time() < self.listen_until:
@@ -72,7 +77,23 @@ class VoiceLoop:
 
             talker = threading.Thread(target=talk, daemon=True)
             talker.start()
-            answer = self.core.handle(text, on_text=lambda partial: [sentences.put(s) for s in streamer.new_sentences(partial, False)])
+            started = threading.Lock()
+            state = {"spoken": False}
+
+            def put(sentence: str, filler: bool = False) -> None:
+                with started:
+                    if filler and state["spoken"]:
+                        return
+                    state["spoken"] = True
+                sentences.put(sentence)
+
+            # No blank while the brain thinks: a short word after a second of silence.
+            self.fillers += 1
+            filler = threading.Timer(1.0, put, args=(THINKING[self.fillers % len(THINKING)], True))
+            filler.daemon = True
+            filler.start()
+            answer = self.core.handle(text, on_text=lambda partial: [put(s) for s in streamer.new_sentences(partial, False)])
+            filler.cancel()
             spoken_by_stream = streamer.emitted > 0
             for sentence in (streamer.new_sentences(answer.spoken, True) if spoken_by_stream else [answer.spoken]):
                 sentences.put(sentence)
@@ -110,6 +131,7 @@ def build(settings: Settings, voice: bool):
 def run(text_only: bool) -> int:
     settings = Settings.load()
     core, speaker = build(settings, voice=not text_only and settings.voice)
+    core.router.catalog.preload()  # the Start menu's applications, for « Ouvre Word »
     server = JarvisServer(core, settings)
     server.start()
     model = core.brain.active_model()

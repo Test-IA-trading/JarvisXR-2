@@ -128,8 +128,8 @@ final class JarvisHelpViewController: UIViewController {
             "Voix robotique : Réglages › Voix de Jarvis › « Voix plus naturelle » explique comment télécharger gratuitement une voix « Améliorée » ou « Premium ».",
         ])
         addSection("JARVIS et Control Mesh", [
-            "Touchez l'orbe et parlez. Jarvis réécoute après chaque réponse ; dites « C'est tout » pour arrêter.",
-            "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre.",
+            "Touchez l'orbe et parlez naturellement, sans formule à apprendre (« Tu peux appeler Paul ? »). Jarvis réécoute après chaque réponse ; dites « C'est tout » pour arrêter.",
+            "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre, ou parlez-lui simplement par-dessus : il s'arrête et vous écoute.",
             "Maintenez l'orbe appuyé pour remettre Jarvis en veille.",
             "Réveil par la voix (Réglages) : JARVIS ouvert sur l'accueil, dites « Jarvis, quelle heure est-il ? » ou tapez deux fois dans vos mains, sans toucher l'écran.",
             "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion ; relié à votre PC (Réglages › Jarvis PC), il répond avec le cerveau du PC et exécute « Sur le PC, ouvre Spotify ».",

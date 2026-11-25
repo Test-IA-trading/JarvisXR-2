@@ -10,7 +10,7 @@ import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from . import everyday, internet, mathsolver
+from . import apps, everyday, internet, mathsolver, phrasing
 from .memory import Memory
 
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
@@ -23,31 +23,12 @@ NAME_PREFIXES = ["je m'appelle", "appelle moi", "tu peux m'appeler", "vous pouve
 REFUSED_NAME_WORDS = {"un", "une", "le", "la", "les", "des", "du", "de", "mon", "ma", "mes", "ton", "ta", "quand", "si", "dans",
                       "demain", "ce", "cette", "vite", "plus", "encore", "moi", "comment", "quoi", "qui", "pas", "jarvis"}
 
-# Applications and sites « Ouvre… » knows; a URI or a program name for Windows.
-TARGETS = {
-    "spotify": ("Spotify", "spotify:"),
-    "chrome": ("Chrome", "chrome"),
-    "google chrome": ("Chrome", "chrome"),
-    "edge": ("Edge", "microsoft-edge:"),
-    "firefox": ("Firefox", "firefox"),
-    "explorateur": ("l'Explorateur de fichiers", "explorer"),
-    "explorateur de fichiers": ("l'Explorateur de fichiers", "explorer"),
-    "calculatrice": ("la Calculatrice", "calc"),
-    "bloc notes": ("le Bloc-notes", "notepad"),
-    "parametres": ("les Paramètres", "ms-settings:"),
-    "reglages": ("les Paramètres", "ms-settings:"),
-    "discord": ("Discord", "discord://"),
-    "steam": ("Steam", "steam://open/main"),
-    "youtube": ("YouTube", "https://www.youtube.com"),
-    "google": ("Google", "https://www.google.com"),
-    "gmail": ("Gmail", "https://mail.google.com"),
-    "netflix": ("Netflix", "https://www.netflix.com"),
-    "twitch": ("Twitch", "https://www.twitch.tv"),
-    "wikipedia": ("Wikipédia", "https://fr.wikipedia.org"),
-    "github": ("GitHub", "https://github.com"),
-    "deepl": ("DeepL", "https://www.deepl.com/translator"),
-    "amazon": ("Amazon", "https://www.amazon.fr"),
-}
+# Applications and sites « Ouvre… » knows (see apps.py, which also reads the Start menu).
+TARGETS = apps.KNOWN
+OPEN_VERBS = ("ouvre", "ouvrir", "lance", "lancer", "demarre", "demarrer")
+# « Ouvre ça », « ouvre le truc »: nothing to look for on the Web.
+VAGUE_TARGETS = {"ca", "cela", "ceci", "le", "la", "les", "tout", "truc", "le truc", "machin", "un truc", "quelque chose",
+                 "moi", "toi", "ici", "la porte", "la fenetre", "les yeux"}
 
 
 @dataclass
@@ -99,15 +80,28 @@ def clean_name(raw: str) -> str | None:
     return " ".join(parts)
 
 
+def spoken_label(target: str) -> str:
+    """The user's own name for what to open, without « l'application » or « sur le PC »."""
+    label = target.strip(" .,;:!?")
+    label = re.sub(r"\s+(?:sur (?:le|mon) (?:pc|ordinateur|ordi)|s'il (?:te|vous) pla[iî]t|stp|svp|merci)\s*$", "", label, flags=re.IGNORECASE)
+    label = re.sub(r"^(?:l'|le |la |les )?(?:application|appli|app|logiciel|programme|jeu|page|site(?: web| internet)?)\s+(?:de |d'|du )?",
+                   "", label, flags=re.IGNORECASE)
+    return label.strip(" .,;:!?") or target
+
+
 class Router:
-    def __init__(self, memory: Memory, settings, opener=None, browser=None):
+    def __init__(self, memory: Memory, settings, opener=None, browser=None, catalog: apps.Catalog | None = None):
         self.memory = memory
         self.settings = settings
         self.opener = opener or (lambda target: os.startfile(target))  # noqa: S606 (the user's own command)
         self.browser = browser or (lambda url: webbrowser.open(url))
+        # Tests pass no catalog: only the known names, without reading the Start menu.
+        self.catalog = catalog or apps.Catalog(loader=list if opener is not None else apps._load_start_apps)
 
     def route(self, original: str, now: datetime | None = None) -> Answer | None:
         now = now or datetime.now()
+        # « Est-ce que tu pourrais m'ouvrir YouTube ? » is routed as « ouvre-moi YouTube ? ».
+        original = phrasing.rewrite(original)
         text = normalize(original)
         request = strip_wake_word(text)
         if not request or request == "jarvis":
@@ -177,15 +171,30 @@ class Router:
             seconds = value * (1 if unit.startswith("seconde") else 60 if unit.startswith("minute") else 3600)
             return Answer(f"Minuteur de {value} {unit} lancé.", data={"timer_seconds": seconds, "timer_label": f"{value} {unit}"})
 
-        # The PC itself.
-        match = re.match(r"(?:ouvre|lance|demarre|ouvrir)(?: moi)? (?:l'|le |la |les )?(.+)", request)
+        # The PC itself. « Mets Lofi Girl sur YouTube »: YouTube's search.
+        match = re.match(r"(?:cherche|recherche|mets|met|joue|lance|trouve|regarde)(?: moi)? (.+) sur youtube$", request)
         if match:
-            target = match.group(1).strip()
-            target = re.sub(r"\s+(?:sur le pc|s'il te plait|stp|svp)$", "", target)
-            if target in TARGETS:
-                label, uri = TARGETS[target]
+            skip = wake_words + 1 + (1 if request.split()[1:2] == ["moi"] else 0)
+            query = re.sub(r"\s+sur\s+youtube\s*[?!.]*$", "", original_after(original, skip), flags=re.IGNORECASE).strip(" ?!.")
+            self.browser("https://www.youtube.com/results?search_query=" + urllib.parse.quote(query))
+            return Answer(f"Je cherche « {query} » sur YouTube.")
+        # « Ouvre YouTube », « Lance l'application Spotify », « Va sur leboncoin.fr » (see phrasing).
+        match = re.match(r"(?:ouvre|ouvrir|lance|lancer|demarre|demarrer|affiche|montre|mets|met|joue)(?: moi)? (.+)", request)
+        if match:
+            verb = request.split()[0]
+            spoken_target = original_after(original, wake_words + len(request.split()) - len(match.group(1).split())) or match.group(1)
+            found = self.catalog.find(spoken_target)
+            if found:
+                label, uri = found
                 (self.browser if uri.startswith("http") else self.opener)(uri)
-                return Answer(f"J'ouvre {label}.")
+                return Answer(f"J'ouvre {label}.", data={"opened": uri})
+            target = apps.clean_target(spoken_target)
+            if verb in OPEN_VERBS and target and target not in VAGUE_TARGETS and len(target.split()) <= 4:
+                # Not an application of this PC: DuckDuckGo's « !ducky » opens the first result.
+                label = spoken_label(spoken_target)
+                self.browser("https://duckduckgo.com/?q=" + urllib.parse.quote("!ducky " + label))
+                return Answer(f"Je ne trouve pas « {label} » parmi les applications du PC : j'ouvre le site qui y correspond le mieux.",
+                              data={"opened": "web"})
         match = re.match(r"(?:cherche|recherche|google)(?: moi)? (.+?)(?: sur (?:internet|google|le web|le net))?$", request)
         if match and has("sur internet", "sur google", "sur le web", "sur le net") or (match and request.startswith(("cherche sur internet", "recherche sur internet"))):
             # The user's own words, accents kept: « la recette des crêpes ».
@@ -226,15 +235,7 @@ class Router:
             if not titles:
                 return Answer("Je ne trouve pas de titres pour le moment.")
             return Answer("Voici les titres de franceinfo : " + " ; ".join(titles[:3]) + ".", "\n".join(titles), {"internet": "franceinfo"})
-        match = re.match(r"(?:qui est|qui etait|c'est qui|parle moi de)\s+(.+)", request)
-        if match:
-            subject = original_after(original, len(original.split()) - len(match.group(1).split()))
-            try:
-                found = internet.wikipedia(subject)
-            except (OSError, ValueError):
-                found = None
-            if found:
-                return Answer(f"D'après Wikipédia : {found[1]}", f"{found[0]} — {found[1]}", {"internet": "wikipedia"})
+        # « Qui est… ? », « Qu'est-ce que… ? »: the brain answers with Wikipédia's text (core.research).
         return None
 
     def _known_facts(self) -> Answer:

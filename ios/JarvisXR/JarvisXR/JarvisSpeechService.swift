@@ -48,6 +48,18 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var onSpeechStart: (() -> Void)?
     var onSpeechFinish: (() -> Void)?
 
+    /// Renders Jarvis's voice into buffers for the conversation audio (JarvisDuplexAudio),
+    /// which plays them with echo cancellation so the user can interrupt by speaking.
+    private let renderer = AVSpeechSynthesizer()
+    private var duplexGeneration = 0
+    private var duplexRendering = 0
+    private var duplexPendingBuffers = 0
+    private var duplexActive = false
+    private var duplexStarted = false
+    private var duplexIsStream = false
+    /// What Jarvis is saying in the current reply, to tell its echo from the user's words.
+    private(set) var currentReplyText = ""
+
     var isEnabled: Bool {
         get {
             if UserDefaults.standard.object(forKey: enabledKey) == nil {
@@ -288,7 +300,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     func speechFailedToStart(after delay: TimeInterval, now: Date = Date()) -> Bool {
         guard let requested = lastSpeakRequestAt, now.timeIntervalSince(requested) >= delay else { return false }
         if let started = lastSpeechStartAt, started >= requested { return false }
-        return !synthesizer.isSpeaking
+        return !isSpeaking
     }
 
     var speechDiagnostic: String {
@@ -308,12 +320,16 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         activeVisionItem = nil
         activeVisionUtterance = nil
         synthesizer.stopSpeaking(at: .immediate)
+        stopConversationVoice(reportFinish: false)
         let utterance = makeUtterance(text, profile: profile)
         suppressNextCallbacks = !notifyState
-        activateAudioSession()
         if notifyState {
             lastSpeakRequestAt = Date()
         }
+        currentReplyText = text
+        // In a conversation, the voice goes through the echo-cancelled audio (interruptions).
+        if notifyState, speakThroughConversationAudio(utterance, text: text) { return }
+        activateAudioSession()
         synthesizer.speak(utterance)
     }
 
@@ -325,22 +341,114 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         // A streamed reply ends with the utterance being cancelled now: its didCancel
         // reports the end once, through the ordinary path.
         streamUtterances = []
+        streamPending = []
         streamOpen = false
         synthesizer.stopSpeaking(at: .immediate)
+        stopConversationVoice(reportFinish: true)
         deactivateAudioSessionIfIdle()
+    }
+
+    // MARK: Voice through the conversation audio
+
+    /// The sample rate of the voice that will speak, so the conversation audio plays it as is.
+    var voiceSampleRate: Double {
+        let settings = preferredVoice(for: profile)?.audioFileSettings ?? [:]
+        if let rate = settings[AVSampleRateKey] as? NSNumber { return rate.doubleValue }
+        return 22_050
+    }
+
+    /// Lowers Jarvis's voice while the user may be speaking over it, as a person would.
+    func setVoiceLowered(_ lowered: Bool) {
+        JarvisDuplexAudio.shared.setVoiceLowered(lowered)
+    }
+
+    /// Speaks `utterance` through the conversation audio when it is open, its buffers
+    /// following each other without a gap. False otherwise: the synthesizer speaks.
+    private func speakThroughConversationAudio(_ utterance: AVSpeechUtterance, text: String, stream: Bool = false) -> Bool {
+        guard JarvisDuplexAudio.shared.isRunning else { return false }
+        let generation = duplexGeneration
+        duplexActive = true
+        duplexIsStream = stream
+        duplexRendering += 1
+        renderer.write(utterance) { [weak self] buffer in
+            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+            let ended = pcm.frameLength == 0
+            let copy = ended ? nil : JarvisDuplexAudio.copy(pcm)
+            DispatchQueue.main.async {
+                guard let self, self.duplexGeneration == generation else { return }
+                if ended {
+                    self.duplexRendering = max(0, self.duplexRendering - 1)
+                    self.finishConversationVoiceIfDone()
+                    return
+                }
+                guard let copy else { return }
+                let accepted = JarvisDuplexAudio.shared.play(copy) { [weak self] in
+                    guard let self, self.duplexGeneration == generation else { return }
+                    self.duplexPendingBuffers = max(0, self.duplexPendingBuffers - 1)
+                    self.finishConversationVoiceIfDone()
+                }
+                guard accepted else { return }
+                self.duplexPendingBuffers += 1
+                if !self.duplexStarted {
+                    self.duplexStarted = true
+                    self.lastSpeechStartAt = Date()
+                    self.onSpeechStart?()
+                }
+            }
+        }
+        // A voice that renders nothing: the synthesizer says the text instead.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.duplexGeneration == generation, self.duplexActive, !self.duplexStarted else { return }
+            self.stopConversationVoice(reportFinish: false)
+            self.activateAudioSession()
+            let fallback = self.makeUtterance(self.currentReplyText.isEmpty ? text : self.currentReplyText, profile: self.profile)
+            self.synthesizer.speak(fallback)
+        }
+        return true
+    }
+
+    private func finishConversationVoiceIfDone() {
+        guard duplexActive, duplexRendering == 0, duplexPendingBuffers == 0, !(duplexIsStream && streamOpen) else { return }
+        duplexActive = false
+        duplexStarted = false
+        duplexIsStream = false
+        onSpeechFinish?()
+    }
+
+    /// Silences the voice of the conversation audio. With `reportFinish`, the end of the
+    /// reply is reported once, after the current call returns (as didCancel does).
+    private func stopConversationVoice(reportFinish: Bool) {
+        guard duplexActive else { return }
+        duplexGeneration += 1
+        duplexActive = false
+        duplexStarted = false
+        duplexIsStream = false
+        duplexRendering = 0
+        duplexPendingBuffers = 0
+        renderer.stopSpeaking(at: .immediate)
+        JarvisDuplexAudio.shared.stopVoice()
+        if reportFinish {
+            DispatchQueue.main.async { [weak self] in
+                self?.onSpeechFinish?()
+            }
+        }
     }
 
     // MARK: Streamed replies (local brain)
 
     /// Sentences of the reply being written, queued in the synthesizer and not finished.
     private var streamUtterances: [AVSpeechUtterance] = []
+    /// Sentences that arrived while another was being said: they are said together, queued
+    /// just before the current one ends, so the voice flows instead of starting over at
+    /// every sentence.
+    private var streamPending: [String] = []
     private var streamOpen = false
     private var streamStarted = false
 
-    var isStreamingReply: Bool { streamOpen || !streamUtterances.isEmpty }
+    var isStreamingReply: Bool { streamOpen || !streamUtterances.isEmpty || !streamPending.isEmpty || (duplexActive && duplexIsStream) }
 
     /// True while any utterance is being spoken (the wake word waits for silence).
-    var isSpeaking: Bool { synthesizer.isSpeaking }
+    var isSpeaking: Bool { synthesizer.isSpeaking || duplexActive }
 
     /// Starts a reply that will arrive sentence by sentence. `onSpeechStart` fires once
     /// for the first sentence and `onSpeechFinish` once, after the last one.
@@ -349,10 +457,13 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         activeVisionItem = nil
         activeVisionUtterance = nil
         synthesizer.stopSpeaking(at: .immediate)
+        stopConversationVoice(reportFinish: false)
         suppressNextCallbacks = false
         streamUtterances = []
+        streamPending = []
         streamOpen = true
         streamStarted = false
+        currentReplyText = ""
         lastSpeakRequestAt = Date()
     }
 
@@ -361,18 +472,47 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         guard isEnabled, streamOpen else { return }
         let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
-        let utterance = makeUtterance(sentence, profile: profile)
-        utterance.postUtteranceDelay = 0.05
+        currentReplyText = currentReplyText.isEmpty ? sentence : currentReplyText + " " + sentence
+        // The conversation audio plays the sentences one after the other, without a gap.
+        if duplexActive || streamUtterances.isEmpty,
+           speakThroughConversationAudio(makeUtterance(sentence, profile: profile), text: sentence, stream: true) {
+            return
+        }
+        if streamUtterances.isEmpty {
+            queueStreamUtterance(sentence)
+        } else {
+            streamPending.append(sentence)
+        }
+    }
+
+    private func queueStreamUtterance(_ text: String) {
+        let utterance = makeUtterance(text, profile: profile)
+        utterance.postUtteranceDelay = 0
         streamUtterances.append(utterance)
         activateAudioSession()
         synthesizer.speak(utterance)
+    }
+
+    private func flushStreamPending() {
+        guard !streamPending.isEmpty else { return }
+        let text = streamPending.joined(separator: " ")
+        streamPending = []
+        queueStreamUtterance(text)
     }
 
     /// No more sentences will come. If everything was already spoken, the reply ends now.
     func endStreamedReply() {
         guard streamOpen else { return }
         streamOpen = false
+        if duplexActive {
+            finishConversationVoiceIfDone()
+            return
+        }
         if streamUtterances.isEmpty {
+            if !streamPending.isEmpty {
+                flushStreamPending()
+                return
+            }
             onSpeechFinish?()
             deactivateAudioSessionIfIdle()
         }
@@ -382,11 +522,24 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     private func finishStreamUtterance(_ utterance: AVSpeechUtterance) -> Bool {
         guard let index = streamUtterances.firstIndex(where: { $0 === utterance }) else { return false }
         streamUtterances.remove(at: index)
+        if streamUtterances.isEmpty, !streamPending.isEmpty {
+            flushStreamPending()
+            return true
+        }
         if streamUtterances.isEmpty && !streamOpen {
             onSpeechFinish?()
             deactivateAudioSessionIfIdle()
         }
         return true
+    }
+
+    /// Near the end of the sentence being said, the sentences written meanwhile are queued,
+    /// so the next one starts without a pause.
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
+        guard !streamPending.isEmpty, let last = streamUtterances.last, last === utterance else { return }
+        let length = (utterance.speechString as NSString).length
+        guard length > 0, characterRange.location + characterRange.length >= length * 3 / 5 else { return }
+        flushStreamPending()
     }
 
     func testPhrase() -> String {
@@ -559,8 +712,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func activateAudioSession() {
         // While the microphone is open, its play-and-record session already allows
-        // output; switching to `.playback` here would silently cut the capture.
-        guard !JarvisVoiceInputService.shared.isListening else { return }
+        // output; switching to `.playback` here would silently cut the capture. The
+        // conversation audio keeps its own session between turns.
+        guard !JarvisVoiceInputService.shared.isListening, !JarvisDuplexAudio.shared.isRunning else { return }
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
@@ -581,7 +735,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         // `stop()` (called when listening starts) and the asynchronous didCancel callback
         // deactivated the session the dictation had just activated, leaving the
         // recognizer with no usable audio ("Aucune parole détectée").
-        guard !JarvisVoiceInputService.shared.isListening else { return }
+        guard !JarvisVoiceInputService.shared.isListening, !JarvisDuplexAudio.shared.isRunning else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

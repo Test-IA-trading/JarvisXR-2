@@ -1,14 +1,31 @@
 """What the PC Jarvis does with a request, whether it comes from its microphone, its
-keyboard or the iPhone: exact commands first, then the brain with what Jarvis knows."""
+keyboard or the iPhone: exact commands first, then the brain with what Jarvis knows.
+The brain may also reword a free request into a command (« COMMANDE: ouvre YouTube »),
+which is then run like the user's own words."""
 from __future__ import annotations
 
+import re
 import threading
 from collections import deque
 from datetime import datetime, timezone
 
-from .brain import OllamaBrain
+from . import internet, research
+from .brain import IPHONE_COMMANDS, PC_COMMANDS, OllamaBrain, command_in, may_be_command
 from .memory import Memory
+from .phrasing import rewrite as phrasing_of
 from .router import Answer, Router
+
+
+def guarded(on_text):
+    """Forwards the text written so far, except while it may be « COMMANDE: … »."""
+    if on_text is None:
+        return None
+
+    def forward(partial: str) -> None:
+        if not may_be_command(partial):
+            on_text(partial)
+
+    return forward
 
 
 class JarvisCore:
@@ -22,23 +39,70 @@ class JarvisCore:
         self.inbox: list[dict] = []  # messages waiting for the iPhone
         self.lock = threading.Lock()
         self.timers: list[threading.Timer] = []
+        self._research_cache: dict[str, list[str]] = {}
 
     def handle(self, text: str, source: str = "pc", on_text=None) -> Answer:
         answer = self.router.route(text)
         if answer is None:
-            try:
-                spoken = self.brain.ask(text, list(self.history), self.memory.context_lines(), on_text=on_text)
-            except Exception as error:  # noqa: BLE001 — explained to the user instead
-                spoken = str(error) if isinstance(error, RuntimeError) else "Le cerveau du PC a rencontré une erreur. Réessayez."
-            answer = Answer(spoken, data={"brain": self.brain.active_model() or ""})
-        self.history.append({"user": text, "assistant": answer.spoken})
+            answer = self._brain_answer(text, on_text)
+        if answer.data.get("brain") is None:
+            # A command: the brain's history shows it as one, so « et Netflix ? » becomes « COMMANDE: ouvre Netflix »
+            # instead of an imitated « Je lance… » that does nothing.
+            self.history.append({"user": text, "assistant": "COMMANDE: " + answer.data.get("command", phrasing_of(text))})
+        else:
+            self.history.append({"user": text, "assistant": answer.spoken})
         self._side_effects(answer)
         return answer
 
-    def ask_brain(self, question: str, history: list[dict], context: list[str], on_text=None) -> str:
-        """An open question from the iPhone: the PC's brain, with what both know."""
+    def _brain_answer(self, text: str, on_text) -> Answer:
+        found = self.research(text)
+        context = self.memory.context_lines() + found
+        try:
+            spoken = self.brain.ask(text, list(self.history), context, on_text=guarded(on_text), commands=PC_COMMANDS)
+        except Exception as error:  # noqa: BLE001 — explained to the user instead
+            if found:
+                return Answer("D'après Wikipédia : " + found[0].split(" : ", 1)[-1], data={"internet": "wikipedia", "brain": ""})
+            spoken = str(error) if isinstance(error, RuntimeError) else "Le cerveau du PC a rencontré une erreur. Réessayez."
+            return Answer(spoken, data={"brain": ""})
+        command = command_in(spoken)
+        if command is not None:
+            rerouted = self.router.route(command)
+            if rerouted is not None:
+                rerouted.data.setdefault("command", command)
+                return rerouted
+            # The rewording is no command Jarvis knows: a real answer, without commands this time.
+            try:
+                spoken = self.brain.ask(text, list(self.history), context, on_text=on_text)
+            except Exception:  # noqa: BLE001
+                spoken = ""
+            if not spoken or command_in(spoken) is not None:
+                spoken = "Je ne sais pas encore faire cela sur le PC."
+        return Answer(spoken, data={"brain": self.brain.active_model() or ""})
+
+    def ask_brain(self, question: str, history: list[dict], context: list[str], on_text=None, commands: str | None = None) -> str:
+        """An open question from the iPhone: the PC's brain, with what both know. With
+        `commands="iphone"`, an action comes back as « COMMANDE: … » for the iPhone to run."""
         merged = self.memory.context_lines() + [line for line in context if line not in self.memory.context_lines()]
-        return self.brain.ask(question, history, merged, on_text=on_text)
+        merged += self.research(question, merged)
+        extra = IPHONE_COMMANDS if commands == "iphone" else None
+        return self.brain.ask(question, history, merged, on_text=guarded(on_text) if extra else on_text, commands=extra)
+
+    def research(self, question: str, context: list[str] | tuple = ()) -> list[str]:
+        """Wikipédia's text about the subject of « Qu'est-ce que… ? » when Internet is on."""
+        if not getattr(self.settings, "internet", False) or any(line.startswith("Extrait de Wikipédia") for line in context):
+            return []
+        subject = research.knowledge_subject(question)
+        if not subject:
+            return []
+        key = subject.lower()
+        if key not in self._research_cache:
+            try:
+                found = internet.wikipedia(subject, sentences=6)
+            except (OSError, ValueError):
+                return []
+            text = re.sub(r"\s*\([^()]*\)", "", found[1]).strip() if found else ""
+            self._research_cache[key] = [f"Extrait de Wikipédia sur « {found[0]} » : {text}"] if found and text else []
+        return self._research_cache[key]
 
     def _side_effects(self, answer: Answer) -> None:
         seconds = answer.data.get("timer_seconds")
