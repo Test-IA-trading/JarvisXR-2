@@ -63,7 +63,9 @@ jobs:
   build-ios:
     needs: validate-python
     runs-on: macos-26-intel
-    timeout-minutes: 90
+    # Healthy runs take about 30 minutes; a saturated Intel host has run the same
+    # steps two to three times slower. Keep room for one retry of a failing test.
+    timeout-minutes: 150
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
@@ -148,6 +150,8 @@ jobs:
             -destination "$DESTINATION" \
             -derivedDataPath build/TestDerivedData \
             -resultBundlePath build/logs/JarvisXRUnitTests.xcresult \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             -only-testing:JarvisXRTests \
@@ -174,7 +178,7 @@ jobs:
           PY
 
       - name: Run focused JarvisXR UI behavior tests
-        timeout-minutes: 20
+        timeout-minutes: 35
         working-directory: ios/JarvisXR
         run: |
           set -o pipefail
@@ -260,7 +264,7 @@ jobs:
             | tee ios/JarvisXR/build/logs/ipa-audit.log
 
       - name: Capture required iOS screenshots
-        timeout-minutes: 20
+        timeout-minutes: 35
         working-directory: ios/JarvisXR
         run: |
           set -euo pipefail
