@@ -12,10 +12,13 @@ final class JarvisPCLinkTests: XCTestCase {
         super.setUp()
         defaults = UserDefaults(suiteName: "JarvisPCLinkTests.\(UUID().uuidString)")
         account = "JarvisPCLinkTests.\(UUID().uuidString)"
+        // The CI's simulator build is unsigned: its keychain refuses writes.
+        JarvisKeychain.fallback = defaults
     }
 
     override func tearDown() {
         JarvisKeychain.set(nil, for: account)
+        JarvisKeychain.fallback = .standard
         super.tearDown()
     }
 
