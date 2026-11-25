@@ -171,7 +171,10 @@ enum JarvisAgendaSummary {
 /// Runs the side effects of life requests decided by the French router, then gives the
 /// response to show and speak. Shared by every screen that takes voice.
 enum JarvisLifeActionPerformer {
-    static let actions: Set<String> = ["timer_start", "timer_cancel", "reminder_create", "agenda_read", "briefing", "pc_command", "pc_say"]
+    static let actions: Set<String> = [
+        "timer_start", "timer_cancel", "reminder_create", "agenda_read", "briefing", "pc_command", "pc_say",
+        "web_weather", "web_news", "where_am_i",
+    ]
 
     static func handles(_ response: JarvisResponse) -> Bool {
         guard let action = response.data["action"] else { return false }
@@ -183,9 +186,51 @@ enum JarvisLifeActionPerformer {
         JarvisResponse(status: response.status, spokenResponse: response.spokenResponse, displayResponse: response.displayResponse, shouldSpeak: response.shouldSpeak)
     }
 
+    private static func internetUnavailable(_ failure: JarvisInternetFailure) -> JarvisResponse {
+        JarvisResponse(status: .unavailable, spokenResponse: failure.message, displayResponse: failure.message)
+    }
+
     static func perform(_ response: JarvisResponse, now: Date = Date(), completion: @escaping (JarvisResponse) -> Void) {
         let data = response.data
         switch data["action"] {
+        case "web_weather":
+            let dayOffset = Int(data["day_offset"] ?? "0") ?? 0
+            JarvisInternetClient.shared.weather(city: data["city"], dayOffset: dayOffset) { result in
+                switch result {
+                case .success(let text):
+                    completion(.ok(text, display: "\(text)\nSource : Open-Meteo"))
+                case .failure(.unknownCity(let unknown)):
+                    // « … pour le match » names no city: the weather of here, said so.
+                    JarvisInternetClient.shared.weather(city: nil, dayOffset: dayOffset) { here in
+                        guard case .success(let text) = here else {
+                            completion(Self.internetUnavailable(.unknownCity(unknown)))
+                            return
+                        }
+                        completion(.ok("Je ne trouve pas la ville « \(unknown) ». \(text)", display: "\(text)\nSource : Open-Meteo"))
+                    }
+                case .failure(let failure):
+                    completion(Self.internetUnavailable(failure))
+                }
+            }
+        case "web_news":
+            JarvisInternetClient.shared.news { result in
+                switch result {
+                case .success(let titles):
+                    let answer = JarvisNewsFeedParser.answer(titles)
+                    completion(.ok(answer.spoken, display: answer.display))
+                case .failure(let failure):
+                    completion(Self.internetUnavailable(failure))
+                }
+            }
+        case "where_am_i":
+            JarvisInternetClient.shared.whereAmI { result in
+                switch result {
+                case .success(let answer):
+                    completion(.ok(answer.spoken, display: answer.display))
+                case .failure(let failure):
+                    completion(Self.internetUnavailable(failure))
+                }
+            }
         case "pc_command":
             JarvisPCLink.shared.command(data["text"] ?? "") { result in
                 switch result {
@@ -269,7 +314,20 @@ enum JarvisLifeActionPerformer {
                 if battery >= 0 {
                     parts.append("Batterie à \(Int((battery * 100).rounded())) %.")
                 }
-                completion(.ok(parts.joined(separator: " ")))
+                guard JarvisInternetSettings.isEnabled else {
+                    completion(.ok(parts.joined(separator: " ")))
+                    return
+                }
+                // Connected mode: the day's weather and the first titles.
+                JarvisInternetClient.shared.weather(city: nil, dayOffset: 0) { weather in
+                    if case .success(let text) = weather { parts.append(text) }
+                    JarvisInternetClient.shared.news(limit: 3) { news in
+                        if case .success(let titles) = news {
+                            parts.append("À la une : " + titles.joined(separator: " ; ") + ".")
+                        }
+                        completion(.ok(parts.joined(separator: " ")))
+                    }
+                }
             }
         default:
             completion(response)

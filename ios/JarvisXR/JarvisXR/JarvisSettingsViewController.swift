@@ -54,6 +54,11 @@ final class JarvisSettingsViewController: UIViewController {
     private let pcStatusLabel = UILabel()
     private let pcBrainSwitch = UISwitch()
 
+    // Internet: the connected mode (weather, news, Wikipédia), off by default.
+    private let internetSwitch = UISwitch()
+    private let internetLocationSwitch = UISwitch()
+    private let internetCityField = UITextField()
+
     // Voice of Jarvis: which installed French voice speaks, and how to get a better one.
     private let voiceStatusLabel = UILabel()
     private var voiceObservers: [NSObjectProtocol] = []
@@ -201,6 +206,61 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func pcBrainChanged() {
         JarvisPCLink.shared.usesPCBrain = pcBrainSwitch.isOn
+    }
+
+    // MARK: - Internet (connected mode)
+
+    private func buildInternetSection() {
+        stackView.addArrangedSubview(sectionHeading("Internet"))
+        stackView.addArrangedSubview(textLabel(
+            "Mode connecté, désactivé par défaut : météo (Open-Meteo), actualités (franceinfo) et « Qui est… ? » (Wikipédia), gratuits et sans compte. Seuls partent la ville ou la position arrondie à 1 km, ou le sujet cherché ; jamais vos enregistrements, vos notes ni vos conversations.",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        ))
+        configureSwitch(
+            internetSwitch,
+            label: "Mode connecté",
+            hint: "Météo, actualités et Wikipédia. Désactivé, rien ne part vers ces services.",
+            identifier: "jarvis.settings.internet",
+            action: #selector(internetChanged)
+        )
+        internetSwitch.isOn = JarvisInternetSettings.isEnabled
+        stackView.addArrangedSubview(settingRow(title: "Mode connecté", control: internetSwitch))
+
+        configureSwitch(
+            internetLocationSwitch,
+            label: "Météo de l'endroit où je suis",
+            hint: "iOS vous demande une fois l'accès à la position ; sinon, Jarvis prend la ville ci-dessous.",
+            identifier: "jarvis.settings.internet.location",
+            action: #selector(internetLocationChanged)
+        )
+        internetLocationSwitch.isOn = JarvisInternetSettings.usesLocation
+        stackView.addArrangedSubview(settingRow(title: "Météo de l'endroit où je suis", control: internetLocationSwitch))
+
+        internetCityField.placeholder = "Ville pour la météo, par exemple Lyon"
+        internetCityField.borderStyle = .roundedRect
+        internetCityField.font = UIFont.preferredFont(forTextStyle: .body)
+        internetCityField.adjustsFontForContentSizeCategory = true
+        internetCityField.autocorrectionType = .no
+        internetCityField.clearButtonMode = .whileEditing
+        internetCityField.returnKeyType = .done
+        internetCityField.accessibilityIdentifier = "jarvis.settings.internet.city"
+        internetCityField.text = JarvisInternetSettings.city
+        internetCityField.addTarget(self, action: #selector(internetCityChanged), for: .editingDidEnd)
+        internetCityField.addTarget(self, action: #selector(pcFieldReturn(_:)), for: .editingDidEndOnExit)
+        stackView.addArrangedSubview(wrapInPanel(internetCityField))
+    }
+
+    @objc private func internetChanged() {
+        JarvisInternetSettings.isEnabled = internetSwitch.isOn
+    }
+
+    @objc private func internetLocationChanged() {
+        JarvisInternetSettings.usesLocation = internetLocationSwitch.isOn
+    }
+
+    @objc private func internetCityChanged() {
+        JarvisInternetSettings.city = internetCityField.text
     }
 
     // MARK: - Voice of Jarvis
@@ -608,6 +668,8 @@ final class JarvisSettingsViewController: UIViewController {
         buildBrainSection()
 
         buildPCSection()
+
+        buildInternetSection()
 
         stackView.addArrangedSubview(sectionHeading("Narration Vision"))
         configureSegmented(defaultModeControl, identifier: "jarvis.settings.vision.defaultMode", action: #selector(defaultModeChanged))

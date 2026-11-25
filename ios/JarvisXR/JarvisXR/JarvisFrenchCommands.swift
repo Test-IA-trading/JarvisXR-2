@@ -117,6 +117,12 @@ struct JarvisFrenchCommandRouter {
         // premier ? »), corrections and follow-up questions. Checked before the clock so
         // « juste l'heure du train » is not answered with the current time.
         let isNoteDictation = Self.notePrefixes.contains { request == $0 || request.hasPrefix($0 + " ") }
+
+        // Connected mode (Réglages › Internet): weather, news, « Où suis-je ? », « Ma ville est… ».
+        if !isNoteDictation, let reply = internetAnswer(original: original, normalized: text, request: request) {
+            return .answer(reply)
+        }
+
         if !isNoteDictation, let reply = context.respond(to: request) {
             return .answer(.ok(reply))
         }
@@ -159,8 +165,8 @@ struct JarvisFrenchCommandRouter {
 
         if request == "aide" || containsAny(request, ["que sais tu faire", "qu'est ce que tu sais faire", "que peux tu faire", "qu'est ce que tu peux faire", "liste des commandes", "quelles commandes"]) {
             return .answer(.ok(
-                "Je peux lancer des minuteurs, créer des rappels, lire votre agenda, faire le point, retenir des horaires, compter vos notes, faire des calculs exacts, dérivées et intégrales comprises, poser un cube ou un bilan en réalité augmentée, et répondre à vos questions avec le cerveau local.",
-                display: "Essayez : « Minuteur pâtes 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
+                "Je peux lancer des minuteurs, créer des rappels, lire votre agenda, faire le point, retenir des horaires, compter vos notes, faire des calculs exacts, dérivées et intégrales comprises, poser un cube ou un bilan en réalité augmentée, donner la météo, les titres et des réponses de Wikipédia en mode connecté, piloter votre PC, et répondre à vos questions avec le cerveau local.",
+                display: "Essayez : « Minuteur pâtes 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Quel temps fait-il demain ? », « Les titres du jour », « Qui est Marie Curie ? », « Sur le PC, ouvre Spotify », « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
             ))
         }
 
@@ -225,6 +231,41 @@ struct JarvisFrenchCommandRouter {
 
         guard Self.looksFrench(text) else { return .notHandled }
         return .openQuestion(original)
+    }
+
+    // MARK: Internet (connected mode)
+
+    /// Weather, news and « Où suis-je ? » (run by JarvisLifeActionPerformer), « Ma ville est… ».
+    private func internetAnswer(original: String, normalized: String, request: String) -> JarvisResponse? {
+        guard let wanted = JarvisInternetRequest.parse(original: original, normalized: normalized, request: request) else { return nil }
+        if case .setCity(let city) = wanted {
+            JarvisInternetSettings.city = city
+            if JarvisInternetSettings.isEnabled {
+                return .ok("C'est noté : je donnerai la météo de \(city).")
+            }
+            return .ok("C'est noté : \(city). Pour la météo, activez le mode connecté dans Réglages › Internet.")
+        }
+        guard JarvisInternetSettings.isEnabled else {
+            // The paired PC has Internet: it gives the weather and the news.
+            if wanted != .whereAmI, JarvisPCLink.shared.isConfigured {
+                let command = Self.stripWakeWordPrefix(original).trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;!?"))
+                return .ok("Je demande au PC.", display: "Pour le PC : « \(command) »", data: ["action": "pc_command", "text": command])
+            }
+            let message = JarvisInternetFailure.disabled.message
+            return JarvisResponse(status: .unavailable, spokenResponse: message, displayResponse: message)
+        }
+        switch wanted {
+        case .weather(let city, let dayOffset):
+            var data = ["action": "web_weather", "day_offset": String(dayOffset)]
+            if let city { data["city"] = city }
+            return .ok("Je regarde la météo.", data: data)
+        case .news:
+            return .ok("Je regarde les titres.", data: ["action": "web_news"])
+        case .whereAmI:
+            return .ok("Je regarde où nous sommes.", data: ["action": "where_am_i"])
+        case .setCity:
+            return nil
+        }
     }
 
     // MARK: Jarvis PC

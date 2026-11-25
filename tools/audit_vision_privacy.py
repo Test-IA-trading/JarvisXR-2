@@ -28,6 +28,9 @@ NETWORK_ALLOWLIST = {
     # The user's own PC (pc/jarvis_pc), reached only at the address the user typed and with
     # the PC's pairing code: questions, commands, first name and notes go nowhere else.
     "JarvisPCLink.swift": "the user's own Jarvis PC, paired with its code, at the address the user typed",
+    # Connected mode, off by default (Settings › Internet): Open-Meteo, Wikipédia and
+    # franceinfo, sent only a city or a rounded position, the subject searched, or nothing.
+    "JarvisInternetClient.swift": "opt-in connected mode: weather, Wikipédia and news, sent only a city, a rounded position or the subject",
 }
 TELEMETRY_TOKENS = (
     "FirebaseAnalytics",

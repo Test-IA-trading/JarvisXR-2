@@ -58,6 +58,8 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>En mode connecté (Réglages › Internet), Jarvis donne la météo de l'endroit où vous êtes et répond à « Où suis-je ? ». La position, arrondie à environ 1 km pour la météo, n'est pas enregistrée.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>JARVIS utilise le micro pour écouter vos demandes quand vous touchez l'orbe. Aucun enregistrement audio n'est conservé.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

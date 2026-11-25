@@ -514,8 +514,35 @@ final class JarvisLocalBrain {
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
     ) {
-        // Jarvis PC's large brain first when it is paired and answers; otherwise the
-        // iPhone's own brain, so a PC that is off never leaves a question unanswered.
+        // Connected mode: « Qui est Marie Curie ? » is answered by Wikipédia, and by the
+        // brains when Wikipédia has nothing.
+        if JarvisInternetSettings.isEnabled, let subject = JarvisWikipediaAnswer.subject(in: question) {
+            JarvisInternetClient.shared.wikipedia(subject) { [weak self] result in
+                guard case .success(let article) = result else {
+                    self?.answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now, onPartial: onPartial, completion: completion)
+                    return
+                }
+                let answer = JarvisWikipediaAnswer.spoken(article.extract)
+                conversation.recordTurn(user: question, assistant: answer)
+                completion(.ok("D'après Wikipédia : \(answer)", display: "\(article.title) — \(article.extract)\nSource : Wikipédia"))
+            }
+            return
+        }
+        answerWithBrains(question, conversation: conversation, profile: profile, memory: memory, pcLink: pcLink, now: now, onPartial: onPartial, completion: completion)
+    }
+
+    /// Jarvis PC's large brain first when it is paired and answers; otherwise the
+    /// iPhone's own brain, so a PC that is off never leaves a question unanswered.
+    private func answerWithBrains(
+        _ question: String,
+        conversation: JarvisConversationContext,
+        profile: JarvisUserProfile,
+        memory: JarvisMemoryStore,
+        pcLink: JarvisPCLink,
+        now: Date,
+        onPartial: @escaping (String) -> Void,
+        completion: @escaping (JarvisResponse) -> Void
+    ) {
         guard pcLink.isConfigured, pcLink.usesPCBrain else {
             answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
             return
