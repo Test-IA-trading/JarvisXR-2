@@ -1,56 +1,50 @@
 # Public Release Handoff
 
-## Reprise rapide — état au 25/11/2026, midi
+## Reprise rapide — état au 25/11/2026, soir
 
 À lire en premier pour reprendre le travail sans raconter le projet.
 
 - **PR à fusionner dans l'ordre** (chacune contient les précédentes, toutes vers `develop`) :
-  - #5 Réglages en français ;
-  - #6 voix française ;
-  - #7 cube AR à la pince ;
-  - #8 conversation et bilan ;
-  - #9 aide des Réglages ;
-  - #10 documentation (idées, tuto) ;
-  - #11 cerveau local ;
-  - #12 minuteurs, rappels et agenda ;
-  - #13 guide en direct français ;
-  - #14 Vision tout en français ;
-  - #15 cube AR mains libres ;
-  - #16 voix naturelle (fin des voix Eloquence, choix de la voix) ;
-  - #17 calculs exacts, formules lues en mots, consignes du cerveau ;
-  - #18 mémoire personnelle (prénom, notes données au cerveau) ;
-  - #19 cerveau avancé en option (Qwen3 4B, contrôle de la mémoire) ;
-  - #20 réveil par la voix « Jarvis » (option, reconnaissance sur l'iPhone) ;
-  - #21 conversions et questions de dates.
+  - #5 à #15 : Réglages en français, voix française, cube AR, conversation et bilan, aide, documentation, cerveau local, minuteurs et agenda, Vision en français, cube AR mains libres ;
+  - #16 voix naturelle ;
+  - #17 calculs exacts et formules lues en mots ;
+  - #18 mémoire personnelle (prénom, notes) ;
+  - #19 cerveau avancé en option (Qwen3 4B) ;
+  - #20 réveil par la voix « Jarvis » ;
+  - #21 conversions et questions de dates ;
+  - #22 voix « Jarvis » par défaut et réveil par deux clappements de mains ;
+  - #23 Jarvis PC (`pc/`) : Qwen3 30B dans Ollama, voix Piper, oreille faster-whisper, serveur pour l'iPhone ;
+  - #24 iPhone relié à Jarvis PC : cerveau du PC d'abord, « Sur le PC, … », prénom et notes partagés ;
+  - #25 mode connecté, en option : météo Open-Meteo, titres franceinfo, Wikipédia, « Où suis-je ? » ;
+  - #26 données de l'iPhone : appeler et écrire aux contacts, pas (podomètre), photos.
 
   Les fusions restent la décision du propriétaire.
-- **Dernière préversion publiée** : `v2.0.0-preversion.4`, commit `917a9bb` (PR #16), avec la voix naturelle.
-  - IPA vérifiée : `llama.framework` embarqué et chargé par `@rpath`. Lien public testé sans compte, empreinte identique.
-  - Copie dans `OneDrive\Desktop\Jarvis\IPA`, avec LISEZMOI et TUTO à jour ; page tuto republiée.
-- **Validé sur iPhone 14 Pro (25/11)** :
-  - micro, transcription française ;
-  - cerveau local hors ligne : « Pourquoi le ciel est-il bleu ? » bien expliqué.
-  - Deux retours ont été corrigés depuis : une intégrale refusée (corrigé par #17) et une voix « horrible » (corrigé par #16 : à qualité égale, l'app prenait souvent une voix Eloquence).
-- **Prochaine action exacte** : publier `v2.0.0-preversion.5` depuis le haut de la pile (#21, ou #20 si #21 n'est pas encore verte), quand sa CI est verte. Mêmes étapes que pour la préversion 4 :
+- **Dernière préversion publiée** : `v2.0.0-preversion.5`, commit `fe5241b` (PR #20), avec la copie dans `OneDrive\Desktop\Jarvis\IPA`, LISEZMOI et TUTO à jour et la page tuto republiée.
+- **Prochaine action exacte** : publier `v2.0.0-preversion.6` depuis le haut de la pile (#26) dès que sa CI est verte. Mêmes étapes que pour les préversions 4 et 5 :
   1. télécharger l'artefact `JarvisXR-unsigned-ipa` dans un dossier vide ;
   2. vérifier `llama.framework` ;
   3. publier en préversion ;
   4. tester le lien sans compte ;
   5. copier l'IPA dans OneDrive, mettre à jour LISEZMOI et TUTO, republier la page tuto.
-- **Essais demandés au propriétaire** :
-  1. Voix : Réglages › Voix de Jarvis (plus d'Eddy ni de Jacques), puis télécharger « Thomas (Améliorée) » dans les Réglages d'iOS.
-  2. Préversion 5 :
-     - « Intégrale de 0 à 1 de x au carré » ;
-     - « Je m'appelle… », puis « Bonjour Jarvis » ;
-     - le cerveau Avancé (noter la mémoire libre affichée) ;
-     - le réveil par la voix.
-- **CI** : deux pannes du runner Intel ont eu lieu le 25/11, sans lien avec le code. `gh run rerun <id> --failed` les corrige :
+- **Jarvis PC** :
+  - `pc\Jarvis.bat` prépare l'environnement et lance tout ;
+  - `--autotest` est passé à 13 sur 13 sur le PC du propriétaire le 25/11 : cerveau, voix, réveil, serveur ;
+  - au premier lancement, il faut accepter l'invite du pare-feu Windows pour les réseaux privés ;
+  - Tailscale, pour l'accès hors de la maison, reste à installer par le propriétaire avec son propre compte.
+- **Essais demandés au propriétaire** (préversion 6), un à la fois :
+  1. la voix « Jarvis » et le réveil par deux clappements ;
+  2. Réglages › Jarvis PC : « Chercher mon PC », le code affiché par le PC, « Tester la liaison » ;
+  3. Réglages › Internet : activer le mode connecté, puis « Quel temps fait-il ? » ;
+  4. « Combien de pas aujourd'hui ? », puis « Appelle » suivi d'un contact.
+- **CI** : les pannes du runner Intel sans lien avec le code se corrigent avec `gh run rerun <id> --failed` :
   - un envoi d'artefact en `ENOTFOUND` ;
   - un simulateur qui ne démarre pas (étape « annulée »).
+
+  Le simulateur de la CI, non signé, refuse le trousseau : le code d'appairage se replie alors sur les préférences de l'app. La création de PR par GraphQL échoue (erreur 502) : `gh api -X POST repos/Test-IA-trading/JarvisXR-2/pulls` fonctionne.
 - **Méthode** :
-  - ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une réplique Python : `VisionLiveGuideEngine`, `JarvisMathSolver`, conversions et dates. Leurs tests sont passés au premier essai en CI ;
-  - le runner `macos-26-intel` met environ 1 h 30 par CI ;
-  - tout envoi sur une PR de code, même de documentation seule, relance sa CI : on regroupe donc les envois.
+  - ce PC Windows n'a pas de compilateur Swift. La logique pure est d'abord rejouée dans une réplique Python : Vision, calculs, conversions, clappements, mode connecté (65 contrôles, rejoués sur de vraies réponses des services), données de l'iPhone (48 contrôles) ;
+  - seul un fichier inscrit dans `tools/audit_vision_privacy.py` peut accéder au réseau, sans adresse écrite en dur ;
+  - le runner `macos-26-intel` met environ 1 h 30 par CI, et tout envoi sur une PR relance sa CI : on regroupe donc les envois.
 
 ## Current Product
 
