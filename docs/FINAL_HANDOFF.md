@@ -14,16 +14,17 @@
   - #11 cerveau local ;
   - #12 minuteurs, rappels et agenda ;
   - #13 guide en direct français ;
-  - #14 Vision tout en français.
+  - #14 Vision tout en français ;
+  - #15 cube AR mains libres.
 
   Les fusions restent la décision du propriétaire.
 - **Dernière préversion publiée** : `v2.0.0-preversion.3`, commit `ea23425` (PR #12), avec le cerveau local, les minuteurs et l'occlusion.
   - L'IPA a été vérifiée : `Frameworks/llama.framework` est embarqué, l'app le charge par `@rpath/llama.framework/llama` et le rpath `@executable_path/Frameworks` est présent.
   - Copie dans `OneDrive\Desktop\Jarvis\IPA`, avec LISEZMOI et TUTO à jour.
 - **Validé sur iPhone 14 Pro** : seulement le micro et la transcription française (25/11). Tout le reste est « à faire ».
-- **Prochaine action exacte** : quand la CI de la #14 est verte (sinon celle de la #13) :
+- **Prochaine action exacte** : publier la préversion 4 depuis la #13 et la préversion 5 depuis la #14, chacune quand sa CI est verte :
   1. télécharger l'artefact `JarvisXR-unsigned-ipa` du run et revérifier `llama.framework` ;
-  2. publier `v2.0.0-preversion.4` (guide en direct français, Vision en français, « Trouve la tasse ») ;
+  2. publier la préversion : `v2.0.0-preversion.4` pour le guide en direct français (#13), `v2.0.0-preversion.5` pour la Vision tout en français avec « Trouve la tasse » (#14) ;
   3. copier l'IPA dans OneDrive et mettre à jour LISEZMOI, TUTO et la page tuto.
 - **Essais demandés au propriétaire** :
   1. Cerveau : téléchargement dans Réglages > Cerveau local, puis « Pourquoi le ciel est-il bleu ? » en mode avion. Relever le délai avant la voix et les jetons/s.
