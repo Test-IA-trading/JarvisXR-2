@@ -32,6 +32,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     private let volumeKey = "JarvisXR.speechVolume"
     private let profileKey = "JarvisXR.voiceProfile"
     private let personalVoiceKey = "JarvisXR.preferPersonalVoice"
+    private let chosenVoiceKey = "JarvisXR.chosenVoiceIdentifier"
     private var suppressNextCallbacks = false
     private var visionQueue = VisionSpeechPriorityQueue()
     private var activeVisionItem: VisionSpeechQueueItem?
@@ -72,7 +73,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var pitch: Float {
         get {
             switch profile {
-            case .natural: return 1.03
+            // The default profile keeps the voice's own pitch: shifting it makes the
+            // enhanced and premium voices sound metallic.
+            case .natural: return 1.0
             case .friendly: return 1.05
             case .formal: return 0.98
             case .crisp: return 1.04
@@ -113,6 +116,42 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     var prefersPersonalVoice: Bool {
         get { UserDefaults.standard.bool(forKey: personalVoiceKey) }
         set { UserDefaults.standard.set(newValue, forKey: personalVoiceKey) }
+    }
+
+    /// Voice picked in Settings; nil means the best French voice installed.
+    var chosenVoiceIdentifier: String? {
+        get { UserDefaults.standard.string(forKey: chosenVoiceKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: chosenVoiceKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: chosenVoiceKey)
+            }
+        }
+    }
+
+    /// French voices offered in Settings, best first.
+    func frenchVoiceChoices() -> [JarvisVoiceCandidate] {
+        JarvisVoiceRanking.ranked(AVSpeechSynthesisVoice.speechVoices().map { JarvisVoiceCandidate($0) })
+    }
+
+    /// How to get a natural voice: Apple's enhanced and premium voices are free, work
+    /// offline once downloaded, and an app cannot download them itself.
+    static let betterVoiceHint = "Pour une voix bien plus naturelle, téléchargez une voix « Améliorée » ou « Premium » : Réglages iOS › Accessibilité › Contenu énoncé › Voix › Français. Jarvis la prend ensuite tout seul."
+
+    /// Says a short sentence with one voice (nil: the automatic choice), so it can be
+    /// heard before it is kept. Works even when spoken replies are off.
+    func previewVoice(identifier: String?) {
+        activeVisionItem = nil
+        activeVisionUtterance = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        let utterance = makeUtterance("Bonjour, je suis Jarvis. Voici ma voix.", profile: profile)
+        if let identifier, let voice = AVSpeechSynthesisVoice(identifier: identifier) {
+            utterance.voice = voice
+        }
+        suppressNextCallbacks = true
+        activateAudioSession()
+        synthesizer.speak(utterance)
     }
 
     private override init() {
@@ -348,34 +387,18 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     /// than by a hard-coded voice name, because installed voices differ per iPhone.
     static let outputLanguage = "fr-FR"
 
-    /// Ranks installed voices: exact language first, then any French variant, then by
-    /// quality (premium > enhanced > default). Returns nil when no French voice exists.
+    /// Best installed French voice (see JarvisVoiceRanking): France first, then premium >
+    /// enhanced > standard, then a male voice; the robotic Eloquence voices (Eddy,
+    /// Jacques…) only when nothing else speaks French. Returns nil when no French voice
+    /// exists. Before, equal voices were taken in list order, which could pick Eloquence.
     static func bestVoice(
         from voices: [AVSpeechSynthesisVoice],
         language: String = JarvisSpeechService.outputLanguage
     ) -> AVSpeechSynthesisVoice? {
-        let languagePrefix = String(language.prefix(2))
-        func qualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
-            switch voice.quality {
-            case .premium: return 3
-            case .enhanced: return 2
-            default: return 1
-            }
+        guard let best = JarvisVoiceRanking.ranked(voices.map { JarvisVoiceCandidate($0) }, language: language).first else {
+            return nil
         }
-        func isUsable(_ voice: AVSpeechSynthesisVoice) -> Bool {
-            if #available(iOS 17.0, *) {
-                // Novelty voices (Bells, Bubbles…) and personal voices are never a default.
-                return !voice.voiceTraits.contains(.isNoveltyVoice) && !voice.voiceTraits.contains(.isPersonalVoice)
-            }
-            return true
-        }
-        let candidates = voices.filter { $0.language.hasPrefix(languagePrefix) && isUsable($0) }
-        return candidates.max { lhs, rhs in
-            let lhsExact = lhs.language == language ? 1 : 0
-            let rhsExact = rhs.language == language ? 1 : 0
-            if lhsExact != rhsExact { return lhsExact < rhsExact }
-            return qualityRank(lhs) < qualityRank(rhs)
-        }
+        return voices.first { $0.identifier == best.identifier }
     }
 
     /// Short description of the voice Jarvis will use, for Settings and Diagnostics.
@@ -383,13 +406,13 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         guard let voice = preferredVoice(for: profile) else {
             return "Aucune voix française installée : la voix par défaut d'iOS sera utilisée."
         }
-        let quality: String
-        switch voice.quality {
-        case .premium: quality = "premium"
-        case .enhanced: quality = "améliorée"
-        default: quality = "standard"
+        let candidate = JarvisVoiceCandidate(voice)
+        let origin = chosenVoiceIdentifier == voice.identifier ? "choisie dans les Réglages" : "choisie automatiquement"
+        var text = "Voix \(voice.name) (\(voice.language), qualité \(candidate.qualityLabel)), \(origin)."
+        if candidate.quality < 2 || candidate.isSynthetic {
+            text += " " + Self.betterVoiceHint
         }
-        return "Voix \(voice.name) (\(voice.language), qualité \(quality))."
+        return text
     }
 
     func previewAllProfiles() {
@@ -463,7 +486,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func pitch(for utteranceProfile: JarvisVoiceProfile) -> Float {
         switch utteranceProfile {
-        case .natural: return 1.03
+        case .natural: return 1.0
         case .friendly: return 1.05
         case .formal: return 0.98
         case .crisp: return 1.04
@@ -486,6 +509,10 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     private func preferredVoice(for voiceProfile: JarvisVoiceProfile) -> AVSpeechSynthesisVoice? {
         if prefersPersonalVoice, let personal = personalVoices().first {
             return personal
+        }
+        // A voice picked in Settings wins while it is installed.
+        if let identifier = chosenVoiceIdentifier, let chosen = AVSpeechSynthesisVoice(identifier: identifier) {
+            return chosen
         }
         // Profiles change rate, pitch and volume; every profile speaks French.
         return Self.bestVoice(from: AVSpeechSynthesisVoice.speechVoices()) ??

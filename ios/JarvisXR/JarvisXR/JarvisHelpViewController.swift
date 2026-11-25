@@ -125,6 +125,7 @@ final class JarvisHelpViewController: UIViewController {
             "Modèle indisponible : Lire et Code-barres peuvent encore fonctionner ; les Diagnostics donnent les détails.",
             "Résultat sombre ou flou : ajoutez de la lumière, rapprochez-vous, stabilisez le téléphone et recommencez.",
             "Pas de voix : vérifiez la sortie vocale dans les Réglages et la sortie audio en cours.",
+            "Voix robotique : Réglages › Voix de Jarvis › « Voix plus naturelle » explique comment télécharger gratuitement une voix « Améliorée » ou « Premium ».",
         ])
         addSection("JARVIS et Control Mesh", [
             "Touchez l'orbe et parlez. Jarvis réécoute après chaque réponse ; dites « C'est tout » pour arrêter.",

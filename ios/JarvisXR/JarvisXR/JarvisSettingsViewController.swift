@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 
 enum JarvisSettingsSection {
@@ -43,6 +44,10 @@ final class JarvisSettingsViewController: UIViewController {
     private var brainActionButton: UIButton?
     private var brainObserver: NSObjectProtocol?
 
+    // Voice of Jarvis: which installed French voice speaks, and how to get a better one.
+    private let voiceStatusLabel = UILabel()
+    private var voiceObservers: [NSObjectProtocol] = []
+
     init(initialSection: JarvisSettingsSection = .general) {
         self.initialSection = initialSection
         super.init(nibName: nil, bundle: nil)
@@ -67,6 +72,7 @@ final class JarvisSettingsViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         wireVoice()
+        refreshVoiceSection()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -81,6 +87,78 @@ final class JarvisSettingsViewController: UIViewController {
         if let brainObserver {
             NotificationCenter.default.removeObserver(brainObserver)
         }
+        voiceObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    // MARK: - Voice of Jarvis
+
+    private func buildVoiceSection() {
+        stackView.addArrangedSubview(sectionHeading("Voix de Jarvis"))
+        voiceStatusLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        voiceStatusLabel.adjustsFontForContentSizeCategory = true
+        voiceStatusLabel.textColor = JarvisTheme.text
+        voiceStatusLabel.numberOfLines = 0
+        voiceStatusLabel.accessibilityIdentifier = "jarvis.settings.voice.status"
+        voiceStatusLabel.accessibilityTraits.insert(.updatesFrequently)
+        stackView.addArrangedSubview(wrapInPanel(voiceStatusLabel))
+
+        let chooseButton = actionButton("Choisir la voix", identifier: "jarvis.settings.voice.choose", action: #selector(chooseVoiceTapped(_:)))
+        let betterButton = actionButton("Voix plus naturelle", identifier: "jarvis.settings.voice.better", action: #selector(betterVoiceTapped))
+        stackView.addArrangedSubview(horizontalRow([chooseButton, betterButton]))
+
+        // A voice downloaded in iOS Settings shows up when the user comes back.
+        let center = NotificationCenter.default
+        voiceObservers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshVoiceSection()
+        })
+        voiceObservers.append(center.addObserver(forName: AVSpeechSynthesizer.availableVoicesDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshVoiceSection()
+        })
+        refreshVoiceSection()
+    }
+
+    private func refreshVoiceSection() {
+        voiceStatusLabel.text = JarvisSpeechService.shared.currentVoiceDescription()
+    }
+
+    @objc private func chooseVoiceTapped(_ sender: UIButton) {
+        let speech = JarvisSpeechService.shared
+        let choices = speech.frenchVoiceChoices()
+        let sheet = UIAlertController(
+            title: "Voix de Jarvis",
+            message: choices.isEmpty
+                ? "Aucune voix française n'est installée sur cet iPhone."
+                : "Touchez une voix : Jarvis la fait entendre et la garde.",
+            preferredStyle: .actionSheet
+        )
+        let automaticTitle = (speech.chosenVoiceIdentifier == nil ? "✓ " : "") + "Automatique (meilleure voix installée)"
+        sheet.addAction(UIAlertAction(title: automaticTitle, style: .default) { [weak self] _ in
+            speech.chosenVoiceIdentifier = nil
+            speech.previewVoice(identifier: nil)
+            self?.refreshVoiceSection()
+        })
+        for choice in choices.prefix(12) {
+            let mark = speech.chosenVoiceIdentifier == choice.identifier ? "✓ " : ""
+            sheet.addAction(UIAlertAction(title: mark + choice.menuTitle, style: .default) { [weak self] _ in
+                speech.chosenVoiceIdentifier = choice.identifier
+                speech.previewVoice(identifier: choice.identifier)
+                self?.refreshVoiceSection()
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        sheet.popoverPresentationController?.sourceView = sender
+        sheet.popoverPresentationController?.sourceRect = sender.bounds
+        present(sheet, animated: true)
+    }
+
+    @objc private func betterVoiceTapped() {
+        let alert = UIAlertController(
+            title: "Une voix plus naturelle",
+            message: "Les voix « Améliorée » et « Premium » d'Apple sont gratuites et fonctionnent sans Internet une fois téléchargées. Une app ne peut pas les télécharger elle-même.\n\n1. Ouvrez l'app Réglages de l'iPhone › Accessibilité › Contenu énoncé › Voix.\n2. Touchez Français, puis une voix : Thomas est une voix d'homme, la plus proche de Jarvis.\n3. Téléchargez sa version « Améliorée » (ou « Premium » si elle existe).\n\nRevenez ensuite dans Jarvis : il prend tout seul la meilleure voix installée.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 
     // MARK: - Local brain
@@ -372,6 +450,8 @@ final class JarvisSettingsViewController: UIViewController {
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
         stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
+
+        buildVoiceSection()
 
         buildBrainSection()
 
