@@ -29,3 +29,6 @@ ios/JarvisXR/JarvisXR/Models/.JarvisObjectDetector-*.download
 
 # Checksum-pinned llama.cpp iPhone framework fetched by tools/fetch_llama_framework.py.
 ios/JarvisXR/Frameworks/
+
+# Python environment of the PC Jarvis (created by pc/Jarvis.bat).
+pc/.venv/
