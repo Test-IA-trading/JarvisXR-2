@@ -1140,6 +1140,17 @@ final class JarvisARCubeViewController: UIViewController {
         voiceInput.onFinalTranscript = { [weak self] text in
             guard let self else { return }
             let response = self.assistant.decide(text).response
+            if JarvisLifeActionPerformer.handles(response) {
+                self.showAnswer(response.displayResponse)
+                JarvisLifeActionPerformer.perform(response) { [weak self] final in
+                    guard let self else { return }
+                    self.showAnswer(final.displayResponse)
+                    if final.shouldSpeak, self.speech.isEnabled, final.status == .ok {
+                        self.speech.speak(final.spokenResponse)
+                    }
+                }
+                return
+            }
             if response.data["action"] == "local_brain", let question = response.data["question"],
                JarvisLocalBrain.shared.availability != .unsupported {
                 self.showAnswer("Je réfléchis…")

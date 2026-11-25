@@ -285,6 +285,16 @@ final class JarvisSettingsViewController: UIViewController {
             guard let self else { return }
             let response = self.assistant.decide(text).response
             let speech = JarvisSpeechService.shared
+            if JarvisLifeActionPerformer.handles(response) {
+                self.showAssistant(response.displayResponse)
+                JarvisLifeActionPerformer.perform(response) { [weak self] final in
+                    self?.showAssistant(final.displayResponse)
+                    if final.shouldSpeak, speech.isEnabled, final.status == .ok {
+                        speech.speak(final.spokenResponse)
+                    }
+                }
+                return
+            }
             if response.data["action"] == "local_brain", let question = response.data["question"],
                JarvisLocalBrain.shared.availability != .unsupported {
                 self.showAssistant("Je réfléchis…")

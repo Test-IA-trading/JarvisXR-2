@@ -572,7 +572,20 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         }
     }
 
+    /// Timers, reminders, agenda, briefing: run the side effect, then render its result.
+    private func performLifeAction(_ response: JarvisResponse) {
+        setInterfaceState(.processing, hint: response.displayResponse)
+        JarvisLifeActionPerformer.perform(response) { [weak self] final in
+            guard let self, !self.voiceInput.isListening else { return }
+            self.render(response: JarvisLifeActionPerformer.withoutAction(final))
+        }
+    }
+
     private func render(response: JarvisResponse, visionRequest: JarvisVisionLaunchRequest? = nil) {
+        if JarvisLifeActionPerformer.handles(response) {
+            performLifeAction(response)
+            return
+        }
         if response.data["action"] == "local_brain", let question = response.data["question"],
            JarvisLocalBrain.shared.availability != .unsupported {
             askLocalBrain(question)

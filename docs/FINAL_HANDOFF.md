@@ -160,7 +160,29 @@ Choix techniques :
 | Réponses aux questions libres, affichées puis lues | ✓ | ✓ | tests (prompt, nettoyage, aiguillage) | à faire |
 | Contexte de conversation (6 échanges + faits) | ✓ | ✓ | tests unitaires | à faire |
 | Exception réseau unique dans l'audit de confidentialité | ✓ | ✓ | test Python | — |
-| Lecture de la réponse au fil de l'écriture | ✓ | — | — | — |
+| Lecture de la réponse au fil de l'écriture | ✓ | ✓ | tests (découpe en phrases) | à faire |
+
+## Minuteurs, rappels, agenda et point du jour — suivi (lot 6, branche `feature/agenda-minuteurs`)
+
+- **Minuteurs nommés**, persistants (`JarvisTimerStore`) :
+  - « Mets un minuteur de 10 minutes pour les pâtes », « Minuteur pâtes 8 minutes », « Réveille-moi dans 20 minutes » ;
+  - « Il reste combien pour les pâtes ? » ;
+  - « Annule le minuteur (des pâtes) ».
+
+  Notification locale à l'échéance, après autorisation. Si JARVIS est ouvert, l'échéance s'affiche et se dit à voix haute.
+- **Durées en français** : « une heure et demie », « 1 h 30 », « un quart d'heure », « une demi-heure », « 2 heures 15 », « 10 minutes 30 secondes ». « à 9 h » reste une heure d'horloge.
+- **Rappels** (EventKit, app Rappels) : « Rappelle-moi d'appeler maman demain à 18 h » ou « …dans 20 minutes ». Le titre reprend vos mots ; date et alarme sont réglées.
+- **Agenda** (EventKit, lecture seule du jour demandé) : « Qu'est-ce que j'ai demain ? », « Mon agenda de vendredi », « Est-ce que je suis libre aujourd'hui ? ».
+- **Jours compris** : aujourd'hui, ce soir, demain, après-demain, jours de la semaine, « lundi prochain ».
+- **Point du jour** : « Fais-moi le point » donne la date, l'heure, l'agenda du jour, les minuteurs en cours et la batterie.
+- **Accès** : depuis l'accueil, l'écran AR et les Réglages. Les textes d'autorisation iOS (calendrier, rappels) sont en français.
+
+| Élément | Prévu | Implémenté | Vérifié en CI | Validé sur iPhone |
+|---|---|---|---|---|
+| Minuteurs nommés, reste, annulation, persistance | ✓ | ✓ | tests unitaires | à faire |
+| Notification + annonce à l'échéance | ✓ | ✓ | compilation | à faire |
+| Rappels datés dans l'app Rappels | ✓ | ✓ | tests (analyse) | à faire |
+| Agenda du jour demandé, point du jour | ✓ | ✓ | tests (analyse, résumé) | à faire |
 
 Essai sur l'iPhone :
 1. Réglages > Cerveau local > « Télécharger le cerveau (1,1 Go) », en Wi-Fi, en gardant l'app ouverte.

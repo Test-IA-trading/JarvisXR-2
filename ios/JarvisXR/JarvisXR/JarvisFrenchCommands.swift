@@ -25,6 +25,7 @@ struct JarvisFrenchCommandRouter {
     private let scene: JarvisSpatialSceneMemory
     private let context: JarvisConversationContext
     private let screen: JarvisScreenContext
+    private let timers: JarvisTimerStore
     private let locale = Locale(identifier: "fr_FR")
 
     /// Prefix of the notes created by « prépare l'essai du bilan ».
@@ -34,12 +35,14 @@ struct JarvisFrenchCommandRouter {
         memory: JarvisMemoryStore = .shared,
         scene: JarvisSpatialSceneMemory = .shared,
         context: JarvisConversationContext = .shared,
-        screen: JarvisScreenContext = .shared
+        screen: JarvisScreenContext = .shared,
+        timers: JarvisTimerStore = .shared
     ) {
         self.memory = memory
         self.scene = scene
         self.context = context
         self.screen = screen
+        self.timers = timers
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -105,6 +108,11 @@ struct JarvisFrenchCommandRouter {
             return .answer(.ok(reply))
         }
 
+        // Timers, reminders, agenda and briefing (side effects run in JarvisLifeActionPerformer).
+        if !isNoteDictation, let life = lifeAnswer(request: request, original: original, now: now) {
+            return .answer(life)
+        }
+
         // Activity summary of the notes Jarvis stores.
         if !isNoteDictation, let notesAnswer = notesSummaryAnswer(request, now: now) {
             return .answer(notesAnswer)
@@ -126,8 +134,8 @@ struct JarvisFrenchCommandRouter {
 
         if request == "aide" || containsAny(request, ["que sais tu faire", "qu'est ce que tu sais faire", "que peux tu faire", "qu'est ce que tu peux faire", "liste des commandes", "quelles commandes"]) {
             return .answer(.ok(
-                "Je peux donner l'heure, retenir des horaires et les comparer, compter et montrer vos notes, poser un bilan ou un cube en réalité augmentée, lire un texte et ouvrir les réglages.",
-                display: "Essayez : « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
+                "Je peux lancer des minuteurs, créer des rappels, lire votre agenda, faire le point, retenir des horaires, compter vos notes, poser un cube ou un bilan en réalité augmentée, et répondre à vos questions avec le cerveau local.",
+                display: "Essayez : « Minuteur pâtes 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Le train part à 9 h et le bus à 11 h. Lequel part en premier ? », « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi », « Pose ce bilan sur la table », « Ouvre le cube », « Qu'est-ce que je viens de déplacer ? », « Quelle heure est-il ? », « Prends une note… », « Lis ce texte », « C'est tout »."
             ))
         }
 
@@ -191,6 +199,84 @@ struct JarvisFrenchCommandRouter {
 
         guard Self.looksFrench(text) else { return .notHandled }
         return .openQuestion(original)
+    }
+
+    private func lifeAnswer(request: String, original: String, now: Date) -> JarvisResponse? {
+        let padded = " \(request) "
+        func has(_ needles: [String]) -> Bool { needles.contains { padded.contains(" \($0) ") } }
+        let tokens = request.split(separator: " ").map(String.init)
+        let mentionsTimer = has(JarvisLifeRequestParser.timerWords)
+
+        // Reminders: « Rappelle-moi d'appeler maman demain à 18 h ».
+        if has(["rappelle moi", "rappelle nous"]) {
+            guard let reminder = JarvisLifeRequestParser.reminder(original: original, normalized: request, now: now), !reminder.title.isEmpty else {
+                return JarvisResponse(status: .refused, spokenResponse: "Que dois-je vous rappeler, et quand ?", displayResponse: "Dites par exemple : « Rappelle-moi d'appeler maman demain à 18 h ».")
+            }
+            var data = ["action": "reminder_create", "reminder_title": reminder.title]
+            if let due = reminder.dueDate { data["reminder_due"] = String(due.timeIntervalSince1970) }
+            if let spoken = reminder.spokenDue { data["reminder_spoken_due"] = spoken }
+            return .ok("Je crée le rappel.", display: "Rappel : « \(reminder.title) »\(reminder.spokenDue.map { ", \($0)" } ?? "").", data: data)
+        }
+
+        // Timers.
+        let cancelWords = ["annule", "arrete", "stop", "supprime", "efface", "coupe"]
+        if mentionsTimer && has(cancelWords) {
+            let name = JarvisLifeRequestParser.timerName(fromOriginal: original, normalizedTokens: tokens, excluding: [])
+            let words = Set(cancelWords)
+            let cleaned = name.split(separator: " ").filter { !words.contains(JarvisFrenchCommandRouter.normalize(String($0))) }.joined(separator: " ")
+            let removed = timers.remove(named: cleaned.isEmpty || cleaned == "minuteur" ? nil : cleaned, now: now)
+            let ids = removed.map(\.id.uuidString).joined(separator: ",")
+            let spoken: String
+            switch removed.count {
+            case 0: spoken = "Aucun minuteur à annuler."
+            case 1: spoken = removed[0].name == "minuteur" ? "Minuteur annulé." : "Minuteur « \(removed[0].name) » annulé."
+            default: spoken = "\(removed.count) minuteurs annulés."
+            }
+            return .ok(spoken, data: ["action": "timer_cancel", "timer_ids": ids])
+        }
+        if let duration = JarvisFrenchDurationParser.durations(in: tokens).first,
+           mentionsTimer || has(["reveille moi dans", "previens moi dans", "dis moi dans"]) {
+            let name = JarvisLifeRequestParser.timerName(fromOriginal: original, normalizedTokens: tokens, excluding: [duration.range])
+                .split(separator: " ")
+                .filter { !["réveille", "previens", "préviens", "dis", "reveille"].contains(String($0).lowercased()) }
+                .joined(separator: " ")
+            let timerName = name.isEmpty ? "minuteur" : name
+            let timer = timers.add(name: timerName, duration: duration.seconds, now: now)
+            let length = JarvisFrenchDurationParser.spoken(duration.seconds)
+            let spoken = timerName == "minuteur" ? "Minuteur lancé : \(length)." : "Minuteur « \(timerName) » lancé : \(length)."
+            return .ok(spoken, data: ["action": "timer_start", "timer_id": timer.id.uuidString, "seconds": String(Int(duration.seconds)), "name": timerName])
+        }
+        if mentionsTimer || has(["il reste combien", "combien de temps reste", "combien de temps il reste", "temps restant", "il me reste combien"]) {
+            let active = timers.active(at: now)
+            guard !active.isEmpty else { return .ok("Aucun minuteur en cours.") }
+            let parts = active.map { timer -> String in
+                let left = JarvisFrenchDurationParser.spoken(timer.remaining(at: now))
+                return timer.name == "minuteur" ? "\(left) pour le minuteur" : "\(left) pour « \(timer.name) »"
+            }
+            return .ok("Il reste \(parts.joined(separator: ", et ")).")
+        }
+
+        // Briefing.
+        if has(["fais moi le point", "fais le point", "briefing", "mon briefing", "le point du jour", "point du matin", "quoi de neuf aujourd'hui", "resume de ma journee"]) {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.dateFormat = "EEEE d MMMM"
+            let clock = DateFormatter()
+            clock.locale = locale
+            clock.dateFormat = "H 'h' mm"
+            return .ok("Voici le point : nous sommes le \(formatter.string(from: now)), il est \(clock.string(from: now)).", data: ["action": "briefing"])
+        }
+
+        // Agenda: « Qu'est-ce que j'ai demain ? », « Mon agenda de lundi ».
+        let day = JarvisFrenchDayParser.day(in: tokens, now: now)
+        let asksAgenda = has(["mon agenda", "mon calendrier", "mes rendez vous", "mon programme", "est ce que je suis libre", "j'ai quoi", "qu'est ce que j'ai de prevu", "qu'ai je de prevu", "qu'est ce qui est prevu", "ai je des rendez vous"])
+            || (has(["qu'est ce que j'ai", "qu'ai je"]) && day != nil && !has(["deplace", "bouge", "note", "notes", "pris"]))
+        if asksAgenda {
+            let offset = day?.dayOffset ?? 0
+            let label = day?.label ?? "aujourd'hui"
+            return .ok("Je regarde votre agenda.", data: ["action": "agenda_read", "day_offset": String(offset), "day_label": label])
+        }
+        return nil
     }
 
     /// « Combien de notes ai-je prises ces sept derniers jours ? », « Montre-les-moi »,

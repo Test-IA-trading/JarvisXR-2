@@ -33,6 +33,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>JARVIS utilise la caméra pour analyser la scène sur votre iPhone.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>JARVIS lit votre calendrier quand vous demandez « Qu'est-ce que j'ai demain ? ». Rien ne quitte l'iPhone.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>JARVIS crée les rappels que vous lui dictez, par exemple « Rappelle-moi d'appeler maman à 18 h ».</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>JARVIS utilise le micro pour écouter vos demandes quand vous touchez l'orbe. Aucun enregistrement audio n'est conservé.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

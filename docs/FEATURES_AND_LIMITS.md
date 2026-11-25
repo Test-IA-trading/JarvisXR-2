@@ -7,6 +7,7 @@
 - AR cube grabbed with an in-air thumb–index pinch: ARKit world tracking and horizontal planes, Vision hand pose on ARKit frames (no second camera session), hysteresis pinch with guided calibration, touch fallback, and a scene memory that answers « Qu'est-ce que je viens de déplacer ? »
 - French conversation facts that follow corrections (departure times, « Et maintenant ? », « juste l'heure du train »), notes summary over a period with « Montre-les-moi » and an AR summary card grabbed with the same pinch, hands-free continuous conversation, and the « Parler à JARVIS » intent for an iOS Vocal Shortcut « Dis Jarvis »
 - Optional on-device local brain for open French questions: pinned llama.cpp b12262 framework (iPhone builds) with Qwen2.5-1.5B-Instruct Q4_K_M downloaded once with consent, verified by SHA-256, conversation context of 6 turns plus app facts, never used for actions
+- Named timers with notifications, EventKit reminders and agenda reading, and a spoken daily briefing, all on the iPhone after permission
 - Local speech output through `AVSpeechSynthesizer`, including session-scoped priority for warnings, requested targets, scene changes, and detail
 - Persistent voice and Vision preferences, notes, and command history with explicit clear controls
 - Accessible contact selection and in-memory message drafting with readback, explicit confirmation, and the standard iOS message composer
