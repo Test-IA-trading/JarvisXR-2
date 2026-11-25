@@ -274,8 +274,68 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         activeVisionItem = nil
         activeVisionUtterance = nil
         visionQueuePaused = false
+        // A streamed reply ends with the utterance being cancelled now: its didCancel
+        // reports the end once, through the ordinary path.
+        streamUtterances = []
+        streamOpen = false
         synthesizer.stopSpeaking(at: .immediate)
         deactivateAudioSessionIfIdle()
+    }
+
+    // MARK: Streamed replies (local brain)
+
+    /// Sentences of the reply being written, queued in the synthesizer and not finished.
+    private var streamUtterances: [AVSpeechUtterance] = []
+    private var streamOpen = false
+    private var streamStarted = false
+
+    var isStreamingReply: Bool { streamOpen || !streamUtterances.isEmpty }
+
+    /// Starts a reply that will arrive sentence by sentence. `onSpeechStart` fires once
+    /// for the first sentence and `onSpeechFinish` once, after the last one.
+    func beginStreamedReply() {
+        guard isEnabled else { return }
+        activeVisionItem = nil
+        activeVisionUtterance = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        suppressNextCallbacks = false
+        streamUtterances = []
+        streamOpen = true
+        streamStarted = false
+        lastSpeakRequestAt = Date()
+    }
+
+    /// Queues one more sentence without interrupting the one being spoken.
+    func appendStreamedReply(_ text: String) {
+        guard isEnabled, streamOpen else { return }
+        let sentence = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sentence.isEmpty else { return }
+        let utterance = makeUtterance(sentence, profile: profile)
+        utterance.postUtteranceDelay = 0.05
+        streamUtterances.append(utterance)
+        activateAudioSession()
+        synthesizer.speak(utterance)
+    }
+
+    /// No more sentences will come. If everything was already spoken, the reply ends now.
+    func endStreamedReply() {
+        guard streamOpen else { return }
+        streamOpen = false
+        if streamUtterances.isEmpty {
+            onSpeechFinish?()
+            deactivateAudioSessionIfIdle()
+        }
+    }
+
+    /// Handles a stream utterance's end; returns false for any other utterance.
+    private func finishStreamUtterance(_ utterance: AVSpeechUtterance) -> Bool {
+        guard let index = streamUtterances.firstIndex(where: { $0 === utterance }) else { return false }
+        streamUtterances.remove(at: index)
+        if streamUtterances.isEmpty && !streamOpen {
+            onSpeechFinish?()
+            deactivateAudioSessionIfIdle()
+        }
+        return true
     }
 
     func testPhrase() -> String {
@@ -528,11 +588,18 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
         lastSpeechStartAt = Date()
+        if streamUtterances.contains(where: { $0 === utterance }) {
+            guard !streamStarted else { return }
+            streamStarted = true
+            onSpeechStart?()
+            return
+        }
         guard !suppressNextCallbacks else { return }
         onSpeechStart?()
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        if finishStreamUtterance(utterance) { return }
         if activeVisionUtterance === utterance, let completed = activeVisionItem {
             visionQueue.markCompleted(completed)
             activeVisionItem = nil
@@ -555,6 +622,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        if finishStreamUtterance(utterance) { return }
         if activeVisionUtterance === utterance {
             activeVisionItem = nil
             activeVisionUtterance = nil

@@ -529,12 +529,47 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private func askLocalBrain(_ question: String) {
         setInterfaceState(.processing, hint: "Je réfléchis…")
         showTransient("…")
+        // Speech starts with the first complete sentence while the rest is written.
+        var streamer = JarvisSentenceStreamer()
+        var streaming = false
         JarvisLocalBrain.shared.answerOpenQuestion(question, onPartial: { [weak self] partial in
-            guard let self, !partial.isEmpty, self.interfaceState == .processing else { return }
+            guard let self, !partial.isEmpty, !self.voiceInput.isListening,
+                  self.interfaceState == .processing || self.interfaceState == .speaking else { return }
             self.showTransient(partial)
+            guard self.speech.isEnabled else { return }
+            let sentences = streamer.newSentences(in: partial, final: false)
+            guard !sentences.isEmpty else { return }
+            if !streaming {
+                streaming = true
+                self.speech.beginStreamedReply()
+                self.scheduleSpeechStartCheck()
+            }
+            sentences.forEach { self.speech.appendStreamedReply($0) }
         }, completion: { [weak self] answer in
-            self?.render(response: answer)
+            guard let self else { return }
+            // A new turn already started (the user tapped and spoke): drop this answer.
+            guard !self.voiceInput.isListening else { return }
+            guard streaming else {
+                self.render(response: answer)
+                return
+            }
+            if answer.status == .ok, self.speech.isStreamingReply {
+                streamer.newSentences(in: answer.spokenResponse, final: true).forEach { self.speech.appendStreamedReply($0) }
+                self.showTransient(answer.displayResponse)
+                self.speech.endStreamedReply()
+            } else {
+                self.speech.stop()
+                self.render(response: answer)
+            }
         })
+    }
+
+    /// If the reply never becomes audible, say so instead of staying silent.
+    private func scheduleSpeechStartCheck() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, self.speech.speechFailedToStart(after: 2.4) else { return }
+            self.setInterfaceState(.ready, hint: "La voix ne démarre pas : montez le volume, ou vérifiez qu'une voix française est installée (Réglages iOS › Accessibilité › Contenu énoncé › Voix).")
+        }
     }
 
     private func render(response: JarvisResponse, visionRequest: JarvisVisionLaunchRequest? = nil) {
@@ -584,11 +619,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         if response.shouldSpeak && speech.isEnabled && (response.status == .ok || response.status == .confirmationRequired) {
             setInterfaceState(.speaking, hint: "JARVIS parle.")
             speech.speak(response.spokenResponse)
-            // If the reply never becomes audible, say so instead of staying silent.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-                guard let self, self.speech.speechFailedToStart(after: 2.4) else { return }
-                self.setInterfaceState(.ready, hint: "La voix ne démarre pas : montez le volume, ou vérifiez qu'une voix française est installée (Réglages iOS › Accessibilité › Contenu énoncé › Voix).")
-            }
+            scheduleSpeechStartCheck()
         } else if response.status == .ok && response.data["action"] == nil {
             setInterfaceState(speech.isEnabled ? .done : .quiet, hint: response.spokenResponse)
         }
@@ -701,6 +732,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 showTransient("Traitement en cours.")
             }
         case .speaking:
+            JarvisLocalBrain.shared.cancel()
             speech.stop()
             setVoiceStage(.idle)
             setInterfaceState(.ready, hint: "Parole arrêtée.")

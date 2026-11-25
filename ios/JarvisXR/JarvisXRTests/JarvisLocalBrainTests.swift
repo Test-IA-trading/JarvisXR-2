@@ -83,6 +83,15 @@ final class JarvisLocalBrainTests: XCTestCase {
         XCTAssertTrue(cleaned.hasSuffix("."), "Long answers stop at the end of a sentence.")
     }
 
+    func testSentencesAreHandedToSpeechAsSoonAsTheyAreComplete() {
+        var streamer = JarvisSentenceStreamer()
+        XCTAssertEqual(streamer.newSentences(in: "Bonjour", final: false), [])
+        XCTAssertEqual(streamer.newSentences(in: "Bonjour. Je suis Jar", final: false), ["Bonjour."])
+        XCTAssertEqual(streamer.newSentences(in: "Bonjour. Je suis Jarvis ! Il fait 3.5 degrés", final: false), ["Je suis Jarvis !"])
+        XCTAssertEqual(streamer.newSentences(in: "Bonjour. Je suis Jarvis ! Il fait 3.5 degrés.", final: true), ["Il fait 3.5 degrés."], "A decimal point is not a sentence end.")
+        XCTAssertEqual(streamer.newSentences(in: "Bonjour. Je suis Jarvis ! Il fait 3.5 degrés.", final: true), [], "Nothing is spoken twice.")
+    }
+
     // MARK: Routing and availability
 
     func testOnlyQuestionsWithoutAnActionReachTheBrain() {

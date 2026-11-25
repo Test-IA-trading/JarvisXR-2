@@ -143,6 +143,41 @@ struct JarvisUTF8Accumulator {
     }
 }
 
+/// Cuts the answer being written into sentences, so speech can start with the first
+/// sentence instead of waiting for the whole answer.
+struct JarvisSentenceStreamer {
+    /// Characters of the text already handed out.
+    private(set) var emittedCount = 0
+
+    /// Complete sentences of `text` not handed out yet. With `final`, the remaining
+    /// text is returned as the last sentence.
+    mutating func newSentences(in text: String, final: Bool) -> [String] {
+        let characters = Array(text)
+        guard emittedCount < characters.count else { return [] }
+        var sentences: [String] = []
+        var start = emittedCount
+        var index = emittedCount
+        while index < characters.count {
+            let character = characters[index]
+            let isEnd = ".!?…".contains(character)
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            if isEnd, let next, next == " " || next == "\n" {
+                let sentence = String(characters[start...index]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sentence.isEmpty { sentences.append(sentence) }
+                start = index + 1
+            }
+            index += 1
+        }
+        if final {
+            let rest = String(characters[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rest.isEmpty { sentences.append(rest) }
+            start = characters.count
+        }
+        emittedCount = start
+        return sentences
+    }
+}
+
 /// Turns raw model output into a short spoken answer.
 enum JarvisAnswerCleaner {
     static func clean(_ raw: String, maxCharacters: Int = 700) -> String {
