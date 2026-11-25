@@ -1220,6 +1220,17 @@ final class JarvisCameraViewController: UIViewController {
             presentSpokenAnswer(answer)
             return
         }
+        // « Trouve la tasse », « Cherche mon téléphone » : Find with the detector's own class name.
+        if let target = VisionFrenchVocabulary.findTarget(inNormalized: frenchRequest) {
+            apply(JarvisVisionLaunchRequest(
+                mode: .find,
+                command: .run,
+                target: target,
+                source: "vision_voice",
+                startsImmediately: true
+            ))
+            return
+        }
         // Dictation is French: translate the French wording of a Vision action first.
         let raw = JarvisFrenchCommandRouter.translateAction(spokenText)?.command ?? spokenText
         let normalized = JarvisCommandPlanner().normalize(raw)

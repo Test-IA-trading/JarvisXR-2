@@ -202,6 +202,19 @@ enum VisionFrenchVocabulary {
         return result
     }
 
+    /// « Trouve la tasse », « Cherche mon téléphone », « Où est la bouteille ? » : the detector
+    /// class to look for, from an already normalized sentence. Nil without a search verb or a
+    /// known object.
+    static func findTarget(inNormalized normalizedText: String) -> String? {
+        let padded = " \(normalizedText) "
+        let searchWords = [
+            " cherche ", " cherches ", " chercher ", " trouve ", " trouves ", " trouver ", " retrouve ",
+            " localise ", " ou est ", " ou sont ", " ou se trouve ", " montre moi "
+        ]
+        guard searchWords.contains(where: { padded.contains($0) }) else { return nil }
+        return classesMentioned(in: normalizedText).first
+    }
+
     /// Normalized names per identifier, plurals included.
     static let aliasIndex: [String: [String]] = {
         var index: [String: [String]] = [:]

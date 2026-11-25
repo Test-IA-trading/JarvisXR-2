@@ -221,6 +221,17 @@ final class VisionLiveGuideFrenchTests: XCTestCase {
         XCTAssertEqual(classes("Elle est où maintenant ?"), [])
     }
 
+    func testFrenchSearchPhrasesPickTheObjectToFind() {
+        func target(_ text: String) -> String? {
+            VisionFrenchVocabulary.findTarget(inNormalized: JarvisFrenchCommandRouter.normalize(text))
+        }
+        XCTAssertEqual(target("Trouve la tasse"), "cup")
+        XCTAssertEqual(target("Cherche mon téléphone"), "cell phone")
+        XCTAssertEqual(target("Où est la bouteille ?"), "bottle")
+        XCTAssertNil(target("Trouve-moi une idée"), "No known object: no Find.")
+        XCTAssertNil(target("La tasse est jolie"), "No search verb: no Find.")
+    }
+
     // MARK: French wording and safety
 
     func testFrenchNounsAgreeAndElide() {
