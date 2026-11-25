@@ -129,6 +129,7 @@ final class JarvisHelpViewController: UIViewController {
         addSection("JARVIS et Control Mesh", [
             "Touchez l'orbe et parlez. Jarvis réécoute après chaque réponse ; dites « C'est tout » pour arrêter.",
             "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre.",
+            "Maintenez l'orbe appuyé pour remettre Jarvis en veille.",
             "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion.",
             "Dites aussi : « Mets un minuteur de 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Ouvre le cube ».",
             "Control Mesh explique les commandes vocales d'iOS, les Raccourcis et les liens pris en charge, sans prétendre contrôler le système.",
