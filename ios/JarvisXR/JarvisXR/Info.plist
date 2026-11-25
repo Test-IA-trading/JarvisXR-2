@@ -58,6 +58,12 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSContactsUsageDescription</key>
+	<string>Jarvis trouve le contact que vous nommez (« Appelle Paul », « Écris à Paul que j'arrive »). Vos contacts restent sur l'iPhone.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Jarvis vous dit combien de pas vous avez faits et la distance parcourue, quand vous le demandez. Ces données restent sur l'iPhone.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Jarvis compte et vous montre vos photos quand vous le demandez (« Montre-moi ma dernière photo »). Elles restent sur l'iPhone et Jarvis n'en modifie aucune.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>En mode connecté (Réglages › Internet), Jarvis donne la météo de l'endroit où vous êtes et répond à « Où suis-je ? ». La position, arrondie à environ 1 km pour la météo, n'est pas enregistrée.</string>
 	<key>NSMicrophoneUsageDescription</key>

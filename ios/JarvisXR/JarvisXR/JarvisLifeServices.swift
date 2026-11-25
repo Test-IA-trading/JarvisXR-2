@@ -174,6 +174,7 @@ enum JarvisLifeActionPerformer {
     static let actions: Set<String> = [
         "timer_start", "timer_cancel", "reminder_create", "agenda_read", "briefing", "pc_command", "pc_say",
         "web_weather", "web_news", "where_am_i",
+        "phone_call", "phone_message", "phone_number", "steps", "photos_count", "photos_show",
     ]
 
     static func handles(_ response: JarvisResponse) -> Bool {
@@ -193,6 +194,8 @@ enum JarvisLifeActionPerformer {
     static func perform(_ response: JarvisResponse, now: Date = Date(), completion: @escaping (JarvisResponse) -> Void) {
         let data = response.data
         switch data["action"] {
+        case "phone_call", "phone_message", "phone_number", "steps", "photos_count", "photos_show":
+            JarvisDeviceActions.perform(data, now: now, completion: completion)
         case "web_weather":
             let dayOffset = Int(data["day_offset"] ?? "0") ?? 0
             JarvisInternetClient.shared.weather(city: data["city"], dayOffset: dayOffset) { result in
