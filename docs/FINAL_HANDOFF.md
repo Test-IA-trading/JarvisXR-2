@@ -107,7 +107,7 @@ Architecture :
 | Calibrage main ouverte / pince | ✓ | ✓ | tests unitaires | à faire |
 | « Qu'est-ce que je viens de déplacer ? » → « Le cube. » | ✓ | ✓ | tests unitaires | à faire |
 | Repli tactile | ✓ | ✓ | — | à faire |
-| Écoute continue mains libres pendant la manipulation | ✓ | — | — | — |
+| Écoute continue mains libres pendant la manipulation : Jarvis réécoute après chaque réponse, jusqu'à « C'est tout » ou un silence (branche `feature/ar-mains-libres`) | ✓ | ✓ | compilation | à faire |
 | Profondeur, rotation, redimensionnement, fiche « bilan » | ✓ | — | — | — |
 | Annonces spontanées d'objets réels (tasse) dans la même session | ✓ | — | — | — |
 

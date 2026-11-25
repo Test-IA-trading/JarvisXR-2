@@ -271,6 +271,10 @@ final class JarvisARCubeViewController: UIViewController {
     private let voiceInput = JarvisVoiceInputService.shared
     private let speech = JarvisSpeechService.shared
     private let assistant = JarvisAssistantCore()
+    /// Hands-free, as on the home screen: after a spoken reply Jarvis listens again, so the
+    /// hands can stay on the cube. Ends with « C'est tout », silence, or leaving the screen.
+    private var conversationActive = false
+    private var rearmWorkItem: DispatchWorkItem?
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
 
@@ -305,6 +309,7 @@ final class JarvisARCubeViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         freezeGrab()
+        endConversation()
         voiceInput.cancel()
         arView.session.pause()
         UIApplication.shared.isIdleTimerDisabled = false
@@ -1119,6 +1124,12 @@ final class JarvisARCubeViewController: UIViewController {
     // MARK: - Voice
 
     private func wireVoice() {
+        // This screen owns the shared speech callbacks while it is visible; the home screen
+        // takes them back in its viewWillAppear.
+        speech.onSpeechStart = nil
+        speech.onSpeechFinish = { [weak self] in
+            self?.scheduleConversationRearm()
+        }
         voiceInput.onStateChange = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -1134,9 +1145,11 @@ final class JarvisARCubeViewController: UIViewController {
             case .processing:
                 self.talkButton.setTitle("Parler", for: .normal)
             case .noSpeech:
+                self.endConversation()
                 self.talkButton.setTitle("Parler", for: .normal)
                 self.showAnswer("Aucune parole détectée. Touchez « Parler » et réessayez.")
             case .unavailable(let failure):
+                self.endConversation()
                 self.talkButton.setTitle("Parler", for: .normal)
                 self.showAnswer(failure.message)
             }
@@ -1149,6 +1162,17 @@ final class JarvisARCubeViewController: UIViewController {
         voiceInput.onFinalTranscript = { [weak self] text in
             guard let self else { return }
             let response = self.assistant.decide(text).response
+            if response.data["mode"] == "conversation_end" {
+                self.endConversation()
+                self.showAnswer("Très bien. Touchez « Parler » pour reprendre.")
+                if self.speech.isEnabled {
+                    self.speech.speak("Très bien. Touchez Parler pour reprendre.")
+                }
+                return
+            }
+            if response.data["mode"] == "conversation_off" {
+                self.endConversation()
+            }
             if JarvisLifeActionPerformer.handles(response) {
                 self.showAnswer(response.displayResponse)
                 JarvisLifeActionPerformer.perform(response) { [weak self] final in
@@ -1201,8 +1225,38 @@ final class JarvisARCubeViewController: UIViewController {
             voiceInput.stopListening(process: true)
             return
         }
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
+        conversationActive = JarvisConversationSettings.isContinuous
         speech.stop()
         voiceInput.startListening()
+    }
+
+    /// After a spoken reply, listen again without a tap. The short delay lets the reply's
+    /// audio tail end so Jarvis does not hear itself.
+    private func scheduleConversationRearm() {
+        guard conversationActive,
+              JarvisConversationSettings.isContinuous,
+              navigationController?.topViewController === self,
+              presentedViewController == nil,
+              UIApplication.shared.applicationState == .active else { return }
+        rearmWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.conversationActive,
+                  !self.voiceInput.isListening,
+                  self.navigationController?.topViewController === self,
+                  self.presentedViewController == nil else { return }
+            self.voiceInput.startListening()
+        }
+        rearmWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+    }
+
+    private func endConversation() {
+        conversationActive = false
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
     }
 
     // MARK: - Buttons
