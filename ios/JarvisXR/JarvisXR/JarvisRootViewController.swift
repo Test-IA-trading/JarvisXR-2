@@ -203,7 +203,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         guard JarvisWakeWordSettings.isEnabled,
               !isUITestMode,
               navigationController?.topViewController === self,
-              UIApplication.shared.applicationState == .active else { return }
+              !isOffScreen || JarvisWakeWordSettings.watchesInBackground else { return }
         if presentedViewController != nil {
             // A sheet or an alert is open (closing it does not call viewDidAppear here).
             scheduleWakeListening(after: 2.0)
@@ -224,7 +224,12 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
               !conversationActive,
               !listenAfterWakeReply,
               idleStates.contains(interfaceState) else { return }
-        voiceInput.startListening(mode: .wake)
+        if isOffScreen {
+            // Off screen: the next wait for « Jarvis » and the claps, on the microphone kept open.
+            voiceInput.startBackgroundWatch()
+        } else {
+            voiceInput.startListening(mode: .wake)
+        }
     }
 
     private func stopWakeListening() {
@@ -247,6 +252,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         case .unavailable(let failure):
             // No retry loop on an error: the next tap or return to this screen tries again.
             hintLabel.text = "Réveil par la voix en pause : \(failure.message)"
+            // Off screen, the claps go on (the recognizer is not tried again until the next return to the background).
+            if isOffScreen { scheduleWakeListening(after: 1.0) }
         case .hearingSound, .heardYou, .processing:
             break
         }
@@ -270,10 +277,24 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         execute(request, source: "voice")
     }
 
-    /// Two claps while waiting for « Jarvis »: the same as calling it by name.
+    /// Two claps, whatever Jarvis is doing: the same as calling it by name. It stops talking
+    /// or thinking, answers « Oui ? » and listens.
     private func handleDoubleClap() {
-        guard isWakeListening, presentedViewController == nil else { return }
+        guard presentedViewController == nil, !listenAfterWakeReply else { return }
+        // Already listening to a request: the claps change nothing.
+        if voiceInput.isListening, voiceInput.mode == .command, !bargeInProbe { return }
+        // A plain microphone hears Jarvis's own voice: only claps heard with echo cancellation stop it.
+        if speech.isSpeaking, !voiceInput.hearsOverJarvis { return }
+        rearmWorkItem?.cancel()
+        rearmWorkItem = nil
+        cancelThinkingFiller()
+        resetBargeIn()
+        if speech.isSpeaking || speech.isStreamingReply || JarvisLocalBrain.shared.isGenerating {
+            JarvisLocalBrain.shared.cancel()
+            speech.stop()
+        }
         stopWakeListening()
+        if voiceInput.isListening { voiceInput.cancel() }
         answerWakeCall()
     }
 

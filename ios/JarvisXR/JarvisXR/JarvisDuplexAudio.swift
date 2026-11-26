@@ -77,10 +77,11 @@ final class JarvisDuplexAudio {
             usesVoiceProcessing = voiceProcessing
             microphoneSampleRate = microphoneFormat.sampleRate
             lastFailure = nil
+            recentRecoveries = []
             configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-                // The route or the hardware changed: the next turn opens the audio again.
-                self?.stop()
-                self?.onStopped?()
+                // Turning echo cancellation on makes iOS post this right after the start: the
+                // microphone is started again, never closed (that cut every turn at once).
+                self?.recoverAfterConfigurationChange()
             }
             return true
         } catch {
@@ -88,6 +89,47 @@ final class JarvisDuplexAudio {
             lastFailure = "\(nsError.domain) \(nsError.code)"
             stop()
             return false
+        }
+    }
+
+    /// Times the engine was started again after iOS changed the audio (Diagnostics).
+    private(set) var recoveries = 0
+    private var recentRecoveries: [Date] = []
+
+    /// iOS changed the audio hardware or its processing and may have stopped the engine: it
+    /// starts again with the microphone's new format, the turn's speech request still
+    /// attached. Only when that fails, or keeps happening, is the audio closed.
+    private func recoverAfterConfigurationChange() {
+        guard isRunning, let engine else { return }
+        if engine.isRunning { return }
+        let now = Date()
+        recentRecoveries = recentRecoveries.filter { now.timeIntervalSince($0) < 10 } + [now]
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
+        let format = input.outputFormat(forBus: 0)
+        guard recentRecoveries.count <= 5, format.sampleRate > 0, format.channelCount > 0 else {
+            lastFailure = recentRecoveries.count > 5 ? "changements audio répétés" : "entrée micro \(Int(format.sampleRate)) Hz après changement"
+            stop()
+            onStopped?()
+            return
+        }
+        // Voice buffers still queued are dropped (their callbacks run) instead of waiting forever.
+        player?.stop()
+        let listener = self.listener
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            listener.ingest(buffer)
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            player?.play()
+            microphoneSampleRate = format.sampleRate
+            recoveries += 1
+        } catch {
+            let nsError = error as NSError
+            lastFailure = "redémarrage \(nsError.domain) \(nsError.code)"
+            stop()
+            onStopped?()
         }
     }
 
