@@ -188,6 +188,8 @@ def test_knowledge_questions_bring_wikipedia(memory, monkeypatch):
         return ("Arrêt Blanco", "L'arrêt Blanco (8 février 1873) est un arrêt du Tribunal des conflits.")
 
     monkeypatch.setattr(internet, "wikipedia", fake_wikipedia)
+    monkeypatch.setattr(internet, "web_search", lambda subject, limit=4: [])
+    monkeypatch.setattr(internet, "english_wikipedia", lambda title, sentences=4: None)
     brain = CommandBrain("Voici une vraie réponse.")
     core = JarvisCore(Online(), memory, brain, Router(memory, Online(), opener=lambda _: None, browser=lambda _: None))
     assert core.handle("Qu'est-ce que c'est, l'arrêt Blanco ?").spoken == "Voici une vraie réponse."
@@ -199,6 +201,55 @@ def test_knowledge_questions_bring_wikipedia(memory, monkeypatch):
         assert research.knowledge_subject(other) is None, other
     core.research("C'est quoi l'arrêt Blanco ?")
     assert looked_up == ["l'arrêt Blanco"], "one lookup per subject"
+
+
+def test_knowledge_questions_compare_several_sources(memory, monkeypatch):
+    class Online(FakeSettings):
+        internet = True
+
+    page = ("Accepter les cookies pour continuer. L'arrêt Blanco, rendu le 8 février 1873 par le Tribunal des conflits, "
+            "fonde la responsabilité administrative. Abonnez-vous à notre lettre d'information gratuite chaque semaine.")
+    monkeypatch.setattr(internet, "wikipedia", lambda subject, sentences=2: ("Arrêt Blanco", "L'arrêt Blanco est un arrêt du Tribunal des conflits."))
+    monkeypatch.setattr(internet, "english_wikipedia", lambda title, sentences=4: ("Blanco decision", "The Blanco decision (1873) founded French administrative liability."))
+    monkeypatch.setattr(internet, "web_search", lambda subject, limit=4: [
+        ("fr.wikipedia.org", "https://fr.wikipedia.org/wiki/Arr%C3%AAt_Blanco", "doublon"),
+        ("fiches-droit.com", "https://fiches-droit.com/arret-blanco", "Résumé court."),
+        ("legifrance.gouv.fr", "https://www.legifrance.gouv.fr/x", "Décision du 8 février 1873."),
+    ])
+
+    def fake_page(url):
+        if "legifrance" in url:
+            raise OSError("hors ligne")
+        return page
+
+    monkeypatch.setattr(internet, "page_text", fake_page)
+    brain = CommandBrain("Selon Wikipédia et fiches-droit.com, c'est un arrêt de 1873.")
+    core = JarvisCore(Online(), memory, brain, Router(memory, Online(), opener=lambda _: None, browser=lambda _: None))
+    core.handle("C'est quoi l'arrêt Blanco ?")
+    context = brain.asked[0]["context"]
+    assert context[-4:] == [
+        "Extrait de Wikipédia sur « Arrêt Blanco » : L'arrêt Blanco est un arrêt du Tribunal des conflits.",
+        "Extrait de Wikipedia en anglais sur « Blanco decision » : The Blanco decision founded French administrative liability.",
+        "Extrait de fiches-droit.com : L'arrêt Blanco, rendu le 8 février 1873 par le Tribunal des conflits, fonde la responsabilité administrative.",
+        "Extrait de legifrance.gouv.fr : Décision du 8 février 1873.",
+    ]
+    # The iPhone already sent Wikipédia: only the other sources are added.
+    iphone = ["Extrait de Wikipédia sur « Arrêt Blanco » : texte de l'iPhone."]
+    assert [line.split(" : ")[0] for line in core.research("C'est quoi l'arrêt Blanco ?", iphone)] == [
+        "Extrait de Wikipedia en anglais sur « Blanco decision »", "Extrait de fiches-droit.com", "Extrait de legifrance.gouv.fr"]
+
+
+def test_duckduckgo_results_and_page_paragraphs_are_read(monkeypatch):
+    results = ('<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Ffiches%2Ddroit.com%2Farret&amp;rut=1">T</a>'
+               '<a class="result__snippet" href="x">L&#x27;<b>arrêt</b> Blanco  de 1873</a>'
+               '<a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Pub</a><a class="result__snippet" href="y">Annonce</a>')
+    monkeypatch.setattr(internet, "_get", lambda url, timeout=8: results.encode())
+    assert internet.web_search("arrêt Blanco") == [("fiches-droit.com", "https://fiches-droit.com/arret", "L'arrêt Blanco de 1873")]
+    parser = internet._Paragraphs()
+    parser.feed("<nav><p>Menu du site avec beaucoup de liens inutiles ici</p></nav><script>x()</script>"
+                "<p>L'arrêt Blanco est une décision du <a>Tribunal des conflits</a> de 1873.</p><p>Court.</p>")
+    assert parser.paragraphs == ["L'arrêt Blanco est une décision du Tribunal des conflits de 1873."]
+    assert internet.page_text("http://exemple.fr") == ""
 
 
 def test_addresses_for_the_iphone_leave_virtual_switches_out():

@@ -98,8 +98,8 @@ def system_prompt(context: list[str], now: datetime | None = None, extra: str | 
         "quelques étapes.",
         "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
         "Tu sais faire des mathématiques, de la physique, de la chimie, de l'histoire, du droit, du code et de la culture générale : réponds même aux questions difficiles, en donnant d'abord le résultat puis une courte explication.",
-        "Quand un extrait de Wikipédia ou une autre information d'Internet est fourni ci-dessous, réponds d'après lui, fidèlement, avec tes "
-        "mots, sans rien ajouter dont tu n'es pas certain. Sinon, pour un fait récent ou qui change souvent, dis que tu ne peux pas le vérifier.",
+        "Quand des extraits de Wikipédia ou d'autres sites sont fournis, réponds d'après eux, fidèlement, avec tes "
+        "mots, en gardant ce sur quoi ils s'accordent et sans rien ajouter dont tu n'es pas certain. Sinon, pour un fait récent ou qui change souvent, dis que tu ne peux pas le vérifier.",
         f"Nous sommes le {date}.",
     ]
     if extra:
@@ -156,8 +156,8 @@ class OllamaBrain:
         model = self.active_model()
         if model is None:
             raise RuntimeError("Le cerveau du PC n'est pas prêt : Ollama ne répond pas, ou le modèle n'est pas installé.")
-        # Wikipédia's text goes with the question itself: the brain then keeps to it.
-        excerpts = [line for line in context or [] if line.startswith("Extrait de Wikipédia")]
+        # The sources' text goes with the question itself: the brain then keeps to it.
+        excerpts = [line for line in context or [] if line.startswith("Extrait de ")]
         others = [line for line in context or [] if line not in excerpts]
         messages = [{"role": "system", "content": system_prompt(others, extra=commands)}]
         for turn in (history or [])[-6:]:
@@ -165,14 +165,19 @@ class OllamaBrain:
                 messages.append({"role": "user", "content": turn["user"]})
                 messages.append({"role": "assistant", "content": turn["assistant"]})
         content = question
-        if excerpts:
+        if len(excerpts) == 1:
             content += "\n\n(" + excerpts[0] + ")"
+        elif excerpts:
+            content += ("\n\n(Sources trouvées sur Internet :\n" + "\n".join(excerpts) +
+                        "\nRéponds d'après ce sur quoi ces sources s'accordent, et dis brièvement d'où cela vient, par exemple "
+                        "« selon Wikipédia et legifrance.gouv.fr ». Si elles se contredisent, dis-le. N'utilise pas une source "
+                        "qui parle d'autre chose.)")
         if commands:
             # After a few exchanges, a model imitates its earlier answers: the rule is repeated here.
             content += "\n\n(Rappel : si c'est une action que Jarvis sait faire, écris seulement « COMMANDE: … ». Sinon, réponds en vouvoyant.)"
         messages.append({"role": "user", "content": content})
-        # Facts from Wikipédia are told as they are, without embroidery.
-        grounded = any(line.startswith("Extrait de Wikipédia") for line in context or [])
+        # Facts from the sources are told as they are, without embroidery.
+        grounded = bool(excerpts)
         body = json.dumps({
             "model": model,
             "messages": messages,

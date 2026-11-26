@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 import threading
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import internet, research
@@ -61,7 +62,8 @@ class JarvisCore:
             spoken = self.brain.ask(text, list(self.history), context, on_text=guarded(on_text), commands=PC_COMMANDS)
         except Exception as error:  # noqa: BLE001 — explained to the user instead
             if found:
-                return Answer("D'après Wikipédia : " + found[0].split(" : ", 1)[-1], data={"internet": "wikipedia", "brain": ""})
+                source, text = re.match(r"Extrait de (.+?)(?: sur « .* »)? : (.*)", found[0], re.S).groups()
+                return Answer(f"D'après {source} : {text}", data={"internet": "wikipedia" if source == "Wikipédia" else "web", "brain": ""})
             spoken = str(error) if isinstance(error, RuntimeError) else "Le cerveau du PC a rencontré une erreur. Réessayez."
             return Answer(spoken, data={"brain": ""})
         command = command_in(spoken)
@@ -88,21 +90,59 @@ class JarvisCore:
         return self.brain.ask(question, history, merged, on_text=guarded(on_text) if extra else on_text, commands=extra)
 
     def research(self, question: str, context: list[str] | tuple = ()) -> list[str]:
-        """Wikipédia's text about the subject of « Qu'est-ce que… ? » when Internet is on."""
-        if not getattr(self.settings, "internet", False) or any(line.startswith("Extrait de Wikipédia") for line in context):
+        """What several free sources say about the subject of « Qu'est-ce que… ? » when Internet is
+        on: Wikipédia, the English article on the same subject, then DuckDuckGo's first results (the
+        page's own text when it opens; none when DuckDuckGo asks for a human check). The brain keeps
+        what they agree on and names them."""
+        if not getattr(self.settings, "internet", False):
             return []
         subject = research.knowledge_subject(question)
         if not subject:
             return []
         key = subject.lower()
         if key not in self._research_cache:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                wiki, web = pool.submit(self._wikipedia, subject), pool.submit(self._web, subject)
+                self._research_cache[key] = wiki.result() + web.result()
+        has_wikipedia = any(line.startswith("Extrait de Wikipédia") for line in context)  # the iPhone sent it already
+        return [line for line in self._research_cache[key]
+                if line not in context and not (has_wikipedia and line.startswith("Extrait de Wikipédia"))]
+
+    @staticmethod
+    def _wikipedia(subject: str) -> list[str]:
+        try:
+            found = internet.wikipedia(subject, sentences=6)
+        except (OSError, ValueError):
+            return []
+        text = re.sub(r"\s*\([^()]*\)", "", found[1]).strip() if found else ""
+        if not (found and text):
+            return []
+        lines = [f"Extrait de Wikipédia sur « {found[0]} » : {text}"]
+        try:
+            english = internet.english_wikipedia(found[0])
+        except (OSError, ValueError):
+            english = None
+        if english:
+            lines.append(f"Extrait de Wikipedia en anglais sur « {english[0]} » : " + re.sub(r"\s*\([^()]*\)", "", english[1]).strip())
+        return lines
+
+    @staticmethod
+    def _web(subject: str, sources: int = 3) -> list[str]:
+        try:
+            results = [r for r in internet.web_search(subject, limit=sources + 2) if "wikipedia.org" not in r[0]][:sources]
+        except (OSError, ValueError):
+            return []
+
+        def excerpt(result: tuple[str, str, str]) -> str:
+            site, url, snippet = result
             try:
-                found = internet.wikipedia(subject, sentences=6)
-            except (OSError, ValueError):
-                return []
-            text = re.sub(r"\s*\([^()]*\)", "", found[1]).strip() if found else ""
-            self._research_cache[key] = [f"Extrait de Wikipédia sur « {found[0]} » : {text}"] if found and text else []
-        return self._research_cache[key]
+                found = research.passage(internet.page_text(url), subject)
+            except (OSError, ValueError, UnicodeError):
+                found = ""
+            return f"Extrait de {site} : {found if len(found) > len(snippet) else snippet}"
+
+        with ThreadPoolExecutor(max_workers=sources) as pool:
+            return list(pool.map(excerpt, results))
 
     def _side_effects(self, answer: Answer) -> None:
         seconds = answer.data.get("timer_seconds")

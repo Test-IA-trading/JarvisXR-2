@@ -41,3 +41,20 @@ def knowledge_subject(question: str) -> str | None:
             return None
         return subject
     return None
+
+
+def passage(text: str, subject: str, limit: int = 450) -> str:
+    """The sentences of a web page that speak of the subject, in the page's order, up to `limit`
+    characters: what the brain compares with the other sources."""
+    keys = {word.split("'")[-1] for word in normalize(subject).split()}
+    keys = {word for word in keys if len(word) > 3} or keys
+    sentences = re.split(r"(?<=[.!?])\s+", " ".join(text.split()))
+    scored = [(sum(key in normalize(sentence) for key in keys), index) for index, sentence in enumerate(sentences)
+              if 30 < len(sentence) < 400]
+    chosen, used = [], 0
+    for score, index in sorted(scored, key=lambda item: (-item[0], item[1])):
+        if score == 0 or used + len(sentences[index]) > limit:
+            continue
+        chosen.append(index)
+        used += len(sentences[index]) + 1
+    return " ".join(sentences[index] for index in sorted(chosen))
