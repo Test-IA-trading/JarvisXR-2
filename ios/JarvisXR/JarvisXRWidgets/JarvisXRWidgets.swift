@@ -42,11 +42,14 @@ struct JarvisWatchActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(context.state.detail)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(context.state.detail)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        JarvisStopWatchButton(accent: Self.accent)
+                    }
                 }
             } compactLeading: {
                 Image(systemName: context.state.symbol)
@@ -84,9 +87,23 @@ struct JarvisWatchLockScreenView: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.8))
                     .lineLimit(3)
+                JarvisStopWatchButton(accent: accent)
             }
             Spacer(minLength: 0)
         }
         .padding(14)
+    }
+}
+
+/// Stops the background watch (microphone off) until Jarvis is opened again.
+struct JarvisStopWatchButton: View {
+    let accent: Color
+
+    var body: some View {
+        Button(intent: StopBackgroundWatchIntent()) {
+            Label("Arrêter la veille", systemImage: "mic.slash")
+                .font(.caption.weight(.semibold))
+        }
+        .tint(accent)
     }
 }

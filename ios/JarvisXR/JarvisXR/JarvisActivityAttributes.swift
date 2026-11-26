@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import Foundation
 
 /// What the Dynamic Island and the lock screen show while Jarvis keeps watch in the
@@ -51,4 +52,21 @@ struct JarvisActivityAttributes: ActivityAttributes {
     }
 
     var name = "JARVIS"
+}
+
+/// « Arrêter » on the Dynamic Island and the lock screen: the background watch stops (the
+/// microphone closes) until Jarvis is opened again. Runs in the app's process, which the
+/// notification reaches (JarvisVoiceInputService).
+struct StopBackgroundWatchIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Arrêter la veille de Jarvis"
+    static var isDiscoverable = false
+
+    static let notification = Notification.Name("JarvisXR.stopBackgroundWatch")
+
+    func perform() async throws -> some IntentResult {
+        await MainActor.run {
+            NotificationCenter.default.post(name: Self.notification, object: nil)
+        }
+        return .result()
+    }
 }

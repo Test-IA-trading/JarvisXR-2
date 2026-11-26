@@ -227,6 +227,8 @@ final class JarvisVoiceInputService: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMediaServicesReset), name: AVAudioSession.mediaServicesWereResetNotification, object: AVAudioSession.sharedInstance())
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleStopBackgroundWatch), name: StopBackgroundWatchIntent.notification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         JarvisDuplexAudio.shared.listener.setBargeInHandler { [weak self] in
             self?.onPossibleBargeIn?()
         }
@@ -585,6 +587,8 @@ final class JarvisVoiceInputService: NSObject {
     /// The on-device recognizer failed off screen once: until the next return to the
     /// background, only the claps are listened to there.
     private var wakeRecognitionFailedOffScreen = false
+    /// When the app left the screen, or the last request off screen was heard.
+    private var lastBackgroundUse = Date()
 
     /// In the background, on the microphone kept open: « Jarvis » (on-device recognition,
     /// nothing leaves the iPhone) and the two claps; only the claps when the recognizer is
@@ -597,7 +601,8 @@ final class JarvisVoiceInputService: NSObject {
             // A request being said goes on, and so does a wait for « Jarvis ».
             return mode == .wake
         }
-        if !wakeRecognitionFailedOffScreen {
+        let recent = Date().timeIntervalSince(lastBackgroundUse) < JarvisWakeWordSettings.backgroundRecognitionWindow
+        if !wakeRecognitionFailedOffScreen, recent {
             startListening(mode: .wake)
             if isListening { return true }
         }
@@ -677,6 +682,7 @@ final class JarvisVoiceInputService: NSObject {
             onStateChange?(.standby)
         } else if !final.isEmpty {
             lastDiagnostic += " Texte reçu."
+            if UIApplication.shared.applicationState != .active { lastBackgroundUse = Date() }
             onStateChange?(.heardYou(final))
             onStateChange?(.processing)
             onFinalTranscript?(final)
@@ -833,12 +839,28 @@ final class JarvisVoiceInputService: NSObject {
         }
     }
 
+    /// « Arrêter la veille » (Dynamic Island, lock screen): the microphone closes and the
+    /// island goes away, until Jarvis is opened again.
+    @objc private func handleStopBackgroundWatch() {
+        DispatchQueue.main.async { [weak self] in
+            JarvisWakeWordSettings.stoppedUntilReopened = true
+            if self?.isListening == true { self?.cancel() }
+            JarvisDuplexAudio.shared.stop()
+            JarvisLiveActivity.shared.stop()
+        }
+    }
+
+    @objc private func handleDidBecomeActive() {
+        JarvisWakeWordSettings.stoppedUntilReopened = false
+    }
+
     @objc private func handleDidEnterBackground() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             // Background watch: « Jarvis » and the claps, on the microphone kept open.
             if JarvisWakeWordSettings.watchesInBackground {
                 self.wakeRecognitionFailedOffScreen = false
+                self.lastBackgroundUse = Date()
                 self.startBackgroundWatch()
                 return
             }
