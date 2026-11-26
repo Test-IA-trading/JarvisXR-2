@@ -12,6 +12,7 @@
 - [Build from source](BUILDING.md)
 - [Testing](TESTING.md)
 - [Architecture](ARCHITECTURE.md)
+- [Conversation naturelle sur iPhone — guide pour Claude Code](CONVERSATION_NATURELLE.md)
 - [Jarvis Vision completion ledger](JARVIS_VISION_COMPLETION_LEDGER.md)
 
 ## Capabilities and Limits
