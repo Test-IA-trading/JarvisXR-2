@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import time
 import urllib.error
 import urllib.request
@@ -108,6 +109,32 @@ def system_prompt(context: list[str], now: datetime | None = None, extra: str | 
     return "\n".join(lines)
 
 
+COMPLEX_MARKERS = (
+    "pourquoi", "comment", "explique", "demontre", "prouve", "compare", "difference", "analyse", "resous", "calcule",
+    "integrale", "derivee", "equation", "probabilite", "code", "programme", "algorithme", "avantages", "inconvenients",
+    "strategie", "plan", "resume", "dissertation", "raisonne", "etape",
+)
+SIMPLE_STARTS = ("bonjour", "salut", "merci", "ca va", "coucou", "qui es tu", "quelle heure", "quel jour", "bonne nuit", "oui", "non", "d'accord")
+
+
+def difficulty(question: str) -> str:
+    """« simple » (a greeting, a short fact: answered at once, briefly), « complexe »
+    (reasoning, maths, code, a comparison: more room and care) or « normale »."""
+    folded = unicodedata.normalize("NFD", question.lower().replace("’", "'"))
+    text = " ".join("".join(c for c in folded if unicodedata.category(c) != "Mn").replace("-", " ").split())
+    words = re.findall(r"[a-z0-9']+", text)
+    if any(marker in words or (" " in marker and marker in text) for marker in COMPLEX_MARKERS) or len(words) > 25 or re.search(r"\d+\s*[-+*/^x×÷]\s*\d+", text):
+        return "complexe"
+    if len(words) <= 6 or text.startswith(SIMPLE_STARTS):
+        return "simple"
+    return "normale"
+
+
+TOKENS = {"simple": 160, "normale": 400, "complexe": 900}
+CAREFUL = ("Cette demande demande du raisonnement : vérifie chaque étape avant de conclure, puis donne le résultat "
+           "et une explication claire, sans répéter la question.")
+
+
 def clean(text: str) -> str:
     """Plain text for screen and voice: no thinking, LaTeX or markdown."""
     text = re.sub(r"(?s)<think>.*?</think>", "", text)
@@ -164,6 +191,9 @@ class OllamaBrain:
             if turn.get("user") and turn.get("assistant"):
                 messages.append({"role": "user", "content": turn["user"]})
                 messages.append({"role": "assistant", "content": turn["assistant"]})
+        level = difficulty(question)
+        if level == "complexe":
+            messages[0]["content"] += "\n" + CAREFUL
         content = question
         if len(excerpts) == 1:
             content += "\n\n(" + excerpts[0] + ")"
@@ -184,7 +214,8 @@ class OllamaBrain:
             "stream": True,
             "think": False,
             "keep_alive": "30m",
-            "options": {"temperature": 0.3 if grounded else 0.6, "num_ctx": 4096, "num_predict": self.max_tokens},
+            "options": {"temperature": 0.3 if grounded or level == "complexe" else 0.6, "num_ctx": 4096,
+                        "num_predict": max(self.max_tokens, TOKENS[level]) if level == "complexe" else min(self.max_tokens, TOKENS[level])},
         }).encode("utf-8")
         request = urllib.request.Request(self.host + "/api/chat", data=body, headers={"Content-Type": "application/json"})
         raw = ""

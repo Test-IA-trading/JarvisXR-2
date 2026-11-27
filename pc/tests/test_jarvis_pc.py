@@ -301,6 +301,8 @@ def test_wake_word_like_the_iphone():
     assert wake.command("Quelle heure est-il, Jarvis ?") == "Quelle heure est-il"
     assert wake.command("Hey Jarvis") == ""
     assert wake.command("On regardait un film") is None
+    assert wake.command("J'en ai parlé à Jarvis hier") is None, "about Jarvis, not to it"
+    assert wake.command("Bon Jarvis, il fait quel temps") == "il fait quel temps"
 
 
 def test_wake_word_survives_what_whisper_writes():
@@ -405,3 +407,14 @@ def test_server_shares_memory_and_the_phone_inbox(server):
     assert [m["text"] for m in json.loads(body)["messages"]] == ["que le dîner est prêt"] or \
         [m["text"] for m in json.loads(body)["messages"]] == ["le dîner est prêt"]
     assert json.loads(_call(server, "/v1/inbox")[1])["messages"] == [], "a message is delivered once"
+
+
+def test_the_brain_adapts_its_effort_to_the_question():
+    from jarvis_pc.brain import TOKENS, difficulty
+
+    assert difficulty("Bonjour Jarvis") == "simple"
+    assert difficulty("Quelle est la capitale du Pérou ?") == "simple"
+    assert difficulty("Combien font 37 x 12 ?") == "complexe"
+    assert difficulty("Explique-moi la relativité restreinte") == "complexe"
+    assert difficulty("Peux-tu me donner une idée de cadeau pour ma mère qui aime le jardinage ?") == "normale"
+    assert TOKENS["simple"] < TOKENS["normale"] < TOKENS["complexe"]

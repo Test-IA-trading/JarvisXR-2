@@ -7,7 +7,9 @@ import re
 import unicodedata
 
 SPELLINGS = {"jarvis", "jarvisse", "jarviss", "jarvice", "djarvis", "jarvys", "jarvi"}
-CALL_WORDS = {"hey", "he", "eh", "ok", "okay", "dis", "dites", "bonjour", "salut", "allo", "alors"}
+CALL_WORDS = {"hey", "he", "eh", "ok", "okay", "dis", "dites", "bonjour", "salut", "allo", "alors", "bon", "euh", "oh", "ah", "allez", "coucou", "yo"}
+# Punctuation the recognizer writes at a pause.
+PAUSE_MARKS = set(".,;:!?…—–")
 # « Dis Jarvis » is sometimes written as one word (« Dijardvis »).
 CALL_PREFIXES = ("dis", "di", "hey", "he", "eh", "ok")
 # One letter away from « jarvis », yet a French word.
@@ -51,10 +53,17 @@ def is_jarvis(folded: str) -> bool:
 
 
 def command(transcript: str) -> str | None:
+    """« Jarvis » counts only when addressed: at the start, after a pause (punctuation) or a
+    call word; « J'en ai parlé à Jarvis hier » runs nothing."""
     last = None
+    previous_end, previous_word = None, ""
     for match in re.finditer(r"[\w'’-]+", transcript):
-        if is_jarvis(_fold(match.group(0))):
-            last = match
+        folded = _fold(match.group(0))
+        if is_jarvis(folded):
+            gap = transcript[previous_end:match.start()] if previous_end is not None else ""
+            if previous_end is None or PAUSE_MARKS & set(gap) or previous_word in CALL_WORDS:
+                last = match
+        previous_end, previous_word = match.end(), folded
     if last is None:
         return None
     trim = " \t\n,.;:!?«»\"()-–—…"

@@ -104,18 +104,28 @@ final class JarvisAssistantCore {
             )
             return JarvisAssistantDecision(intent: decision.intent, plan: decision.plan, response: response)
         case .openQuestion(let question):
-            // Screens that know the local brain replace this placeholder with its answer;
-            // the text below is what is said when the brain is not available.
-            let response = JarvisResponse(
-                status: .ok,
-                spokenResponse: "Je n'ai pas encore de réponse locale à cette demande.",
-                displayResponse: "J'ai compris : « \(question) ». Je n'ai pas encore de réponse locale à cette demande.",
-                data: ["action": "local_brain", "question": question]
-            )
-            return JarvisAssistantDecision(intent: .unsupported, plan: nil, response: response)
+            return Self.openQuestion(question)
         case .notHandled:
-            return decideCanonical(rawCommand)
+            let decision = decideCanonical(rawCommand)
+            // No command of the old English router either (« Elon Musk », « Netflix demain ») :
+            // the brain answers, never the old English help text.
+            if decision.response.status == .refused, decision.response.spokenResponse == JarvisCommandRouter.unrecognizedSpoken {
+                return Self.openQuestion(rawCommand.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return decision
         }
+    }
+
+    /// Screens that know the local brain replace this placeholder with its answer; the
+    /// text below is what is said when the brain is not available.
+    private static func openQuestion(_ question: String) -> JarvisAssistantDecision {
+        let response = JarvisResponse(
+            status: .ok,
+            spokenResponse: "Je n'ai pas encore de réponse locale à cette demande.",
+            displayResponse: "J'ai compris : « \(question) ». Je n'ai pas encore de réponse locale à cette demande.",
+            data: ["action": "local_brain", "question": question]
+        )
+        return JarvisAssistantDecision(intent: .unsupported, plan: nil, response: response)
     }
 
     private func decideCanonical(_ rawCommand: String) -> JarvisAssistantDecision {

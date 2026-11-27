@@ -192,7 +192,17 @@ final class JarvisConversationContext {
     private(set) var recentTurns: [JarvisChatTurn] = []
     static let maximumTurns = 6
 
+    /// What Jarvis had said when the user cut in (« non non, attends »): the next request
+    /// corrects or completes it. Cleared once that request is answered.
+    private(set) var interruptedReply: String?
+
+    func noteInterruption(spoken: String) {
+        let said = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        interruptedReply = said.isEmpty ? nil : String(said.prefix(220))
+    }
+
     func recordTurn(user: String, assistant: String) {
+        interruptedReply = nil
         let question = user.trimmingCharacters(in: .whitespacesAndNewlines)
         let answer = assistant.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !answer.isEmpty else { return }
@@ -215,6 +225,9 @@ final class JarvisConversationContext {
         if let summary = lastNotesSummary {
             lines.append("Notes comptées \(summary.periodDescription) : \(summary.count).")
         }
+        if let interruptedReply {
+            lines.append("L'utilisateur vous a interrompu pendant votre dernière réponse, qui commençait par : « \(interruptedReply) ». Sa demande corrige ou précise la précédente : répondez-y en tenant compte de l'échange, sans tout reprendre depuis le début.")
+        }
         return lines
     }
 
@@ -223,6 +236,7 @@ final class JarvisConversationContext {
         lastQuestion = nil
         lastNotesSummary = nil
         recentTurns = []
+        interruptedReply = nil
     }
 
     private static let articles: Set<String> = ["le", "la", "les", "mon", "ma", "mes", "ton", "ta", "son", "sa", "notre", "votre", "leur", "ce", "cet", "cette"]

@@ -11,11 +11,8 @@ extension JarvisWakeWordSettings {
         set { UserDefaults.standard.set(newValue, forKey: backgroundKey) }
     }
 
-    /// « Arrêter la veille » on the Dynamic Island: no watch until Jarvis is opened again.
-    static var stoppedUntilReopened = false
-
     /// Everything the background watch needs is on.
-    static var watchesInBackground: Bool { isEnabled && clapsEnabled && worksInBackground && !stoppedUntilReopened }
+    static var watchesInBackground: Bool { isEnabled && clapsEnabled && worksInBackground }
 
     /// Off screen, « Jarvis » is recognized during this time after leaving the app or after
     /// the last request; then only the claps are heard (speech recognition drains the battery).

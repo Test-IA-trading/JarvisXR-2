@@ -54,16 +54,22 @@ struct JarvisActivityAttributes: ActivityAttributes {
     var name = "JARVIS"
 }
 
-/// « Arrêter » on the Dynamic Island and the lock screen: the background watch stops (the
-/// microphone closes) until Jarvis is opened again. Runs in the app's process, which the
-/// notification reaches (JarvisVoiceInputService).
+/// « Arrêter la veille » on the Dynamic Island and the lock screen: the background watch
+/// is turned off (Réglages › Veille en arrière-plan), the microphone closes and the island
+/// goes away. iOS may run this in the widget extension instead of the app: a Darwin
+/// notification reaches the app's process either way (JarvisVoiceInputService), which
+/// ends the activity.
 struct StopBackgroundWatchIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Arrêter la veille de Jarvis"
     static var isDiscoverable = false
 
+    /// Inside the app's process.
     static let notification = Notification.Name("JarvisXR.stopBackgroundWatch")
+    /// Between processes (extension to app).
+    static let darwinName = "com.amrik.jarvisxr.stopBackgroundWatch"
 
     func perform() async throws -> some IntentResult {
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(Self.darwinName as CFString), nil, nil, true)
         await MainActor.run {
             NotificationCenter.default.post(name: Self.notification, object: nil)
         }

@@ -36,6 +36,18 @@ final class JarvisWakeWordTests: XCTestCase {
         XCTAssertNil(JarvisWakeWord.command(in: "On regardait un film hier soir"))
         XCTAssertNil(JarvisWakeWord.command(in: "J'arrive dans cinq minutes"))
         XCTAssertNil(JarvisWakeWord.command(in: ""))
+        // Talking about Jarvis is not talking to it.
+        XCTAssertNil(JarvisWakeWord.command(in: "J'en ai parlé à Jarvis hier"))
+        XCTAssertNil(JarvisWakeWord.command(in: "Tu connais Jarvis le film"))
+        XCTAssertEqual(JarvisWakeWord.command(in: "La télé est forte. Jarvis, baisse le son"), "baisse le son")
+        XCTAssertEqual(JarvisWakeWord.command(in: "Bon Jarvis, il fait quel temps"), "il fait quel temps")
+    }
+
+    func testANoiseWrittenAsAHesitationIsNoRequest() {
+        XCTAssertTrue(JarvisVoiceInputService.isOnlyFiller("Euh."))
+        XCTAssertTrue(JarvisVoiceInputService.isOnlyFiller("Hum, hum"))
+        XCTAssertFalse(JarvisVoiceInputService.isOnlyFiller("Euh, quelle heure est-il ?"))
+        XCTAssertFalse(JarvisVoiceInputService.isOnlyFiller(""))
     }
 
     func testTheWakeWordIsOffByDefault() {

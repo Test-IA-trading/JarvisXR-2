@@ -767,6 +767,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         bargeInConfirmed = true
         bargeInTimeout?.cancel()
         bargeInTimeout = nil
+        // The brain hears the next request as a correction of what it was saying.
+        JarvisConversationContext.shared.noteInterruption(spoken: speech.currentReplyText)
         speech.setVoiceLowered(false)
         JarvisLocalBrain.shared.cancel()
         speech.stop()
@@ -1117,9 +1119,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             askLocalBrain(question)
             return
         }
-        showTransient(response.displayResponse)
         if response.status == .refused || response.status == .unavailable || response.status == .error {
+            // Shown once, under the orb (the same text twice was confusing).
             setInterfaceState(.ready, hint: response.displayResponse)
+        } else {
+            showTransient(response.displayResponse)
         }
 
         if let visionRequest {
@@ -1244,7 +1248,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         guard let route, let url = URL(string: route) else { return }
         UIApplication.shared.open(url) { [weak self] success in
             guard !success else { return }
-            self?.showTransient("Use Control Mesh: say Open \(url.host ?? "the app") or open it from Home.")
+            self?.showTransient(url.scheme == "shortcuts"
+                ? "L'app Raccourcis ne s'ouvre pas : vérifiez qu'elle est installée et que le raccourci existe sous ce nom."
+                : "Cette app ne s'ouvre pas : vérifiez qu'elle est installée, ou ouvrez-la depuis l'écran d'accueil.")
         }
     }
 

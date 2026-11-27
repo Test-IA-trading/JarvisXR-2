@@ -160,6 +160,14 @@ final class JarvisVoiceFrenchTests: XCTestCase {
         XCTAssertEqual(decision.response.spokenResponse, "J'ouvre la caméra.")
     }
 
+    func testAShortcutIsRunByItsName() {
+        guard case .answer(let response) = french.route("Jarvis, lance le raccourci Mode nuit") else { return XCTFail("Not a shortcut") }
+        XCTAssertEqual(response.data["url_scheme"], "shortcuts://run-shortcut?name=Mode%20nuit")
+        XCTAssertEqual(response.spokenResponse, "Je lance le raccourci « Mode nuit ».")
+        guard case .answer(let asked) = french.route("Demande à ChatGPT pourquoi la mer est salée") else { return XCTFail("Not a shortcut") }
+        XCTAssertEqual(asked.data["url_scheme"], "shortcuts://run-shortcut?name=Demander%20%C3%A0%20ChatGPT&input=text&text=pourquoi%20la%20mer%20est%20sal%C3%A9e")
+    }
+
     func testEnglishCommandsStillReachTheExistingRouter() {
         guard case .notHandled = french.route("help") else { return XCTFail("English command was intercepted") }
         guard case .notHandled = french.route("take over springboard") else { return XCTFail("English command was intercepted") }

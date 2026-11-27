@@ -101,6 +101,10 @@ final class JarvisLocalBrainTests: XCTestCase {
         XCTAssertNotEqual(assistant.decide("Ouvre la caméra").response.data["action"], "local_brain")
         XCTAssertNotEqual(assistant.decide("Quelle heure est-il ?").response.data["action"], "local_brain")
         XCTAssertNotEqual(assistant.decide("help").response.data["action"], "local_brain", "English commands keep the existing router.")
+        // Words without any French marker and no command: the brain, never the old English help.
+        let name = assistant.decide("Elon Musk")
+        XCTAssertEqual(name.response.data["action"], "local_brain")
+        XCTAssertEqual(name.response.data["question"], "Elon Musk")
     }
 
     func testInstallRequestOpensTheBrainSettings() {

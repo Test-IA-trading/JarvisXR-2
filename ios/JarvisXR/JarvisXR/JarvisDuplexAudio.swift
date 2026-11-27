@@ -92,6 +92,15 @@ final class JarvisDuplexAudio {
         }
     }
 
+    /// When Jarvis's voice was last heard through this engine (main queue).
+    private(set) var lastVoiceAt = Date.distantPast
+
+    /// The last second kept before a turn holds only the user, not Jarvis's own voice:
+    /// echo cancellation takes Jarvis out, or Jarvis has been quiet long enough.
+    var preRollIsFreeOfJarvis: Bool {
+        usesVoiceProcessing || Date().timeIntervalSince(lastVoiceAt) > 1.5
+    }
+
     /// Times the engine was started again after iOS changed the audio (Diagnostics).
     private(set) var recoveries = 0
     private var recentRecoveries: [Date] = []
@@ -168,8 +177,11 @@ final class JarvisDuplexAudio {
     /// cannot be played (the caller speaks the classic way instead).
     func play(_ buffer: AVAudioPCMBuffer, played: @escaping () -> Void) -> Bool {
         guard isRunning, let engine, let player, let ready = playable(buffer, engine: engine, player: player) else { return false }
-        player.scheduleBuffer(ready, completionCallbackType: .dataPlayedBack) { _ in
-            DispatchQueue.main.async(execute: played)
+        player.scheduleBuffer(ready, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.lastVoiceAt = Date()
+                played()
+            }
         }
         if !player.isPlaying { player.play() }
         return true

@@ -76,6 +76,12 @@ struct JarvisFrenchCommandRouter {
             return .answer(reply)
         }
 
+        // « Lance le raccourci Mode nuit »: the user's Shortcuts do what iOS keeps from apps
+        // (Wi-Fi, luminosité, concentration, domotique).
+        if let reply = shortcutRequest(original: original, normalized: text) {
+            return .answer(reply)
+        }
+
         // Jarvis PC: « Sur le PC, ouvre Spotify », « Dis sur le PC que le dîner est prêt ».
         if let reply = pcRequest(original: original, normalized: text, request: request) {
             return .answer(reply)
@@ -240,6 +246,48 @@ struct JarvisFrenchCommandRouter {
         guard Self.looksFrench(text) else { return .notHandled }
         // The brain hears the user's own words, not the rewording made for the commands.
         return .openQuestion(spoken)
+    }
+
+    // MARK: Shortcuts
+
+    private static let assistantShortcuts: [(String, String)] = [
+        ("demande a chatgpt", "ChatGPT"), ("demande a chat gpt", "ChatGPT"), ("demande a claude", "Claude"), ("demande a gemini", "Gemini"),
+    ]
+
+    private static let shortcutPrefixes = [
+        "lance le raccourci", "execute le raccourci", "demarre le raccourci", "active le raccourci", "ouvre le raccourci",
+        "lance mon raccourci", "execute mon raccourci", "lancer le raccourci", "raccourci",
+    ]
+
+    /// Runs one of the user's Shortcuts by its name, through the Shortcuts app (iOS asks
+    /// the first time). Nothing else is reachable: iOS keeps its settings from apps.
+    func shortcutRequest(original: String, normalized: String) -> JarvisResponse? {
+        // « Demande à ChatGPT pourquoi… »: the official app's action, in the user's Shortcut
+        // « Demander à ChatGPT » (free with their own account; no key, nothing paid here).
+        for (prefix, assistant) in Self.assistantShortcuts {
+            guard let question = Self.argument(in: original, normalized: normalized, after: prefix)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " «»\"'")), !question.isEmpty else { continue }
+            let name = "Demander à \(assistant)"
+            var components = URLComponents()
+            components.scheme = "shortcuts"
+            components.host = "run-shortcut"
+            components.queryItems = [URLQueryItem(name: "name", value: name), URLQueryItem(name: "input", value: "text"), URLQueryItem(name: "text", value: question)]
+            guard let url = components.url?.absoluteString else { return nil }
+            return .ok("Je pose la question à \(assistant).",
+                       display: "Raccourci « \(name) » lancé avec : « \(question) ». Créez-le une fois dans Raccourcis avec l'action de l'app \(assistant), puis « Énoncer le texte ».",
+                       data: ["url_scheme": url, "action": "shortcut"])
+        }
+        for prefix in Self.shortcutPrefixes {
+            guard let name = Self.argument(in: original, normalized: normalized, after: prefix)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " «»\"'?!.")), !name.isEmpty else { continue }
+            var components = URLComponents()
+            components.scheme = "shortcuts"
+            components.host = "run-shortcut"
+            components.queryItems = [URLQueryItem(name: "name", value: name)]
+            guard let url = components.url?.absoluteString else { return nil }
+            return .ok("Je lance le raccourci « \(name) ».", display: "Raccourci « \(name) » lancé dans l'app Raccourcis.", data: ["url_scheme": url, "action": "shortcut"])
+        }
+        return nil
     }
 
     // MARK: The iPhone's own data

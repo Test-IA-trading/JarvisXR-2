@@ -163,10 +163,25 @@ enum JarvisEchoFilter {
         return Double(shared) / Double(heardWords.count) >= 0.6
     }
 
-    /// The user speaks over Jarvis: two words of their own, or one that interrupts (« Stop »).
+    /// What people say to take the floor back, normalized. They stop Jarvis even when its
+    /// reply has the same words (« non » in « Non, il ne pleut pas »), but not when the
+    /// reply itself says the whole phrase.
+    static let stopPhrases = [
+        "non non", "attends", "attend", "stop", "arrete", "chut", "tais toi", "laisse moi finir", "laisse moi parler",
+        "c'est pas ca", "ce n'est pas ca", "pas ca", "mais non", "attention", "excuse moi", "jarvis",
+    ]
+
+    /// The user speaks over Jarvis: a phrase that takes the floor back, two words of their
+    /// own, or one that interrupts (« Stop »).
     static func isInterruption(_ heard: String, spoken: String) -> Bool {
         let heardWords = words(heard)
-        guard let first = heardWords.first, !isLikelyEcho(heard, spoken: spoken) else { return false }
+        guard let first = heardWords.first else { return false }
+        let heardText = " " + heardWords.joined(separator: " ") + " "
+        let spokenText = " " + words(spoken).joined(separator: " ") + " "
+        if stopPhrases.contains(where: { heardText.contains(" \($0) ") && !spokenText.contains(" \($0) ") }) {
+            return true
+        }
+        guard !isLikelyEcho(heard, spoken: spoken) else { return false }
         return heardWords.count >= 2 || interruptionWords.contains(first) || first.count >= 5
     }
 }

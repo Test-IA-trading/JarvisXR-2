@@ -26,10 +26,15 @@ enum JarvisWakeWord {
     static let spellings: Set<String> = ["jarvis", "jarvisse", "jarviss", "jarvice", "djarvis", "jarvys"]
 
     /// Words that only call Jarvis: « Hey Jarvis », « Dis Jarvis », « Bonjour Jarvis ».
-    private static let callWords: Set<String> = ["hey", "he", "eh", "ok", "okay", "dis", "dites", "bonjour", "salut", "allo", "alors"]
+    private static let callWords: Set<String> = [
+        "hey", "he", "eh", "ok", "okay", "dis", "dites", "bonjour", "salut", "allo", "alors", "bon", "euh", "oh", "ah", "allez", "coucou", "yo",
+    ]
 
     /// « Dis Jarvis » is sometimes written as one word (« Dijarvis »).
     private static let callPrefixes = ["dis", "di", "hey", "he", "eh", "ok"]
+
+    /// Punctuation the recognizer writes at a pause.
+    private static let pauseMarks = CharacterSet(charactersIn: ".,;:!?…—–")
 
     /// One letter away from « jarvis », yet a French word.
     private static let notJarvis: Set<String> = ["parvis"]
@@ -71,14 +76,26 @@ enum JarvisWakeWord {
     /// heure est-il ? »), or the words before it when nothing follows (« Quelle heure
     /// est-il, Jarvis ? »). "" when Jarvis is only called (« Jarvis ? »), nil when the
     /// transcript never says « Jarvis ».
+    ///
+    /// « Jarvis » only counts when it is addressed: at the start, after a pause (the
+    /// recognizer's punctuation) or after a call word. « J'en ai parlé à Jarvis hier » is
+    /// about Jarvis, not to it, and runs nothing.
     static func command(in transcript: String) -> String? {
         var lastRange: Range<String.Index>?
+        var previousEnd: String.Index?
+        var previousWord = ""
         transcript.enumerateSubstrings(in: transcript.startIndex..<transcript.endIndex, options: .byWords) { word, range, _, _ in
             guard let word else { return }
             let folded = word.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR")).lowercased()
             if isJarvis(folded) {
-                lastRange = range
+                let gap = previousEnd.map { String(transcript[$0..<range.lowerBound]) } ?? ""
+                let afterPause = previousEnd == nil || gap.rangeOfCharacter(from: pauseMarks) != nil
+                if afterPause || callWords.contains(previousWord) {
+                    lastRange = range
+                }
             }
+            previousEnd = range.upperBound
+            previousWord = folded
         }
         guard let lastRange else { return nil }
         let trimSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)

@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import Foundation
 import Speech
@@ -228,7 +229,12 @@ final class JarvisVoiceInputService: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleStopBackgroundWatch), name: StopBackgroundWatchIntent.notification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        // The button may run in the widget extension: its Darwin notification is turned into the app's own.
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: StopBackgroundWatchIntent.notification, object: nil)
+            }
+        }, StopBackgroundWatchIntent.darwinName as CFString, nil, .deliverImmediately)
         JarvisDuplexAudio.shared.listener.setBargeInHandler { [weak self] in
             self?.onPossibleBargeIn?()
         }
@@ -652,8 +658,9 @@ final class JarvisVoiceInputService: NSObject {
                 if publishLevel { self.onInputLevel?(level) }
             }
         }
-        // The last second heard comes first: words said as the turn started are kept.
-        listener.attach(recognitionRequest, withPreRoll: true)
+        // The last second heard comes first: words said as the turn started are kept,
+        // unless it may hold Jarvis's own voice (plain microphone, Jarvis just spoke).
+        listener.attach(recognitionRequest, withPreRoll: JarvisDuplexAudio.shared.preRollIsFreeOfJarvis)
         armClaps(always: false)
         starting = false
         capturing = true
@@ -667,10 +674,20 @@ final class JarvisVoiceInputService: NSObject {
         startRecognitionTask(with: recognizer, request: recognitionRequest, onDevice: onDevice, turn: turn)
     }
 
+    private static let fillers: Set<String> = ["euh", "heu", "hum", "hmm", "mmh", "mm", "ah", "oh", "bah", "ben", "pff"]
+
+    /// Only hesitation sounds, which the recognizer writes for a breath or a noise.
+    static func isOnlyFiller(_ text: String) -> Bool {
+        let words = text.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }
+        return !words.isEmpty && words.allSatisfy { fillers.contains($0) }
+    }
+
     private func finishRecognition(process: Bool, turn: Int) {
         guard turn == generation, capturing else { return }
         generation += 1
-        let final = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        var final = lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A noise written as « Euh. » or « Hum » is not a request.
+        if Self.isOnlyFiller(final) { final = "" }
         let silent = meter.isDigitallySilent
         let noBuffers = !meter.hasReceivedBuffers
         let heardSound = meter.hasHeardSound
@@ -839,19 +856,21 @@ final class JarvisVoiceInputService: NSObject {
         }
     }
 
-    /// « Arrêter la veille » (Dynamic Island, lock screen): the microphone closes and the
-    /// island goes away, until Jarvis is opened again.
+    /// « Arrêter la veille » (Dynamic Island, lock screen): the setting turns off (no
+    /// reactivation when Jarvis is opened again: Réglages › Veille en arrière-plan turns it
+    /// back on), the microphone closes and the island goes away. Both notifications may
+    /// come: the second finds nothing left to stop.
     @objc private func handleStopBackgroundWatch() {
         DispatchQueue.main.async { [weak self] in
-            JarvisWakeWordSettings.stoppedUntilReopened = true
+            JarvisWakeWordSettings.worksInBackground = false
             if self?.isListening == true { self?.cancel() }
             JarvisDuplexAudio.shared.stop()
             JarvisLiveActivity.shared.stop()
+            for stale in Activity<JarvisActivityAttributes>.activities {
+                Task { await stale.end(nil, dismissalPolicy: .immediate) }
+            }
+            self?.lastDiagnostic = "Veille en arrière-plan arrêtée depuis la Dynamic Island : micro fermé."
         }
-    }
-
-    @objc private func handleDidBecomeActive() {
-        JarvisWakeWordSettings.stoppedUntilReopened = false
     }
 
     @objc private func handleDidEnterBackground() {

@@ -130,6 +130,20 @@ final class JarvisConversationFlowTests: XCTestCase {
         XCTAssertTrue(JarvisEchoFilter.isInterruption("Attends, j'ai une autre question", spoken: spoken))
         XCTAssertTrue(JarvisEchoFilter.isInterruption("Stop", spoken: spoken))
         XCTAssertFalse(JarvisEchoFilter.isInterruption("euh", spoken: spoken))
+        // Taking the floor back, even with words that Jarvis's reply also has.
+        let answer = "Non, il ne pleut pas à Lyon, mais non loin de là il fait gris."
+        XCTAssertTrue(JarvisEchoFilter.isInterruption("Non non", spoken: answer))
+        XCTAssertTrue(JarvisEchoFilter.isInterruption("Laisse-moi finir", spoken: answer))
+        XCTAssertTrue(JarvisEchoFilter.isInterruption("c'est pas ça", spoken: answer))
+        XCTAssertFalse(JarvisEchoFilter.isInterruption("mais non loin", spoken: answer), "the reply's own « mais non »")
+    }
+
+    func testAnInterruptionIsGivenToTheBrainOnce() {
+        let conversation = JarvisConversationContext()
+        conversation.noteInterruption(spoken: "Il fait beau à Paris aujourd'hui")
+        XCTAssertTrue(conversation.brainContextLines().contains { $0.contains("interrompu") && $0.contains("Il fait beau à Paris") })
+        conversation.recordTurn(user: "Non, à Lyon", assistant: "À Lyon, il pleut.")
+        XCTAssertFalse(conversation.brainContextLines().contains { $0.contains("interrompu") })
     }
 
     // MARK: Commands from the PC's brain
