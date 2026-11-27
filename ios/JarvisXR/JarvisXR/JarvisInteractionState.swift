@@ -11,6 +11,32 @@ enum JarvisInteractionState: String {
     case inspection = "Inspection"
     case quiet = "Quiet"
     case attention = "Attention"
+
+    /// French label shown on the home screen and read by VoiceOver. `rawValue` stays the
+    /// stable technical identifier.
+    var displayName: String {
+        switch self {
+        case .standby: return "En veille"
+        case .ready: return "Prêt"
+        case .listening: return "À l'écoute"
+        case .heardYou: return "Compris"
+        case .processing: return "Traitement"
+        case .speaking: return "Réponse"
+        case .done: return "Terminé"
+        case .inspection: return "Inspection"
+        case .quiet: return "Silencieux"
+        case .attention: return "Attention"
+        }
+    }
+}
+
+/// Progress of one voice turn, shown as "Micro · Son · Texte · Réponse".
+enum JarvisVoiceStage: Int {
+    case idle = 0
+    case micro
+    case sound
+    case text
+    case reply
 }
 
 enum JarvisIntent: String {
@@ -36,13 +62,40 @@ struct JarvisAssistantDecision {
 final class JarvisAssistantCore {
     private let router: JarvisCommandRouter
     private let planner: JarvisCommandPlanner
+    private let french: JarvisFrenchCommandRouter
 
-    init(router: JarvisCommandRouter = JarvisCommandRouter(), planner: JarvisCommandPlanner = JarvisCommandPlanner()) {
+    init(
+        router: JarvisCommandRouter = JarvisCommandRouter(),
+        planner: JarvisCommandPlanner = JarvisCommandPlanner(),
+        french: JarvisFrenchCommandRouter = JarvisFrenchCommandRouter()
+    ) {
         self.router = router
         self.planner = planner
+        self.french = french
     }
 
     func decide(_ rawCommand: String) -> JarvisAssistantDecision {
+        switch french.route(rawCommand) {
+        case .answer(let response):
+            let normalized = JarvisFrenchCommandRouter.normalize(rawCommand)
+            return JarvisAssistantDecision(intent: classify(normalized, response: response), plan: nil, response: response)
+        case .forward(let command, let spoken, let display):
+            let decision = decideCanonical(command)
+            let base = decision.response
+            let response = JarvisResponse(
+                status: base.status,
+                spokenResponse: base.status == .ok ? spoken : base.spokenResponse,
+                displayResponse: display ?? base.displayResponse,
+                data: base.data,
+                shouldSpeak: base.shouldSpeak
+            )
+            return JarvisAssistantDecision(intent: decision.intent, plan: decision.plan, response: response)
+        case .notHandled:
+            return decideCanonical(rawCommand)
+        }
+    }
+
+    private func decideCanonical(_ rawCommand: String) -> JarvisAssistantDecision {
         let plan = planner.plan(rawCommand)
         let normalized = plan.normalizedCommand
         if normalized == "jarvis ready" || normalized == "ready" {
