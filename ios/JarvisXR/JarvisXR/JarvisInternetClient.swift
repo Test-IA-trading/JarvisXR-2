@@ -42,8 +42,18 @@ final class JarvisInternetClient {
             completion(.failure(.disabled))
             return
         }
+        guard !JarvisEmergencyStop.shared.isEngaged else {
+            completion(.failure(.stopped))
+            return
+        }
         guard let url else {
             completion(.failure(.unreadable))
+            return
+        }
+        // The financial guard (JarvisCostGuard): only services free for Jarvis are called.
+        guard JarvisCostGuard.permits(url) else {
+            JarvisCostGuard.noteRefusal(url)
+            completion(.failure(.notFree(url.host ?? "")))
             return
         }
         session.dataTask(with: url) { data, response, error in

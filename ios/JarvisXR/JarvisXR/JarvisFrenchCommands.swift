@@ -27,6 +27,9 @@ struct JarvisFrenchCommandRouter {
     private let screen: JarvisScreenContext
     private let timers: JarvisTimerStore
     private let profile: JarvisUserProfile
+    /// Jarvis's long-term memory (the « Mémoire Jarvis » folder).
+    private let knowledge: JarvisKnowledgeStore
+    private let journal: JarvisConversationJournal
     private let locale = Locale(identifier: "fr_FR")
 
     /// Prefix of the notes created by « prépare l'essai du bilan ».
@@ -38,7 +41,9 @@ struct JarvisFrenchCommandRouter {
         context: JarvisConversationContext = .shared,
         screen: JarvisScreenContext = .shared,
         timers: JarvisTimerStore = .shared,
-        profile: JarvisUserProfile = .shared
+        profile: JarvisUserProfile = .shared,
+        knowledge: JarvisKnowledgeStore = .shared,
+        journal: JarvisConversationJournal = .shared
     ) {
         self.memory = memory
         self.scene = scene
@@ -46,6 +51,8 @@ struct JarvisFrenchCommandRouter {
         self.screen = screen
         self.timers = timers
         self.profile = profile
+        self.knowledge = knowledge
+        self.journal = journal
     }
 
     func route(_ raw: String, now: Date = Date()) -> Outcome {
@@ -71,8 +78,18 @@ struct JarvisFrenchCommandRouter {
         }
         let request = withoutWakeWord
 
+        // A deletion asked for earlier waits for « Je confirme » (JarvisConfirmations).
+        if let reply = confirmationAnswer(request) {
+            return .answer(reply)
+        }
+
         // What Jarvis knows about the person: the first name, and a summary of what it remembers.
         if let reply = profileAnswer(original: original, normalized: text, request: request) {
+            return .answer(reply)
+        }
+
+        // Jarvis's own memory: where it is, what it holds, a search in it, the conversations kept.
+        if let reply = memoryAnswer(original: original, normalized: text, request: request) {
             return .answer(reply)
         }
 
@@ -219,6 +236,11 @@ struct JarvisFrenchCommandRouter {
                     return .answer(JarvisResponse(status: .refused, spokenResponse: "Que dois-je noter ?", displayResponse: "Dites par exemple : « Prends une note acheter du pain ».", shouldSpeak: true))
                 }
                 let note = memory.saveNote(body)
+                // « Souviens-toi que… » is also a memory of Jarvis: in its folder (Obsidian) and on the PC.
+                if ["souviens toi que", "retiens que", "rappelle toi que"].contains(prefix) {
+                    let sentence = body.prefix(1).uppercased() + body.dropFirst()
+                    knowledge.remember(sentence.hasSuffix(".") ? sentence : sentence + ".", kind: "fait", source: "note")
+                }
                 return .answer(.ok("C'est noté.", display: "Note enregistrée : \(note.text)"))
             }
         }
@@ -500,14 +522,25 @@ struct JarvisFrenchCommandRouter {
         return nil
     }
 
-    /// « Qu'est-ce que tu sais sur moi ? »: the name and the latest notes, all kept on the iPhone.
+    /// « Qu'est-ce que tu sais sur moi ? »: the name, the latest notes and what Jarvis learned
+    /// by itself (its « Mémoire Jarvis » folder), all kept on the iPhone.
     private func knownFactsAnswer() -> JarvisResponse {
         let notes = memory.loadNotes().filter { !$0.text.hasPrefix(Self.trialNotePrefix) }
+        // « Souviens-toi que… » copies (source « note ») are already among the notes.
+        let learned = knowledge.notes.filter { JarvisKnowledgeStore.durableKinds.contains($0.kind) && $0.source != "note" }
         var spoken: [String] = []
         if let name = profile.name {
             spoken.append("Vous vous appelez \(name).")
         }
+        if !learned.isEmpty {
+            let items = learned.prefix(4).map { JarvisKnowledgeStore.spokenToUser($0.text) }.joined(separator: " ; ")
+            spoken.append("Ce que j'ai appris de vous : \(items).")
+        }
         guard !notes.isEmpty else {
+            if !learned.isEmpty {
+                let list = learned.prefix(10).enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
+                return .ok(spoken.joined(separator: " "), display: spoken.joined(separator: " ") + "\n" + list, data: ["memory": "known_facts"])
+            }
             spoken.append(profile.name == nil
                 ? "Je ne sais encore rien de vous. Dites « Je m'appelle… » ou « Souviens-toi que… » : je m'en souviendrai, ici sur l'iPhone."
                 : "Vous ne m'avez encore rien demandé de retenir : dites « Souviens-toi que… ».")
@@ -523,6 +556,126 @@ struct JarvisFrenchCommandRouter {
         }
         let list = notes.prefix(10).enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
         return .ok(spoken.joined(separator: " "), display: spoken.joined(separator: " ") + "\n" + list)
+    }
+
+    // MARK: Jarvis's memory itself (docs/VISION_JARVIS.md §8: a real memory, not a mention in a prompt)
+
+    private static let memoryOverviewPhrases = [
+        "acces a ta memoire", "acces a tes souvenirs", "acces a obsidian", "acces a mon obsidian", "acces a ton obsidian", "acces a ta memoire obsidian",
+        "tu as une memoire", "as tu une memoire", "est ce que tu as une memoire", "ou est ta memoire", "ou sont tes souvenirs", "ou est ton obsidian",
+        "que contient ta memoire", "qu'y a t il dans ta memoire", "qu'est ce qu'il y a dans ta memoire", "qu'est ce que contient ta memoire",
+        "montre ta memoire", "montre moi ta memoire", "affiche ta memoire", "liste tes souvenirs", "montre tes souvenirs", "combien de souvenirs",
+        "ta memoire obsidian", "ta memoire fonctionne", "est ce que ta memoire marche", "tu te souviens de quoi", "de quoi tu te souviens",
+    ]
+    /// Asked of the memory itself: answered even when it holds nothing.
+    private static let memorySearchPrefixes = [
+        "cherche dans ta memoire", "regarde dans ta memoire", "est ce que tu te souviens de", "est ce que tu te souviens du",
+        "tu te souviens de", "tu te souviens du", "te souviens tu de", "te souviens tu du", "qu'as tu retenu sur",
+        "qu'est ce que tu as retenu sur", "qu'est ce que tu as retenu de",
+    ]
+    /// « Que sais-tu de ma sœur ? » (JarvisPhrasing writes it « parle-moi de ma sœur »): about the
+    /// person's own world, answered from the memory when it holds something; « parle-moi de la
+    /// photosynthèse » stays a question for the brain (which still gets the relevant memories).
+    private static let knowledgeSearchPrefixes = ["parle moi de", "parle moi du", "parle moi des"]
+    private static let possessives = ["ma ", "mon ", "mes ", "notre ", "nos "]
+
+    private func memoryAnswer(original: String, normalized: String, request: String) -> JarvisResponse? {
+        // The complete reset (§17.2), only after « Je confirme ».
+        if containsAny(request, ["reinitialise ta memoire", "reinitialise completement ta memoire", "efface toute ta memoire", "vide ta memoire",
+                                 "efface tout ce que tu sais", "oublie tout ce que tu sais", "reinitialisation complete", "remets ta memoire a zero",
+                                 "remise a zero de ta memoire"]) || request == "oublie tout" {
+            let profile = self.profile, memory = self.memory, knowledge = self.knowledge, journal = self.journal, context = self.context
+            return JarvisConfirmations.shared.ask("effacer toute ma mémoire sur cet iPhone (souvenirs, réponses mémorisées, conversations, notes et votre prénom)") {
+                JarvisReset.eraseEverythingLearned(knowledge: knowledge, journal: journal, memory: memory, profile: profile, conversation: context)
+            }
+        }
+        if containsAny(request, ["ne garde plus nos conversations", "arrete de garder nos conversations", "n'enregistre plus nos conversations",
+                                 "arrete d'enregistrer nos conversations", "ne garde pas nos conversations"]) {
+            journal.isEnabled = false
+            return .ok("Entendu : je ne garde plus nos conversations. Ce qui est déjà gardé reste, jusqu'à ce que vous demandiez de l'effacer.",
+                       data: ["memory": "journal_off"])
+        }
+        if containsAny(request, ["garde nos conversations", "enregistre nos conversations", "garde l'historique des conversations"]) {
+            journal.isEnabled = true
+            return .ok("Entendu : je garde de nouveau nos conversations, ici sur l'iPhone, dans le dossier « Mémoire Jarvis ».", data: ["memory": "journal_on"])
+        }
+        if containsAny(request, ["efface l'historique des conversations", "efface nos conversations", "supprime nos conversations",
+                                 "efface l'historique de nos conversations", "supprime l'historique des conversations"]) {
+            let pages = journal.days().count
+            guard pages > 0 else { return .ok("Aucune conversation n'est gardée sur l'iPhone.", data: ["memory": "journal_empty"]) }
+            let journal = self.journal
+            return JarvisConfirmations.shared.ask(
+                "effacer l'historique des conversations (\(pages) jour\(pages > 1 ? "s" : ""))"
+            ) {
+                let erased = journal.eraseAll()
+                return "C'est effacé : \(erased) jour\(erased > 1 ? "s" : "") de conversations."
+            }
+        }
+        if containsAny(request, Self.memoryOverviewPhrases) {
+            return memoryOverview()
+        }
+        for (prefixes, always) in [(Self.memorySearchPrefixes, true), (Self.knowledgeSearchPrefixes, false)] {
+            for prefix in prefixes {
+                guard let subject = Self.argument(in: original, normalized: normalized, after: prefix), !subject.isEmpty else { continue }
+                let folded = Self.normalize(subject)
+                // « sur moi » is the profile's answer; « de ça », « de ce que » follow the conversation.
+                guard !["moi", "moi meme", "ca", "cela"].contains(folded), !folded.hasPrefix("ce que"), !folded.hasPrefix("ce qu'") else { return nil }
+                guard always || Self.possessives.contains(where: { folded.hasPrefix($0) }) else { return nil }
+                return memorySearch(subject, always: always)
+            }
+        }
+        return nil
+    }
+
+    /// Where the memory is and what it holds, with what was really counted in it.
+    private func memoryOverview() -> JarvisResponse {
+        let inventory = knowledge.inventory()
+        let place = "dans le dossier « Mémoire Jarvis » de l'iPhone (app Fichiers, Sur mon iPhone, JARVIS), une note Markdown par souvenir, lisible dans Obsidian"
+        let journalPages = journal.days().count
+        let journalLine = journal.isEnabled
+            ? (journalPages > 0 ? " Je garde aussi nos conversations : \(journalPages) jour\(journalPages > 1 ? "s" : "")." : " Je garde aussi nos conversations à partir de maintenant.")
+            : " Je ne garde pas nos conversations (vous l'avez demandé)."
+        guard inventory.count > 0 else {
+            let spoken = "Oui, Monsieur : ma mémoire est en place, \(place), mais elle ne contient encore aucun souvenir. Dites par exemple « Je préfère les réponses courtes » ou « Souviens-toi que… »." + journalLine
+            return .ok(spoken, data: ["memory": "overview", "memory_count": "0"])
+        }
+        let kept = inventory.kept > 0 ? ", plus \(inventory.kept) réponse\(inventory.kept > 1 ? "s" : "") mémorisée\(inventory.kept > 1 ? "s" : "") pour répondre plus vite" : ""
+        let recent = knowledge.notes.filter { JarvisKnowledgeStore.durableKinds.contains($0.kind) }
+        let latest = recent.prefix(2).map { JarvisKnowledgeStore.spokenToUser($0.text) }.joined(separator: " ; ")
+        let spoken = "Oui, Monsieur : ma mémoire est \(place). Elle contient \(inventory.count) souvenir\(inventory.count > 1 ? "s" : "") (\(inventory.words))\(kept). Les plus récents : \(latest).\(journalLine)"
+        let list = recent.prefix(12).enumerated().map { "\($0.offset + 1). [\(JarvisKnowledgeStore.labels[$0.element.kind] ?? $0.element.kind)] \($0.element.text)" }.joined(separator: "\n")
+        return .ok(spoken, display: spoken + "\n" + list, data: ["memory": "overview", "memory_count": "\(inventory.count)"])
+    }
+
+    /// « Tu te souviens de ma sœur ? »: a real search in the memory, said with what was found.
+    /// `always`: the question is about the memory itself, so « nothing » is the answer too.
+    private func memorySearch(_ subject: String, always: Bool) -> JarvisResponse? {
+        let kinds = always ? Set(JarvisKnowledgeStore.labels.keys) : JarvisKnowledgeStore.durableKinds
+        let found = knowledge.relevant(to: subject, limit: 3, kinds: kinds)
+        guard !found.isEmpty else {
+            guard always else { return nil }
+            return .ok("Ma mémoire ne contient rien sur « \(subject) », Monsieur.", data: ["memory": "search", "memory_found": "0"])
+        }
+        let items = found.map { $0.kind == "reponse" ? $0.text : JarvisKnowledgeStore.spokenToUser($0.text) }
+        let spoken = "Voici ce que ma mémoire contient à ce sujet : " + items.joined(separator: " ; ") + "."
+        let display = spoken + "\n" + found.map { "• [\(JarvisKnowledgeStore.labels[$0.kind] ?? $0.kind), \(JarvisKnowledgeStore.day($0.updated))] \($0.text)" }.joined(separator: "\n")
+        return .ok(spoken, display: display, data: ["memory": "search", "memory_found": "\(found.count)"])
+    }
+
+    /// « Je confirme » runs the deletion asked for less than a minute ago; « non » cancels it.
+    private func confirmationAnswer(_ request: String) -> JarvisResponse? {
+        guard JarvisConfirmations.shared.isWaiting else { return nil }
+        if ["je confirme", "confirme", "oui je confirme", "oui confirme", "oui efface", "oui efface tout", "confirmer", "c'est confirme"].contains(request) {
+            guard let done = JarvisConfirmations.shared.confirm() else {
+                return .ok("Le délai de confirmation est passé : rien n'a été effacé. Redemandez si vous le souhaitez.")
+            }
+            return .ok(done, data: ["confirmation": "done"])
+        }
+        if ["non", "annule", "non annule", "laisse tomber", "non merci", "surtout pas", "n'efface rien", "non n'efface rien"].contains(request) {
+            JarvisConfirmations.shared.cancel()
+            return .ok("Entendu, je n'efface rien.", data: ["confirmation": "cancelled"])
+        }
+        return nil
     }
 
     private func lifeAnswer(request: String, original: String, now: Date) -> JarvisResponse? {

@@ -80,6 +80,12 @@ enum JarvisMemoryRules {{
 
     /// « Non, c'est 1873 » after an answer: a correction (the words after it are group 1).
     static let correction = {correction}
+
+    /// What changes too fast to be answered from memory (folded text contains one of them).
+    static let volatile: [String] = [{volatile}]
+
+    /// Days a verified answer is reused for the same question.
+    static let answerLifetimeDays = {lifetime}
 }}
 '''
 
@@ -89,7 +95,8 @@ def render_memory() -> str:
 
     rules = "\n".join(f"        ({swift(pattern)}, {swift(kind)}, {swift(template)})," for pattern, kind, template in k.LEARNING_RULES)
     return MEMORY_TEMPLATE.format(stopwords=", ".join(swift(w) for w in sorted(k.STOPWORDS)), rules=rules,
-                                  correction=swift("^[ ?!.]*" + k.CORRECTION.pattern.lstrip("^")))
+                                  correction=swift("^[ ?!.]*" + k.CORRECTION.pattern.lstrip("^")),
+                                  volatile=", ".join(swift(w) for w in k.VOLATILE), lifetime=k.ANSWER_LIFETIME.days)
 
 
 FOLDER = Path(__file__).resolve().parent.parent / "ios" / "JarvisXR" / "JarvisXR"

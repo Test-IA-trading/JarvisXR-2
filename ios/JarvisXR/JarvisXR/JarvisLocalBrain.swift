@@ -603,6 +603,18 @@ final class JarvisLocalBrain {
         onPartial: @escaping (String) -> Void,
         completion: @escaping (JarvisResponse) -> Void
     ) {
+        guard !JarvisEmergencyStop.shared.isEngaged else {
+            let message = "L'arrêt d'urgence est actif : je ne réfléchis à rien. Dites « reprends » pour reprendre."
+            completion(JarvisResponse(status: .unavailable, spokenResponse: message, displayResponse: message))
+            return
+        }
+        // The same question already answered, still valid: said at once from the memory (§8.3),
+        // with where the answer came from on the screen.
+        if let kept = JarvisKnowledgeStore.shared.keptAnswer(for: question) {
+            conversation.recordTurn(user: question, assistant: kept.text)
+            completion(.ok(kept.text, display: kept.text + "\n" + JarvisKnowledgeStore.provenance(of: kept), data: ["memory": "answer_reused"]))
+            return
+        }
         // Connected mode: « Qu'est-ce que l'arrêt Blanco ? » is looked up on Wikipédia; the
         // PC's brain then explains the article in its own words, or the article's first
         // sentences are said. The brains answer alone when Wikipédia has nothing.
@@ -649,6 +661,7 @@ final class JarvisLocalBrain {
                 // The small brain of the iPhone would embroider: Wikipédia's own words instead.
                 let response = Self.wikipediaResponse(article)
                 conversation.recordTurn(user: question, assistant: response.spokenResponse)
+                JarvisKnowledgeStore.shared.keepAnswer(question: question, answer: response.spokenResponse, source: "Wikipédia", verified: true)
                 completion(response)
             } else {
                 self?.answerOnDevice(question, conversation: conversation, profile: profile, memory: memory, now: now, onPartial: onPartial, completion: completion)
@@ -676,6 +689,8 @@ final class JarvisLocalBrain {
                     return
                 }
                 conversation.recordTurn(user: question, assistant: answer)
+                JarvisKnowledgeStore.shared.keepAnswer(question: question, answer: answer, source: article == nil ? "Jarvis PC" : "Jarvis PC et Wikipédia",
+                                                        verified: article != nil)
                 completion(.ok(answer))
             case .failure:
                 if heardFromPC {
@@ -718,6 +733,7 @@ final class JarvisLocalBrain {
             switch result {
             case .success(let answer):
                 conversation.recordTurn(user: question, assistant: answer)
+                JarvisKnowledgeStore.shared.keepAnswer(question: question, answer: answer, source: "le cerveau de l'iPhone", verified: false)
                 completion(.ok(answer))
             case .failure(let error):
                 completion(JarvisResponse(status: .unavailable, spokenResponse: error.message, displayResponse: error.message))

@@ -81,13 +81,50 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(deepLinkReceived(_:)), name: .jarvisDeepLinkReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(emergencyStopChanged), name: JarvisEmergencyStop.didChange, object: nil)
         observeBrainDownload()
         setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
+        // The words and meanings of the memories are computed once, away from the screen.
+        DispatchQueue.global(qos: .utility).async { JarvisKnowledgeStore.shared.warmUp() }
+    }
+
+    // MARK: Emergency stop (docs/VISION_JARVIS.md §17.1)
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Shaking the iPhone stops everything, whatever Jarvis is doing (no word needed).
+    override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+        if motion == .motionShake, !isUITestMode {
+            JarvisEmergencyStop.shared.engage()
+            return
+        }
+        super.motionEnded(motion, with: event)
+    }
+
+    @objc private func emergencyStopChanged() {
+        guard JarvisEmergencyStop.shared.isEngaged else {
+            setInterfaceState(speech.isEnabled ? .standby : .quiet, hint: "JARVIS est prêt.")
+            scheduleWakeListening()
+            return
+        }
+        // Everything stops: the answers still coming are dropped, nothing new starts by itself.
+        brainTurn += 1
+        JarvisLocalBrain.shared.cancel()
+        cancelThinkingFiller()
+        stopWakeListening()
+        speech.stop()
+        voiceInput.cancel()
+        endConversation()
+        JarvisDuplexAudio.shared.stop()
+        let message = "Arrêt d'urgence : écoute, voix, réflexion, recherches et veille sont arrêtées. Touchez l'orbe et dites « reprends » pour reprendre."
+        setInterfaceState(.attention, hint: message)
+        showTransient(message)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        if !commandField.isFirstResponder { becomeFirstResponder() }
         if let pending = JarvisPendingIntentStore.consumeAction() {
             handle(action: pending)
             return
@@ -219,6 +256,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private var lastLearnedQuestion: String?
+    /// « voix » or « clavier », for the conversation journal.
+    private var lastInputChannel = "voix"
 
     /// Shares the first name and the notes with Jarvis PC, then says its messages
     /// (« Envoie sur mon téléphone que… » on the PC).
@@ -252,6 +291,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func startWakeListeningIfIdle() {
         guard JarvisWakeWordSettings.isEnabled,
+              !JarvisEmergencyStop.shared.isEngaged,
               !isUITestMode,
               navigationController?.topViewController === self,
               !isOffScreen || JarvisWakeWordSettings.watchesInBackground else { return }
@@ -331,7 +371,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     /// Two claps, whatever Jarvis is doing: the same as calling it by name. It stops talking
     /// or thinking, answers « Oui ? » and listens.
     private func handleDoubleClap() {
-        guard presentedViewController == nil, !listenAfterWakeReply else { return }
+        guard presentedViewController == nil, !listenAfterWakeReply, !JarvisEmergencyStop.shared.isEngaged else { return }
         // Already listening to a request: the claps change nothing.
         if voiceInput.isListening, voiceInput.mode == .command, !bargeInProbe { return }
         // A plain microphone hears Jarvis's own voice: only claps heard with echo cancellation stop it.
@@ -990,6 +1030,22 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             setInterfaceState(.ready, hint: "JARVIS est prêt.")
             return
         }
+        // The emergency stop comes before any routing or brain, and holds until « reprends ».
+        if JarvisEmergencyStop.isStopRequest(commandText) {
+            JarvisEmergencyStop.shared.engage()
+            return
+        }
+        if JarvisEmergencyStop.shared.isEngaged {
+            guard JarvisEmergencyStop.isReleaseRequest(commandText) else {
+                let message = "L'arrêt d'urgence est actif : rien ne démarre. Dites « reprends » pour reprendre."
+                setInterfaceState(.attention, hint: message)
+                showTransient(message)
+                return
+            }
+            JarvisEmergencyStop.shared.release()
+            render(response: .ok("Je reprends, Monsieur."))
+            return
+        }
 
         setInterfaceState(.processing, hint: "Traitement en cours.")
         // A spoken request keeps the hands-free exchange going; typing ends it.
@@ -1002,9 +1058,14 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         learnFrom(commandText)
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
+        lastInputChannel = source == "voice" ? "voix" : "clavier"
         if decision.plan?.shouldPersistGeneralHistory != false {
             let historyCommand = source == "typed" ? command.rawText : "\(source): \(command.rawText)"
             memory.appendHistory(command: historyCommand, response: decision.response.displayResponse)
+            // The conversation journal (§8.1); an open question is written with the brain's answer.
+            if decision.response.data["action"] != "local_brain" {
+                JarvisConversationJournal.shared.record(user: commandText, jarvis: decision.response.spokenResponse, channel: lastInputChannel)
+            }
         }
         run(decision, source: source)
     }
@@ -1072,6 +1133,9 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             sentences.forEach { self.speech.appendStreamedReply($0) }
         }, completion: { [weak self] answer in
             guard let self, self.brainTurn == turn else { return }
+            if answer.data["action"] != "reroute" {
+                JarvisConversationJournal.shared.record(user: question, jarvis: answer.spokenResponse, channel: self.lastInputChannel)
+            }
             self.cancelThinkingFiller()
             // A new turn already started (the user tapped and spoke): drop this answer.
             guard !self.voiceInput.isListening else { return }

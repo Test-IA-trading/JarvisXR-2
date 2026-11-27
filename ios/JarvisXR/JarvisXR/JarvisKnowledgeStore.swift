@@ -19,9 +19,16 @@ final class JarvisKnowledgeStore {
         var updated: String
         var source: String
         var question: String?
+        /// When a kept answer stops being reused (ISO 8601, as on the PC); nil: durable.
+        var expires: String? = nil
+        /// How a kept answer was obtained: « source » (Wikipédia…) or « genere » (a model's own words).
+        var verification: String? = nil
     }
 
-    static let labels = ["preference": "préférence", "habitude": "habitude", "fait": "fait", "correction": "correction"]
+    /// « reponse »: an answer kept to answer the same question at once (§8.3), with its
+    /// provenance, date and validity; never synchronized as a fact.
+    static let labels = ["preference": "préférence", "habitude": "habitude", "fait": "fait", "correction": "correction", "reponse": "réponse mémorisée"]
+    static let durableKinds: Set<String> = ["preference", "habitude", "fait", "correction"]
     static let folderName = "Mémoire Jarvis"
 
     let folder: URL
@@ -88,7 +95,7 @@ final class JarvisKnowledgeStore {
             question = (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) as? String
         }
         return Note(id: id, kind: kind, text: body, created: header["created"] ?? now(), updated: header["updated"] ?? now(),
-                    source: header["source"] ?? "iphone", question: question)
+                    source: header["source"] ?? "iphone", question: question, expires: header["expires"], verification: header["verification"])
     }
 
     static func render(_ note: Note) -> String {
@@ -97,6 +104,8 @@ final class JarvisKnowledgeStore {
            let json = String(data: data, encoding: .utf8) {
             header.append("question: \(json)")
         }
+        if let expires = note.expires { header.append("expires: \(expires)") }
+        if let verification = note.verification { header.append("verification: \(verification)") }
         let links = entities(note.text).map { "[[\($0)]]" }.joined(separator: " ")
         return "---\n" + header.joined(separator: "\n") + "\n---\n" + note.text + (links.isEmpty ? "" : "\n\nLiens : " + links) + "\n"
     }
@@ -215,6 +224,8 @@ final class JarvisKnowledgeStore {
                 learned.append(remember("À la question « \(previousQuestion) », la bonne réponse selon l'utilisateur : \(right).", kind: "correction",
                                         question: previousQuestion))
             }
+            // An answer kept for that question was just contradicted: it is not reused any more.
+            dropKeptAnswer(for: previousQuestion)
         }
         guard !said.contains("?") else { return learned }
         for rule in JarvisMemoryRules.learning {
@@ -248,7 +259,8 @@ final class JarvisKnowledgeStore {
 
     /// Everything the PC must know: the notes (the most recent version wins there) and the deletions.
     func syncPayload() -> [[String: Any]] {
-        var items: [[String: Any]] = notes.map { note in
+        // Kept answers stay on the iPhone: the PC checks and keeps its own (knowledge.py).
+        var items: [[String: Any]] = notes.filter { Self.durableKinds.contains($0.kind) }.map { note in
             var item: [String: Any] = ["id": note.id, "kind": note.kind, "text": note.text, "updated": note.updated]
             if let question = note.question { item["question"] = question }
             return item
@@ -287,16 +299,235 @@ final class JarvisKnowledgeStore {
 
     // MARK: Reading
 
-    /// The few memories that share words with `question`, in the PC's format.
+    /// Words of a text for the search: its own words and their French lemmas (« boit » and
+    /// « bois » share « boire »), folded, without the little words.
+    static func words(of text: String) -> Set<String> {
+        Set(tokens(text)).union(tokens(JarvisLanguageTools.lemmas(text).joined(separator: " ")))
+    }
+
+    /// Below this closeness of meaning, a memory that shares no word is not given. To calibrate
+    /// on the iPhone (Apple's French sentence model, docs/BENCHMARKS.md).
+    static let meaningThreshold = 0.85
+
+    private var wordCache: [String: (version: String, words: Set<String>)] = [:]
+    private var meaningCache: [String: (version: String, vector: [Double]?)] = [:]
+
+    /// Under `lock`.
+    private func cachedWords(_ note: Note) -> Set<String> {
+        if let known = wordCache[note.id], known.version == note.updated + note.text { return known.words }
+        let words = Self.words(of: note.text + " " + (note.question ?? ""))
+        wordCache[note.id] = (note.updated + note.text, words)
+        return words
+    }
+
+    /// Under `lock`.
+    private func cachedMeaning(_ note: Note) -> [Double]? {
+        if let known = meaningCache[note.id], known.version == note.updated + note.text { return known.vector }
+        let vector = JarvisLanguageTools.meaning(note.question ?? note.text)
+        meaningCache[note.id] = (note.updated + note.text, vector)
+        return vector
+    }
+
+    static func isExpired(_ note: Note, now: Date = Date()) -> Bool {
+        guard let expires = note.expires, let end = stamp.date(from: expires) ?? ISO8601DateFormatter().date(from: expires) else { return false }
+        return end < now
+    }
+
+    /// The memories that answer `question`, best first: the words and lemmas they share,
+    /// rare ones counting more; then, with no shared word, a very close meaning (the same
+    /// thing said otherwise). Kept answers only when `kinds` asks for them.
+    func relevant(to question: String, limit: Int = 4, kinds: Set<String> = JarvisKnowledgeStore.durableKinds) -> [Note] {
+        let asked = Self.words(of: question)
+        let askedMeaning = JarvisLanguageTools.meaning(question)
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        let candidates = byID.values.filter { kinds.contains($0.kind) && !Self.isExpired($0, now: now) }
+        guard !candidates.isEmpty, !asked.isEmpty || askedMeaning != nil else { return [] }
+        let noteWords = candidates.map { cachedWords($0) }
+        var frequency: [String: Int] = [:]
+        noteWords.forEach { $0.forEach { frequency[$0, default: 0] += 1 } }
+        let count = Double(candidates.count)
+        var scored: [(note: Note, score: Double)] = []
+        for (index, note) in candidates.enumerated() {
+            var score = noteWords[index].intersection(asked).reduce(0.0) { $0 + log(1 + count / Double(frequency[$1] ?? 1)) }
+            if let askedMeaning, let vector = cachedMeaning(note) {
+                let closeness = JarvisLanguageTools.cosine(askedMeaning, vector)
+                if score > 0 {
+                    score += 0.5 * max(0, closeness)
+                } else if closeness >= Self.meaningThreshold {
+                    score = closeness
+                }
+            }
+            if score > 0 { scored.append((note, score)) }
+        }
+        let ranked = scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.note.updated > $1.note.updated }
+        lastConsulted = min(limit, ranked.count)
+        return ranked.prefix(limit).map { $0.note }
+    }
+
+    /// Computes the words and meanings of every memory once, off the main queue at launch.
+    func warmUp() {
+        _ = relevant(to: "préférences et habitudes", limit: 1)
+    }
+
+    /// How many memories the last search gave (Diagnostics: the memory really consulted).
+    private(set) var lastConsulted = 0
+
+    /// The few memories relevant to `question`, in the PC's format, with their date.
     func contextLines(for question: String, limit: Int = 4) -> [String] {
-        let asked = Set(Self.tokens(question))
-        guard !asked.isEmpty else { return [] }
-        let ranked = notes
-            .map { note in (note, Set(Self.tokens(note.text)).intersection(asked).count) }
-            .filter { $0.1 > 0 }
-            .sorted { $0.1 > $1.1 }
-            .prefix(limit)
-        guard !ranked.isEmpty else { return [] }
-        return ["Mémoire de Jarvis, à utiliser seulement si c'est pertinent :"] + ranked.map { "Souvenir (\(Self.labels[$0.0.kind] ?? $0.0.kind)) : \($0.0.text)" }
+        let found = relevant(to: question, limit: limit)
+        guard !found.isEmpty else { return [] }
+        return ["Mémoire de Jarvis (dossier « Mémoire Jarvis » de l'iPhone), à utiliser seulement si c'est pertinent :"]
+            + found.map { "Souvenir (\(Self.labels[$0.kind] ?? $0.kind), \(Self.day($0.updated))) : \($0.text)" }
+    }
+
+    static func day(_ stampText: String) -> String {
+        guard let date = stamp.date(from: stampText) else { return String(stampText.prefix(10)) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "d MMMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    // MARK: Kept answers (a question asked again is answered at once, §8.3)
+
+    /// Words of a request, not of its meaning: « Explique-moi » and « C'est quoi » ask the same.
+    static let requestWords: Set<String> = [
+        "explique", "expliquer", "dire", "parle", "parler", "definis", "definir", "definition", "savoir", "sai", "sais", "connais",
+        "connaitre", "pouvoir", "pourrai", "pourrais", "vouloir", "voudrai", "voudrais", "etre", "avoir", "est-ce", "estce", "ceci",
+        "donc", "alor", "alors", "stp", "svp", "plait", "merci", "rapidement", "simplement", "exactement", "vraiment",
+    ]
+
+    /// What the person, the conversation or the moment changes: such a question is never
+    /// answered from memory (« mon », « celle-là », « hier »…; the weather is in `volatile`).
+    static let personalOrContextual = [
+        " je ", " j'", " mon ", " ma ", " mes ", " nous ", " notre ", " nos ", " on ", " sur moi", " de moi", " pour moi", " chez moi",
+        " a moi", " avec moi", " ca ", " cela", " ceci", " celui", " celle", " ceux", " autre", " le premier", " la premiere",
+        " le deuxieme", " le second", " le dernier", " la derniere", " hier", " recemment", " dernierement", " cette annee", " ce mois",
+        " ici", " encore", " plus simple", " plus court", " en anglais", " resume", " traduis", " continue", " reprends",
+    ]
+
+    /// A question made of these alone (« Pourquoi ? », « Combien ? ») follows the conversation.
+    static let interrogatives: Set<String> = ["pourquoi", "combien", "quand", "lequel", "laquelle", "lesquels", "lesquelles", "dont"]
+
+    /// Meaningful words of a question, sorted: two wordings of the same question share them.
+    static func questionKey(_ question: String) -> String {
+        words(of: question).subtracting(requestWords).sorted().joined(separator: " ")
+    }
+
+    static func isReusable(_ question: String) -> Bool {
+        var folded = fold(question).folded
+        for mark in ["-", "?", "!", ",", ".", ";", ":", "«", "»"] { folded = folded.replacingOccurrences(of: mark, with: " ") }
+        folded = " " + folded + " "
+        guard question.count >= 12, !JarvisMemoryRules.volatile.contains(where: { folded.contains($0) }),
+              !personalOrContextual.contains(where: { folded.contains($0) }) else { return false }
+        return !words(of: question).subtracting(requestWords).subtracting(interrogatives).isEmpty
+    }
+
+    /// The answer kept for the same question, still valid (nil for what changes quickly).
+    func keptAnswer(for question: String) -> Note? {
+        guard Self.isReusable(question) else { return nil }
+        let key = Self.questionKey(question)
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        return byID.values.filter { $0.kind == "reponse" && !Self.isExpired($0, now: now) }
+            .sorted { $0.updated > $1.updated }
+            .first { Self.questionKey($0.question ?? "") == key }
+    }
+
+    /// Keeps the answer to an open question so the same question is answered at once next
+    /// time; `verified`: it comes from a source (Wikipédia…), kept 30 days, otherwise 7.
+    @discardableResult
+    func keepAnswer(question: String, answer: String, source: String, verified: Bool, now: Date = Date()) -> Note? {
+        let clean = answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard Self.isReusable(question), clean.count >= 20, clean.count <= 1_500 else { return nil }
+        let key = Self.questionKey(question)
+        let days = verified ? Double(JarvisMemoryRules.answerLifetimeDays) : 7
+        let stampText = Self.stamp.string(from: now)
+        lock.lock()
+        defer { lock.unlock() }
+        var note = byID.values.first { $0.kind == "reponse" && Self.questionKey($0.question ?? "") == key }
+            ?? Note(id: UUID().uuidString.lowercased(), kind: "reponse", text: clean, created: stampText, updated: stampText, source: source, question: question)
+        note.text = clean
+        note.updated = stampText
+        note.source = source
+        note.question = question
+        note.expires = Self.stamp.string(from: now.addingTimeInterval(days * 86_400))
+        note.verification = verified ? "source" : "genere"
+        byID[note.id] = note
+        save(note)
+        return note
+    }
+
+    /// Where a kept answer comes from, for the screen (§8.4: provenance, date, verification).
+    static func provenance(of note: Note) -> String {
+        let how = note.verification == "source" ? "vérifiée (\(note.source))" : "écrite par \(note.source), non vérifiée"
+        return "Réponse mémorisée le \(day(note.updated)), \(how)."
+    }
+
+    private func dropKeptAnswer(for question: String) {
+        let key = Self.questionKey(question)
+        guard !key.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        for note in byID.values where note.kind == "reponse" && Self.questionKey(note.question ?? "") == key {
+            remove(note)
+        }
+    }
+
+    // MARK: What Jarvis says about its memory
+
+    /// A memory said to the person (« L'utilisateur aime le jazz. » → « vous aimez le jazz »).
+    static func spokenToUser(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        if let range = value.range(of: #"^(.+?) de l'utilisateur : "#, options: .regularExpression), !value.hasPrefix("Habitude") {
+            let subject = value[range].replacingOccurrences(of: " de l'utilisateur : ", with: "")
+            value = "votre \(subject.prefix(1).lowercased())\(subject.dropFirst()) : \(value[range.upperBound...])"
+        }
+        let replacements = [
+            ("L'utilisateur n'aime pas", "vous n'aimez pas"), ("L'utilisateur préfère", "vous préférez"), ("L'utilisateur aime", "vous aimez"),
+            ("L'utilisateur veut être appelé", "vous voulez être appelé"), ("L'utilisateur veut des réponses", "vous voulez des réponses"),
+            ("L'utilisateur habite", "vous habitez"), ("L'utilisateur travaille", "vous travaillez"), ("L'utilisateur est né", "vous êtes né"),
+            ("L'anniversaire de l'utilisateur est", "votre anniversaire est"), ("Habitude de l'utilisateur :", "votre habitude :"),
+            ("la bonne réponse selon l'utilisateur", "la bonne réponse selon vous"),
+        ]
+        for (from, to) in replacements where value.contains(from) {
+            value = value.replacingOccurrences(of: from, with: to)
+        }
+        return value
+    }
+
+    /// How many durable memories of each kind, in words (« 3 préférences, 2 faits »).
+    func inventory() -> (count: Int, words: String, kept: Int) {
+        let all = notes
+        let durable = all.filter { Self.durableKinds.contains($0.kind) }
+        let plural = ["preference": "préférences", "habitude": "habitudes", "fait": "faits", "correction": "corrections"]
+        let parts = ["preference", "fait", "habitude", "correction"].compactMap { kind -> String? in
+            let number = durable.filter { $0.kind == kind }.count
+            guard number > 0 else { return nil }
+            return "\(number) \(number == 1 ? (Self.labels[kind] ?? kind) : (plural[kind] ?? kind))"
+        }
+        let words = parts.count <= 1 ? parts.joined() : parts.dropLast().joined(separator: ", ") + " et " + (parts.last ?? "")
+        let now = Date()
+        return (durable.count, words, all.filter { $0.kind == "reponse" && !Self.isExpired($0, now: now) }.count)
+    }
+
+    // MARK: Erasing everything (« Réinitialise ta mémoire », after confirmation)
+
+    /// Deletes every note of the folder and the deletions waiting for the PC; returns how
+    /// many notes there were. The PC's own copy is erased by its own command (docs).
+    @discardableResult
+    func eraseAll() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let count = byID.count
+        for note in Array(byID.values) { remove(note) }
+        wordCache = [:]
+        meaningCache = [:]
+        deletedIDs = []
+        defaults.set(deletedIDs, forKey: deletedKey)
+        return count
     }
 }

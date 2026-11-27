@@ -26,4 +26,10 @@ enum JarvisMemoryRules {
 
     /// « Non, c'est 1873 » after an answer: a correction (the words after it are group 1).
     static let correction = "^[ ?!.]*(?:non|mais non|pas du tout|c'est faux|faux|tu te trompes|ce n'est pas ca|c'est pas ca)\\b[ ,.!]*(.*)"
+
+    /// What changes too fast to be answered from memory (folded text contains one of them).
+    static let volatile: [String] = ["meteo", "temps qu'il fait", "heure", "aujourd'hui", "demain", "actualite", "actualites", "news", "prix", "cours", "score", "resultat du match", "en ce moment", "maintenant", "ce soir", "cette semaine", "trafic", "bourse"]
+
+    /// Days a verified answer is reused for the same question.
+    static let answerLifetimeDays = 30
 }

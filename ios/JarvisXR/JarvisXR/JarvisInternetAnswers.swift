@@ -54,9 +54,17 @@ enum JarvisInternetFailure: Error, Equatable {
     case noPosition
     case unknownCity(String)
     case notFound
+    /// Refused by JarvisCostGuard: the service is not known to be free for Jarvis.
+    case notFree(String)
+    /// The emergency stop is on (JarvisEmergencyStop).
+    case stopped
 
     var message: String {
         switch self {
+        case .notFree(let host):
+            return "Je n'appelle pas ce service (\(host)) : son usage n'est pas garanti gratuit."
+        case .stopped:
+            return "L'arrêt d'urgence est actif : aucune connexion n'est faite."
         case .disabled:
             return "Le mode connecté est désactivé : activez-le dans Réglages › Internet pour la météo, les actualités et Wikipédia."
         case .unreachable:

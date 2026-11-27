@@ -14,7 +14,10 @@ final class JarvisUserProfileTests: XCTestCase {
         defaults = UserDefaults(suiteName: "JarvisUserProfileTests.\(UUID().uuidString)")
         memory = JarvisMemoryStore(defaults: defaults)
         profile = JarvisUserProfile(defaults: defaults)
-        router = JarvisFrenchCommandRouter(memory: memory, scene: JarvisSpatialSceneMemory(), context: JarvisConversationContext(), profile: profile)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Mémoire-\(UUID().uuidString)", isDirectory: true)
+        router = JarvisFrenchCommandRouter(memory: memory, scene: JarvisSpatialSceneMemory(), context: JarvisConversationContext(), profile: profile,
+                                           knowledge: JarvisKnowledgeStore(folder: folder, defaults: defaults),
+                                           journal: JarvisConversationJournal(memoryFolder: folder, defaults: defaults))
     }
 
     private func spoken(_ phrase: String) -> String? {
