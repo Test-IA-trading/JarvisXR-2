@@ -5,7 +5,7 @@ import UIKit
 final class JarvisVisionSelfTestViewController: UIViewController {
     private let stackView = UIStackView()
     private let resultLabel = UILabel()
-    private let runButton = JarvisTheme.button(title: "Run Self-Test")
+    private let runButton = JarvisTheme.button(title: "Lancer l'autotest")
     private var detector: ObjectDetectionService?
     private var textRecognizer: TextRecognitionService?
     private var barcodeRecognizer: BarcodeRecognitionService?
@@ -13,7 +13,7 @@ final class JarvisVisionSelfTestViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Vision Self-Test"
+        title = "Autotest Vision"
         view.backgroundColor = JarvisTheme.background
         buildInterface()
         applyFixtureIfNeeded()
@@ -41,15 +41,15 @@ final class JarvisVisionSelfTestViewController: UIViewController {
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
         ])
 
-        let heading = label("Check local Vision readiness", style: .title2, color: JarvisTheme.text)
+        let heading = label("Vérifier que Vision est prêt sur l'iPhone", style: .title2, color: JarvisTheme.text)
         heading.accessibilityTraits.insert(.header)
         heading.accessibilityIdentifier = "jarvis.vision.selfTest.header"
         let explanation = label(
-            "This checks software readiness, privacy invariants, safety wording, speech, haptics, and permission state. It does not prove physical camera accuracy or replace the compatible-iPhone device checklist.",
+            "Vérifie le logiciel, la confidentialité, les formulations de sécurité, la voix, les vibrations et les autorisations. Cela ne prouve pas la justesse de la vraie caméra et ne remplace pas l'essai sur l'iPhone.",
             style: .body,
             color: JarvisTheme.mutedText
         )
-        resultLabel.text = "Self-test has not run."
+        resultLabel.text = "L'autotest n'a pas encore été lancé."
         resultLabel.textColor = JarvisTheme.text
         resultLabel.font = UIFont.preferredFont(forTextStyle: .body)
         resultLabel.adjustsFontForContentSizeCategory = true
@@ -70,7 +70,7 @@ final class JarvisVisionSelfTestViewController: UIViewController {
         runButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
         runButton.titleLabel?.adjustsFontForContentSizeCategory = true
         runButton.backgroundColor = JarvisTheme.accentDim
-        runButton.accessibilityHint = "Runs on-device readiness checks without activating the camera."
+        runButton.accessibilityHint = "Lance les vérifications sur l'iPhone sans allumer la caméra."
         runButton.accessibilityIdentifier = "jarvis.vision.selfTest.run"
         runButton.addTarget(self, action: #selector(runTapped), for: .touchUpInside)
 
@@ -82,21 +82,21 @@ final class JarvisVisionSelfTestViewController: UIViewController {
         let identifier = runIdentifier
         runButton.isEnabled = false
         runButton.setTitle("Testing…", for: .normal)
-        resultLabel.text = "Running generated OCR and barcode fixtures, validating the object model, and checking safety and privacy state."
-        UIAccessibility.post(notification: .announcement, argument: "Vision self-test started.")
+        resultLabel.text = "Lecture de textes et de codes générés, vérification du modèle d'objets, de la sécurité et de la confidentialité."
+        UIAccessibility.post(notification: .announcement, argument: "Autotest Vision lancé.")
 
         guard let ocrImage = makeOCRFixture(), let barcodeImage = makeBarcodeFixture() else {
-            resultLabel.text = "FAIL: Jarvis could not generate the local self-test fixtures."
+            resultLabel.text = "ÉCHEC : Jarvis n'a pas pu générer les images de l'autotest."
             runButton.isEnabled = true
-            runButton.setTitle("Run Again", for: .normal)
+            runButton.setTitle("Relancer", for: .normal)
             return
         }
 
         let group = DispatchGroup()
         let lock = NSLock()
-        var modelResult = "FAIL: model validation did not return"
-        var ocrResult = "FAIL: OCR did not return"
-        var barcodeResult = "FAIL: barcode recognition did not return"
+        var modelResult = "ÉCHEC : la vérification du modèle n'a pas répondu"
+        var ocrResult = "ÉCHEC : la lecture de texte n'a pas répondu"
+        var barcodeResult = "ÉCHEC : la lecture de code-barres n'a pas répondu"
 
         let detector = ObjectDetectionService()
         let textRecognizer = TextRecognitionService()
@@ -113,9 +113,9 @@ final class JarvisVisionSelfTestViewController: UIViewController {
             self.detector = nil
             self.textRecognizer = nil
             self.barcodeRecognizer = nil
-            self.resultLabel.text = "Self-test timed out before every production service returned. Run it again, or open Diagnostics to review the last model error. This does not activate the camera."
+            self.resultLabel.text = "L'autotest a expiré avant la réponse de tous les services. Relancez-le, ou ouvrez les Diagnostics pour voir la dernière erreur du modèle. La caméra n'est pas allumée."
             self.runButton.isEnabled = true
-            self.runButton.setTitle("Run Again", for: .normal)
+            self.runButton.setTitle("Relancer", for: .normal)
             UIAccessibility.post(notification: .layoutChanged, argument: self.resultLabel)
         }
 
@@ -125,10 +125,10 @@ final class JarvisVisionSelfTestViewController: UIViewController {
             switch result {
             case .success(let metadata):
                 modelResult = metadata.checksumVerified
-                    ? "PASS: \(metadata.name) version \(metadata.version), checksum verified"
-                    : "FAIL: model metadata loaded without a verified checksum"
+                    ? "OK : \(metadata.name) version \(metadata.version), empreinte vérifiée"
+                    : "ÉCHEC : modèle chargé sans empreinte vérifiée"
             case .failure(let error):
-                modelResult = "FAIL: \(Self.userFacing(error))"
+                modelResult = "ÉCHEC : \(Self.userFacing(error))"
             }
             lock.unlock()
             group.leave()
@@ -143,10 +143,10 @@ final class JarvisVisionSelfTestViewController: UIViewController {
                     .components(separatedBy: .whitespacesAndNewlines)
                     .joined(separator: " ")
                 ocrResult = normalized.contains("JARVIS") && normalized.contains("VISION") && normalized.contains("TEST")
-                    ? "PASS: generated text fixture matched"
-                    : "FAIL: generated text fixture did not match the expected words"
+                    ? "OK : le texte généré a été lu correctement"
+                    : "ÉCHEC : le texte généré n'a pas été lu correctement"
             case .failure(let error):
-                ocrResult = "FAIL: \(Self.userFacing(error))"
+                ocrResult = "ÉCHEC : \(Self.userFacing(error))"
             }
             lock.unlock()
             group.leave()
@@ -159,10 +159,10 @@ final class JarvisVisionSelfTestViewController: UIViewController {
             case .success(let value):
                 let matched = value.observations.contains { $0.payload == "JARVIS-BARCODE-TEST" }
                 barcodeResult = matched
-                    ? "PASS: generated QR fixture matched and no URL was opened"
-                    : "FAIL: generated QR fixture did not match"
+                    ? "OK : le QR code généré a été lu, aucun lien ouvert"
+                    : "ÉCHEC : le QR code généré n'a pas été lu correctement"
             case .failure(let error):
-                barcodeResult = "FAIL: \(Self.userFacing(error))"
+                barcodeResult = "ÉCHEC : \(Self.userFacing(error))"
             }
             lock.unlock()
             group.leave()
@@ -176,8 +176,8 @@ final class JarvisVisionSelfTestViewController: UIViewController {
                 modelResult: modelResult,
                 ocrResult: ocrResult,
                 barcodeResult: barcodeResult,
-                qualityResult: quality.isUsable ? "PASS: generated image accepted" : "NOTICE: generated image produced quality guidance",
-                colorResult: color.name.isEmpty ? "FAIL: no color name" : "PASS: center color analyzer returned a bounded name"
+                qualityResult: quality.isUsable ? "OK : image générée acceptée" : "À NOTER : l'image générée a déclenché un conseil de qualité",
+                colorResult: color.name.isEmpty ? "ÉCHEC : aucun nom de couleur" : "OK : la couleur du centre a été nommée"
             )
         }
     }
@@ -202,27 +202,27 @@ final class JarvisVisionSelfTestViewController: UIViewController {
             !preferences.persistsRecognizedText &&
             !preferences.allowsNetworkVisionProcessing
 
-        let speech = JarvisSpeechService.shared.isEnabled ? "PASS: speech output enabled" : "NOTICE: speech output disabled"
+        let speech = JarvisSpeechService.shared.isEnabled ? "OK : voix activée" : "À NOTER : voix désactivée"
         let haptics = VisionHapticsService.shared.backend == .unavailable
-            ? "NOTICE: haptics unavailable; speech fallback is required"
-            : "PASS: \(VisionHapticsService.shared.backend.rawValue)"
+            ? "À NOTER : vibrations indisponibles, la voix prend le relais"
+            : "OK : \(VisionHapticsService.shared.backend.rawValue)"
 
         resultLabel.text = """
-        Camera permission: \(camera)
-        Object model: \(modelResult)
-        OCR fixture: \(ocrResult)
-        Barcode fixture: \(barcodeResult)
-        Camera-quality analyzer: \(qualityResult)
-        Color analyzer: \(colorResult)
-        Safety wording: \(safetyPassed ? "PASS" : "FAIL")
-        Privacy defaults: \(privacyPassed ? "PASS" : "FAIL")
-        Speech: \(speech)
-        Haptics: \(haptics)
+        Autorisation caméra : \(camera)
+        Modèle d'objets : \(modelResult)
+        Lecture de texte : \(ocrResult)
+        Code-barres : \(barcodeResult)
+        Qualité d'image : \(qualityResult)
+        Couleur : \(colorResult)
+        Formulations de sécurité : \(safetyPassed ? "OK" : "ÉCHEC")
+        Confidentialité par défaut : \(privacyPassed ? "OK" : "ÉCHEC")
+        Voix : \(speech)
+        Vibrations : \(haptics)
 
-        This in-app check confirms software state only. Camera orientation, focus, real scenes, heat, battery, Bluetooth audio, and physical haptic feel require a human test on the target iPhone.
+        Ce contrôle ne vérifie que le logiciel. L'orientation de la caméra, la mise au point, les vraies scènes, la chauffe, la batterie, l'audio Bluetooth et la sensation des vibrations demandent un essai sur l'iPhone.
         """
         runButton.isEnabled = true
-        runButton.setTitle("Run Again", for: .normal)
+        runButton.setTitle("Relancer", for: .normal)
         detector = nil
         textRecognizer = nil
         barcodeRecognizer = nil
@@ -295,7 +295,7 @@ final class JarvisVisionSelfTestViewController: UIViewController {
               let index = arguments.firstIndex(of: "--jarvis-state"),
               arguments.indices.contains(index + 1),
               arguments[index + 1] == "vision_self_test" else { return }
-        resultLabel.text = "DEMO FIXTURE: Model ready; OCR ready; barcode ready; safety wording passed; privacy defaults passed. No physical camera test was performed."
-        runButton.setTitle("Run Self-Test", for: .normal)
+        resultLabel.text = "DÉMONSTRATION : modèle prêt ; lecture de texte prête ; code-barres prêt ; formulations de sécurité validées ; confidentialité par défaut validée. Aucun test avec la vraie caméra n'a été fait."
+        runButton.setTitle("Lancer l'autotest", for: .normal)
     }
 }
