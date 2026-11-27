@@ -8,10 +8,12 @@ import Foundation
 /// sounds finished (« Quelle heure est-il ? ») ends quickly; one that stops on « et »,
 /// « de », « parce que » or on a bare verb (« Appelle… ») waits for the rest.
 enum JarvisTurnEndDetector {
-    static let finished: TimeInterval = 0.8
-    static let ordinary: TimeInterval = 1.2
-    static let shortStart: TimeInterval = 1.6
-    static let unfinished: TimeInterval = 2.4
+    // Initial values of docs/specs/voix.md §4 (to calibrate on the iPhone): the recognizer's
+    // own delay (≈ 0,2–0,3 s) comes on top of these silences.
+    static let finished: TimeInterval = 0.55
+    static let ordinary: TimeInterval = 0.9
+    static let shortStart: TimeInterval = 1.3
+    static let unfinished: TimeInterval = 1.9
 
     /// Words after which French goes on: articles, prepositions, conjunctions, possessives.
     static let continuationWords: Set<String> = [

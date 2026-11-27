@@ -33,7 +33,7 @@ LENGTH = {
 }
 
 SERIOUS_WORDS = (
-    "urgence", "urgent", "accident", "blesse", "douleur", "mal au", "malade", "hopital", "medecin", "deces", "mort", "suicide",
+    "urgence", "urgent", "accident", "blesse", "douleur", "mal au", "mal aux", "mal a la", "j'ai mal", "malade", "hopital", "medecin", "deces", "mort", "suicide",
     "deprime", "angoisse", "panique", "pompiers", "police", "samu", "agression", "violence", "triste", "pleure", "danger",
 )
 

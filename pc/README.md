@@ -60,6 +60,13 @@ Liste les micros et haut-parleurs (choisissez celui de Windows par défaut).
 
 Vérifie chaque partie pour de vrai : le cerveau, la voix vers les oreilles puis le réveil, et le serveur.
 
+## Mémoire, voix et recherche (V10)
+
+- **Mémoire de Jarvis** : `%APPDATA%\JarvisPC\Mémoire Jarvis`, une note Markdown par souvenir (ouvrable comme coffre Obsidian). Jarvis y apprend vos préférences, habitudes, faits et corrections, sans doublon. Avant chaque réponse, il ne lit que les notes utiles. « Oublie que… » efface un souvenir, « Qu'est-ce que tu sais sur moi ? » les résume. L'iPhone en reçoit une copie à chaque synchronisation.
+- **Voix** : lecture continue, sans blanc entre les phrases. L'iPhone peut parler avec la voix du PC (`/v1/tts`) ; dites « Utilise la voix de l'iPhone » pour revenir à la sienne. `python -m jarvis_pc --analyse-voix fichier.wav` mesure le style d'une voix de référence (seuls des chiffres sont gardés, voir `docs/specs/voix-moteurs.md`). `python -m jarvis_pc --voix-essais` écrit des essais des voix libres les plus proches. Le choix se fait dans `settings.json` : `piper_voice`, `voice_speaker`, `voice_length_scale`, `voice_sentence_silence`.
+- **Recherche** : Wikipédia, Wikipedia en anglais et DuckDuckGo. Pour utiliser votre propre SearXNG, renseignez `searxng_url` (par exemple `http://127.0.0.1:8888`, format JSON activé dans SearXNG).
+- **Raisonnement** : les questions difficiles passent par un brouillon caché. Si vous installez un modèle « thinking » (`ollama pull qwen3:30b-a3b-thinking-2507-q4_K_M`, environ 18 Go), Jarvis l'utilise pour elles.
+
 ## Hors de la maison : Tailscale
 
 À la maison, l'iPhone joint le PC par le Wi-Fi. Ailleurs, [Tailscale](https://tailscale.com) relie les deux appareils par un réseau privé chiffré :

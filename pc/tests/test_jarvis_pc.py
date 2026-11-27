@@ -511,3 +511,10 @@ def test_the_iphone_can_speak_with_the_pc_voice(memory):
             assert wave.open(io.BytesIO(response.read())).getframerate() == 22050
     finally:
         server.stop()
+
+
+def test_the_iphone_has_the_same_personality():
+    import tools_gen_personality
+
+    assert tools_gen_personality.TARGET.read_text(encoding="utf-8") == tools_gen_personality.render(), \
+        "run pc/tools_gen_personality.py after changing personality.py"

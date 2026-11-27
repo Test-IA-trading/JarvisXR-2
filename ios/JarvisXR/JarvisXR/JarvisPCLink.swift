@@ -185,6 +185,7 @@ final class JarvisPCLink {
         send(request("/v1/health")) { [weak self] result in
             if case .success(let object) = result {
                 self?.lastReachable = (Date(), object["paired"] as? Bool == true)
+                self?.hasVoice = object["paired"] as? Bool == true && object["voice"] as? Bool == true
             }
             completion(result.flatMap { (object: [String: Any]) -> Result<String, LinkError> in
                 guard object["paired"] as? Bool == true else { return .failure(.refused) }
@@ -201,6 +202,23 @@ final class JarvisPCLink {
                 return .success((spoken: spoken, display: (object["display"] as? String) ?? spoken))
             })
         }
+    }
+
+    /// Whether the paired PC can lend its voice (/v1/tts), from its last health answer.
+    private(set) var hasVoice = false
+
+    /// One sentence in the PC's voice, as WAV data (nil when the PC cannot say it): a voice
+    /// that flows without gaps on the iPhone (docs/specs/voix.md §7). Never more than 3 s.
+    func speech(_ text: String, completion: @escaping (Data?) -> Void) {
+        guard isConfigured, let request = request("/v1/tts", method: "POST", body: ["text": text], timeout: 3) else {
+            completion(nil)
+            return
+        }
+        session.dataTask(with: request) { data, response, _ in
+            let http = response as? HTTPURLResponse
+            let wav = http?.statusCode == 200 && http?.value(forHTTPHeaderField: "Content-Type") == "audio/wav" ? data : nil
+            DispatchQueue.main.async { completion(wav) }
+        }.resume()
     }
 
     /// Words said aloud by the PC.
@@ -228,7 +246,10 @@ final class JarvisPCLink {
         }
         send(request("/v1/health", timeout: 2)) { [weak self] result in
             var reachable = false
-            if case .success(let object) = result { reachable = object["paired"] as? Bool == true }
+            if case .success(let object) = result {
+                reachable = object["paired"] as? Bool == true
+                self?.hasVoice = reachable && object["voice"] as? Bool == true
+            }
             self?.lastReachable = (Date(), reachable)
             completion(reachable)
         }
@@ -329,6 +350,10 @@ final class JarvisPCLink {
             let id = (note["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
             let created = (note["created"] as? String).flatMap { isoFormatter.date(from: $0) } ?? Date()
             if memory.importNote(id: id, text: text, createdAt: created) { added += 1 }
+        }
+        // Jarvis's long-term memory, learned on the PC (pc/jarvis_pc/knowledge.py).
+        if let knowledge = merged["knowledge"] as? [[String: Any]] {
+            JarvisKnowledgeStore.shared.adopt(knowledge)
         }
         if let stamp = merged["name_updated"] as? String, let updated = isoFormatter.date(from: stamp), updated > profile.nameUpdated {
             profile.adoptName(merged["name"] as? String, updated: updated)

@@ -88,14 +88,13 @@ struct JarvisChatTurn: Equatable {
 enum JarvisChatPrompt {
     static let defaultCharacterBudget = 4_500
 
-    static func systemPrompt(now: Date, context: [String]) -> String {
+    static func systemPrompt(now: Date, context: [String], question: String = "") -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "fr_FR")
         formatter.dateFormat = "EEEE d MMMM yyyy, HH:mm"
-        var lines = [
-            "Tu es JARVIS, l'assistant personnel de l'utilisateur sur son iPhone : cultivé, précis et calme, avec une pointe d'humour discret.",
-            "Vouvoie toujours l'utilisateur, avec la courtoisie d'un majordome.",
-            "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées entre elles, comme le dirait une personne cultivée, jamais un style télégraphique. Va droit à l'essentiel en deux ou trois phrases, sauf si l'utilisateur demande plus de détails ou si un calcul demande quelques étapes.",
+        // The same personality as Jarvis PC (JarvisPersonality, written from pc/jarvis_pc/personality.py).
+        var lines = JarvisPersonality.rules(for: question) + [
+            "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées entre elles, jamais un style télégraphique.",
             "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
             "Tu sais faire des mathématiques (calculs, dérivées, intégrales, équations), de la physique, de la chimie, de l'histoire, du code et de la culture générale : réponds à ces questions même difficiles, en donnant d'abord le résultat puis une courte explication.",
             "Tu fonctionnes hors ligne : tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone en dehors du contexte ci-dessous.",
@@ -627,7 +626,7 @@ final class JarvisLocalBrain {
         }
         // The first name and the notes the person dictated (« Souviens-toi que… ») let the
         // brain answer « Qu'est-ce que je bois le matin ? »; everything stays on the iPhone.
-        let system = JarvisChatPrompt.systemPrompt(now: now, context: conversation.brainContextLines() + profile.brainContextLines(memory: memory))
+        let system = JarvisChatPrompt.systemPrompt(now: now, context: conversation.brainContextLines() + profile.brainContextLines(memory: memory) + JarvisKnowledgeStore.shared.contextLines(for: question), question: question)
         let prompt = JarvisChatPrompt.chatML(system: system, history: conversation.recentTurns, question: question)
         generate(prompt: prompt, onPartial: onPartial) { result in
             switch result {

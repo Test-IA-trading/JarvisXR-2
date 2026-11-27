@@ -87,6 +87,21 @@ struct JarvisFrenchCommandRouter {
             return .answer(reply)
         }
 
+        // Which voice speaks: the PC's (Piper, smoother) or the iPhone's own.
+        if containsAny(request, ["utilise la voix du pc", "prends la voix du pc", "parle avec la voix du pc", "voix du pc"]) {
+            JarvisPCVoice.isEnabled = true
+            return .answer(.ok("Entendu. Je parlerai avec la voix du PC dès qu'il est joignable.", data: ["mode": "pc_voice"]))
+        }
+        if containsAny(request, ["utilise la voix de l'iphone", "prends la voix de l'iphone", "voix de l'iphone", "voix du telephone"]) {
+            JarvisPCVoice.isEnabled = false
+            return .answer(.ok("Très bien. Je parlerai avec la voix de l'iPhone.", data: ["mode": "iphone_voice"]))
+        }
+
+        // « Ouvre WhatsApp », « Lance Spotify »: an app of the iPhone, by its public address.
+        if let reply = appRequest(request) {
+            return .answer(reply)
+        }
+
         // Hands-free conversation controls.
         if containsAny(request, ["c'est tout", "ca sera tout", "ce sera tout", "fin de la conversation", "arrete la conversation", "arrete d'ecouter", "stop conversation", "termine la conversation"]) {
             return .answer(.ok("Très bien. Touchez l'orbe quand vous voudrez reprendre.", data: ["mode": "conversation_end"]))
@@ -246,6 +261,45 @@ struct JarvisFrenchCommandRouter {
         guard Self.looksFrench(text) else { return .notHandled }
         // The brain hears the user's own words, not the rewording made for the commands.
         return .openQuestion(spoken)
+    }
+
+    // MARK: Apps of the iPhone
+
+    /// Apps iOS lets another app open, by their public address (names said, normalized).
+    /// iOS opens nothing that is not installed: the screen then says so.
+    static let appAddresses: [(names: [String], label: String, url: String)] = [
+        (["youtube"], "YouTube", "youtube://"), (["spotify"], "Spotify", "spotify://"), (["deezer"], "Deezer", "deezer://"),
+        (["whatsapp", "whats app"], "WhatsApp", "whatsapp://"), (["instagram", "insta"], "Instagram", "instagram://"),
+        (["facebook"], "Facebook", "fb://"), (["messenger"], "Messenger", "fb-messenger://"), (["snapchat", "snap"], "Snapchat", "snapchat://"),
+        (["tiktok", "tik tok"], "TikTok", "tiktok://"), (["netflix"], "Netflix", "nflx://"), (["telegram"], "Telegram", "tg://"),
+        (["twitter", "x"], "X", "twitter://"), (["discord"], "Discord", "discord://"), (["twitch"], "Twitch", "twitch://"),
+        (["linkedin"], "LinkedIn", "linkedin://"), (["pinterest"], "Pinterest", "pinterest://"), (["reddit"], "Reddit", "reddit://"),
+        (["waze"], "Waze", "waze://"), (["google maps"], "Google Maps", "comgooglemaps://"), (["plans", "apple plans", "cartes"], "Plans", "maps://"),
+        (["gmail"], "Gmail", "googlegmail://"), (["mail", "mails", "mes mails", "la messagerie"], "Mail", "message://"),
+        (["messages", "imessage"], "Messages", "sms:"), (["calendrier", "agenda"], "Calendrier", "calshow://"),
+        (["rappels"], "Rappels", "x-apple-reminderkit://"), (["apple notes", "l'app notes", "application notes"], "Notes", "mobilenotes://"),
+        (["musique", "apple music"], "Musique", "music://"), (["podcasts"], "Podcasts", "podcasts://"), (["app store"], "App Store", "itms-apps://"),
+        (["photos", "galerie"], "Photos", "photos-redirect://"), (["meteo", "l'app meteo"], "Météo", "weather://"),
+        (["horloge", "reveil", "alarmes"], "Horloge", "clock-alarm://"), (["chrome", "google chrome"], "Chrome", "googlechrome://"),
+        (["shazam"], "Shazam", "shazam://"), (["uber"], "Uber", "uber://"), (["prime video"], "Prime Video", "aiv://"),
+        (["disney", "disney plus", "disney+"], "Disney+", "disneyplus://"), (["raccourcis"], "Raccourcis", "shortcuts://"),
+        (["reglages de jarvis", "reglages de l'app"], "Réglages de Jarvis", "app-settings:"),
+    ]
+
+    private static let appVerbs = ["ouvre moi", "lance moi", "ouvre", "lance", "demarre", "va sur"]
+
+    func appRequest(_ request: String) -> JarvisResponse? {
+        for verb in Self.appVerbs where request.hasPrefix(verb + " ") {
+            var name = String(request.dropFirst(verb.count + 1))
+            for article in ["l'application ", "l'app ", "application ", "app ", "le ", "la ", "les ", "mon ", "ma ", "mes "] where name.hasPrefix(article) {
+                name = String(name.dropFirst(article.count))
+                break
+            }
+            name = name.trimmingCharacters(in: CharacterSet(charactersIn: " ?!."))
+            guard let app = Self.appAddresses.first(where: { $0.names.contains(name) }) else { return nil }
+            return .ok("J'ouvre \(app.label).", display: "Ouverture de \(app.label).", data: ["url_scheme": app.url, "action": "open_app"])
+        }
+        return nil
     }
 
     // MARK: Shortcuts

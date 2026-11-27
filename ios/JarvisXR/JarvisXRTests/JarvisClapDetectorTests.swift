@@ -43,6 +43,29 @@ final class JarvisClapDetectorTests: XCTestCase {
         }
     }
 
+    /// A knock on a door or a desk: a dull, low tone that dies out quickly.
+    private func addThump(_ signal: inout [Float], at time: Double, amplitude: Float = 0.5) {
+        let start = Int(time * rate)
+        for k in 0..<Int(0.08 * rate) where start + k < signal.count {
+            signal[start + k] += amplitude * Float(exp(-Double(k) / (0.006 * rate)) * sin(2 * Double.pi * 120 * Double(k) / rate))
+        }
+    }
+
+    func testDullKnocksAndUnevenPairsAreNotADoubleClap() {
+        var knocks = room(2)
+        addThump(&knocks, at: 0.6)
+        addThump(&knocks, at: 0.95)
+        XCTAssertEqual(detections(in: knocks), 0, "a knock on a door is dull, a clap is bright")
+        var uneven = room(2)
+        addClap(&uneven, at: 0.6, amplitude: 0.5)
+        addClap(&uneven, at: 0.95, amplitude: 0.06)
+        XCTAssertEqual(detections(in: uneven), 0, "the two claps of a pair are about as loud")
+        var close = room(2)
+        addClap(&close, at: 0.6, amplitude: 0.3)
+        addClap(&close, at: 1.05, amplitude: 0.45)
+        XCTAssertEqual(detections(in: close), 1)
+    }
+
     /// Fed like the microphone, 1024 samples at a time.
     private func detections(in signal: [Float]) -> Int {
         var detector = JarvisClapDetector(sampleRate: rate)

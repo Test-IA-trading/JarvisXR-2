@@ -370,6 +370,34 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         duplexActive = true
         duplexIsStream = stream
         duplexRendering += 1
+        if JarvisPCVoice.shared.isUsable {
+            // The PC's voice (Piper): asked now, played in order; the iPhone's voice if it fails.
+            JarvisPCVoice.shared.render(text) { [weak self] buffer in
+                guard let self, self.duplexGeneration == generation else { return }
+                guard let buffer else {
+                    self.renderWithSystemVoice(utterance, generation: generation)
+                    return
+                }
+                self.duplexRendering = max(0, self.duplexRendering - 1)
+                self.playConversationBuffer(buffer, generation: generation)
+                self.finishConversationVoiceIfDone()
+            }
+        } else {
+            renderWithSystemVoice(utterance, generation: generation)
+        }
+        // A voice that renders nothing: the synthesizer says the text instead.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.duplexGeneration == generation, self.duplexActive, !self.duplexStarted else { return }
+            self.stopConversationVoice(reportFinish: false)
+            self.activateAudioSession()
+            let fallback = self.makeUtterance(self.currentReplyText.isEmpty ? text : self.currentReplyText, profile: self.profile)
+            self.synthesizer.speak(fallback)
+        }
+        return true
+    }
+
+    /// The iPhone's own voice, rendered into buffers for the conversation audio.
+    private func renderWithSystemVoice(_ utterance: AVSpeechUtterance, generation: Int) {
         renderer.write(utterance) { [weak self] buffer in
             guard let pcm = buffer as? AVAudioPCMBuffer else { return }
             let ended = pcm.frameLength == 0
@@ -382,29 +410,25 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
                     return
                 }
                 guard let copy else { return }
-                let accepted = JarvisDuplexAudio.shared.play(copy) { [weak self] in
-                    guard let self, self.duplexGeneration == generation else { return }
-                    self.duplexPendingBuffers = max(0, self.duplexPendingBuffers - 1)
-                    self.finishConversationVoiceIfDone()
-                }
-                guard accepted else { return }
-                self.duplexPendingBuffers += 1
-                if !self.duplexStarted {
-                    self.duplexStarted = true
-                    self.lastSpeechStartAt = Date()
-                    self.onSpeechStart?()
-                }
+                self.playConversationBuffer(copy, generation: generation)
             }
         }
-        // A voice that renders nothing: the synthesizer says the text instead.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, self.duplexGeneration == generation, self.duplexActive, !self.duplexStarted else { return }
-            self.stopConversationVoice(reportFinish: false)
-            self.activateAudioSession()
-            let fallback = self.makeUtterance(self.currentReplyText.isEmpty ? text : self.currentReplyText, profile: self.profile)
-            self.synthesizer.speak(fallback)
+    }
+
+    /// Queues one buffer of Jarvis's voice after the others in the conversation audio.
+    private func playConversationBuffer(_ buffer: AVAudioPCMBuffer, generation: Int) {
+        let accepted = JarvisDuplexAudio.shared.play(buffer) { [weak self] in
+            guard let self, self.duplexGeneration == generation else { return }
+            self.duplexPendingBuffers = max(0, self.duplexPendingBuffers - 1)
+            self.finishConversationVoiceIfDone()
         }
-        return true
+        guard accepted else { return }
+        duplexPendingBuffers += 1
+        if !duplexStarted {
+            duplexStarted = true
+            lastSpeechStartAt = Date()
+            onSpeechStart?()
+        }
     }
 
     private func finishConversationVoiceIfDone() {
@@ -426,6 +450,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         duplexRendering = 0
         duplexPendingBuffers = 0
         renderer.stopSpeaking(at: .immediate)
+        JarvisPCVoice.shared.cancelAll()
         JarvisDuplexAudio.shared.stopVoice()
         if reportFinish {
             DispatchQueue.main.async { [weak self] in

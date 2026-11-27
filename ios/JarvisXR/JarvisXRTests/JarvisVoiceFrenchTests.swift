@@ -160,6 +160,16 @@ final class JarvisVoiceFrenchTests: XCTestCase {
         XCTAssertEqual(decision.response.spokenResponse, "J'ouvre la caméra.")
     }
 
+    func testAppsOfTheIPhoneOpenByVoice() {
+        guard case .answer(let whatsapp) = french.route("Jarvis, ouvre WhatsApp") else { return XCTFail("Not an app") }
+        XCTAssertEqual(whatsapp.data["url_scheme"], "whatsapp://")
+        XCTAssertEqual(whatsapp.spokenResponse, "J'ouvre WhatsApp.")
+        guard case .answer(let spotify) = french.route("Lance l'application Spotify") else { return XCTFail("Not an app") }
+        XCTAssertEqual(spotify.data["url_scheme"], "spotify://")
+        guard case .answer(let pc) = french.route("Ouvre Spotify sur le PC") else { return XCTFail("Not for the PC") }
+        XCTAssertEqual(pc.data["action"], "pc_command", "the PC keeps its own requests")
+    }
+
     func testAShortcutIsRunByItsName() {
         guard case .answer(let response) = french.route("Jarvis, lance le raccourci Mode nuit") else { return XCTFail("Not a shortcut") }
         XCTAssertEqual(response.data["url_scheme"], "shortcuts://run-shortcut?name=Mode%20nuit")
