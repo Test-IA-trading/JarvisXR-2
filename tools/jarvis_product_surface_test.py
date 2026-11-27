@@ -117,6 +117,8 @@ def main() -> int:
         'identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped)',
         'identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped)',
         'identifier: "jarvis.settings.about", action: #selector(aboutTapped)',
+        # docs/VISION_JARVIS.md §17.1: the emergency stop is one touch in Settings.
+        'identifier: "jarvis.settings.emergencyStop", action: #selector(emergencyStopTapped)',
     ]))
     check("Control Mesh buttons route through real deep links", all(term in mesh_view for term in [
         "inspectButton.addTarget",

@@ -105,7 +105,57 @@ final class JarvisSettingsViewController: UIViewController {
         if let brainObserver {
             NotificationCenter.default.removeObserver(brainObserver)
         }
+        if let emergencyObserver {
+            NotificationCenter.default.removeObserver(emergencyObserver)
+        }
         voiceObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    // MARK: - Emergency stop (docs/VISION_JARVIS.md §17.1)
+
+    private var emergencyButton: UIButton?
+    private var emergencyObserver: NSObjectProtocol?
+
+    /// First of the settings: one touch stops everything Jarvis does (JarvisEmergencyStop),
+    /// the same touch lets it start again.
+    private func buildEmergencySection() {
+        stackView.addArrangedSubview(sectionHeading("Arrêt d'urgence"))
+        let explanation = textLabel(
+            "Arrête aussitôt l'écoute, la voix, la réflexion, les recherches et la veille ; rien ne redémarre avant « Reprendre ». Une action déjà faite hors de l'iPhone (un message envoyé) ne peut pas être annulée.",
+            style: .footnote,
+            color: JarvisTheme.mutedText
+        )
+        explanation.accessibilityIdentifier = "jarvis.settings.emergency.explanation"
+        stackView.addArrangedSubview(explanation)
+        let button = actionButton("Arrêt d'urgence", identifier: "jarvis.settings.emergencyStop", action: #selector(emergencyStopTapped))
+        emergencyButton = button
+        stackView.addArrangedSubview(button)
+        emergencyObserver = NotificationCenter.default.addObserver(forName: JarvisEmergencyStop.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshEmergencyButton()
+        }
+        refreshEmergencyButton()
+    }
+
+    private func refreshEmergencyButton() {
+        let engaged = JarvisEmergencyStop.shared.isEngaged
+        let title = engaged ? "Reprendre (arrêt d'urgence actif)" : "Arrêt d'urgence"
+        emergencyButton?.setTitle(title, for: .normal)
+        emergencyButton?.accessibilityLabel = title
+        emergencyButton?.accessibilityHint = engaged
+            ? "Jarvis peut de nouveau écouter, parler et réfléchir."
+            : "Arrête tout ce que fait Jarvis jusqu'à ce que vous repreniez."
+        emergencyButton?.backgroundColor = engaged ? JarvisTheme.panelRaised : .systemRed
+        emergencyButton?.setTitleColor(engaged ? JarvisTheme.text : .white, for: .normal)
+    }
+
+    @objc private func emergencyStopTapped() {
+        if JarvisEmergencyStop.shared.isEngaged {
+            JarvisEmergencyStop.shared.release()
+        } else {
+            if voiceInput.isListening { voiceInput.cancel() }
+            JarvisEmergencyStop.shared.engage()
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
     }
 
     // MARK: - Jarvis PC
@@ -638,6 +688,8 @@ final class JarvisSettingsViewController: UIViewController {
         assistantLabel.accessibilityIdentifier = "jarvis.settings.assistant"
         assistantLabel.accessibilityTraits.insert(.updatesFrequently)
         stackView.addArrangedSubview(assistantLabel)
+
+        buildEmergencySection()
 
         configureSwitch(
             speechSwitch,
