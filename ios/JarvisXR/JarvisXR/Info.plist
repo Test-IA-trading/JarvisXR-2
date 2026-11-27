@@ -31,12 +31,51 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>JARVIS uses the camera for local inspection mode.</string>
+	<string>JARVIS utilise la caméra pour analyser la scène sur votre iPhone.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>JARVIS lit votre calendrier quand vous demandez « Qu'est-ce que j'ai demain ? ». Rien ne quitte l'iPhone.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>JARVIS crée les rappels que vous lui dictez, par exemple « Rappelle-moi d'appeler maman à 18 h ».</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Jarvis trouve et joint votre PC (Jarvis PC) sur le Wi-Fi de la maison, seulement une fois relié par son code d'appairage.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_jarvis._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>ts.net</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>NSContactsUsageDescription</key>
+	<string>Jarvis trouve le contact que vous nommez (« Appelle Paul », « Écris à Paul que j'arrive »). Vos contacts restent sur l'iPhone.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Jarvis vous dit combien de pas vous avez faits et la distance parcourue, quand vous le demandez. Ces données restent sur l'iPhone.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Jarvis compte et vous montre vos photos quand vous le demandez (« Montre-moi ma dernière photo »). Elles restent sur l'iPhone et Jarvis n'en modifie aucune.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>En mode connecté (Réglages › Internet), Jarvis donne la météo de l'endroit où vous êtes et répond à « Où suis-je ? ». La position, arrondie à environ 1 km pour la météo, n'est pas enregistrée.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>JARVIS uses the microphone for in-app push-to-talk commands.</string>
+	<string>JARVIS utilise le micro pour écouter vos demandes quand vous touchez l'orbe. Aucun enregistrement audio n'est conservé.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>JARVIS uses on-device speech recognition when available for in-app push-to-talk commands.</string>
+	<string>JARVIS transcrit vos demandes en français, sur l'iPhone quand c'est possible.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -245,3 +245,23 @@ def make_synthetic_ipa(path: Path, extras: dict[str, bytes] | None = None) -> No
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():
             archive.writestr(name, content)
+
+
+def test_privacy_audit_allows_only_the_model_downloader_network_path(tmp_path):
+    downloader = tmp_path / "JarvisModelDownloader.swift"
+    downloader.write_text("let session = URLSession(configuration: .default)\n", encoding="utf-8")
+    report = scan_privacy(tmp_path, DEFAULT_MANIFEST)
+    assert report["status"] == "passed", report["failures"]
+    assert any("JarvisModelDownloader.swift network use allowed" in item for item in report["passed"])
+
+    downloader.write_text('let url = URL(string: "https://example.com/model")!\nlet session = URLSession.shared\n', encoding="utf-8")
+    report = scan_privacy(tmp_path, DEFAULT_MANIFEST)
+    assert report["status"] == "failed"
+    assert any("embeds a URL" in item for item in report["failures"])
+
+    downloader.write_text("let session = URLSession(configuration: .default)\n", encoding="utf-8")
+    other = tmp_path / "JarvisChat.swift"
+    other.write_text("let session = URLSession.shared\n", encoding="utf-8")
+    report = scan_privacy(tmp_path, DEFAULT_MANIFEST)
+    assert report["status"] == "failed"
+    assert any("JarvisChat.swift contains production network API token: URLSession" in item for item in report["failures"])
