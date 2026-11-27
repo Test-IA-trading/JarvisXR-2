@@ -119,7 +119,7 @@ struct VisionSafetyPolicy: Sendable {
 
     func safeNarration(
         _ proposed: String,
-        fallback: String = "I cannot provide a reliable description from this image."
+        fallback: String = "Je ne peux pas donner de description fiable à partir de cette image."
     ) -> String {
         if validateNarration(proposed).isAllowed {
             return proposed
@@ -127,22 +127,30 @@ struct VisionSafetyPolicy: Sendable {
         if validateNarration(fallback).isAllowed {
             return fallback
         }
-        return "I cannot verify that."
+        return "Je ne peux pas le vérifier."
     }
 
     func qualifiedAbsence(region: SpatialRegion? = nil) -> String {
         let location = region.map { " \($0.spokenLocation)" } ?? ""
-        return "I do not detect a supported object\(location) right now, but I may be missing something."
+        return "Je ne détecte aucun objet connu\(location) pour le moment, mais je peux en manquer."
     }
 
     func isQualifiedAbsence(_ text: String) -> Bool {
         let normalized = normalize(text)
         let describesAbsence = normalized.contains("do not detect") ||
             normalized.contains("did not detect") ||
-            normalized.contains("have not found")
+            normalized.contains("have not found") ||
+            normalized.contains("ne détecte") ||
+            normalized.contains("pas encore trouvé") ||
+            normalized.contains("n'ai pas trouvé")
         let includesUncertainty = normalized.contains("may be missing") ||
             normalized.contains("cannot verify") ||
-            normalized.contains("not confident")
+            normalized.contains("not confident") ||
+            normalized.contains("peux en manquer") ||
+            normalized.contains("peux la manquer") ||
+            normalized.contains("peux le manquer") ||
+            normalized.contains("peut-être") ||
+            normalized.contains("pas certain")
         return !describesAbsence || includesUncertainty
     }
 
@@ -178,6 +186,31 @@ struct VisionSafetyPolicy: Sendable {
         (
             "unsupported precise visual distance",
             #"\b\d+(\.\d+)?\s*(feet|foot|ft|inches|inch|meters|meter|metres|metre|yards|yard)\b"#
+        ),
+        // The same claims in French, now that Live Guide speaks French.
+        (
+            "affirmation de sécurité du trajet",
+            #"\b(le|la)\s+(chemin|route|rue|voie|passage)\s+(est|semble|paraît|parait)\s+(sûre?|sure?|libre|dégagée?|degagee?|sans\s+danger)\b"#
+        ),
+        (
+            "consigne de traverser ou d'avancer",
+            #"\b(vous\s+pouvez|tu\s+peux|on\s+peut)\s+(traverser|avancer|continuer|passer|y\s+aller)\b"#
+        ),
+        (
+            "affirmation que tout est dégagé",
+            #"\b(la\s+voie\s+est\s+libre|il\s+n'y\s+a\s+rien\s+(devant|en\s+face)|rien\s+(devant|en\s+face)\s+de\s+(vous|toi))\b"#
+        ),
+        (
+            "garantie d'absence non étayée",
+            #"\b(il\s+n'y\s+a|je\s+ne\s+(vois|détecte|detecte))\s+(aucun|aucune|pas\s+d'|pas\s+de)\s*(obstacles?|dangers?|véhicules?|vehicules?|voitures?|personnes?)\b"#
+        ),
+        (
+            "garantie de certitude",
+            #"\b(certainement|assurément|assurement|sans\s+aucun\s+doute|garanti|garantie|infaillible)\b"#
+        ),
+        (
+            "distance visuelle précise non étayée",
+            #"\b\d+([.,]\d+)?\s*(mètres?|metres?|centimètres?|centimetres?|cm|pieds?|pouces?)\b"#
         )
     ]
 
