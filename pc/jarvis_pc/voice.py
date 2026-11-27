@@ -43,10 +43,12 @@ def _download(url: str, target: Path) -> None:
 class Speaker:
     """Text to speech with Piper; formulas are read as words (x² → « x au carré »)."""
 
-    def __init__(self, speaker: str = "pierre", length_scale: float = 1.07, device=None, model: str = PIPER_MODEL,
-                 sentence_silence: float = 0.3):
+    def __init__(self, speaker: str = "pierre", length_scale: float = 1.10, device=None, model: str = PIPER_MODEL,
+                 sentence_silence: float = 0.3, pitch_semitones: float = 1.5):
         self.speaker_name = speaker
         self.length_scale = length_scale
+        # A slightly higher voice, as measured on the reference style (pace kept: see synthesize).
+        self.pitch_semitones = pitch_semitones
         self.sentence_silence = sentence_silence
         self.model = model if model.endswith(".onnx") else model + ".onnx"
         self.device = device
@@ -80,9 +82,14 @@ class Speaker:
 
         voice = self.ensure()
         speaker_id = (voice.config.speaker_id_map or {}).get(self.speaker_name)
-        config = SynthesisConfig(speaker_id=speaker_id, length_scale=self.length_scale)
+        factor = 2 ** (self.pitch_semitones / 12)
+        # Spoken slower by `factor`, then played `factor` times faster: higher pitch, same pace.
+        config = SynthesisConfig(speaker_id=speaker_id, length_scale=self.length_scale * factor)
         chunks = [chunk.audio_int16_array for chunk in voice.synthesize(mathsolver.speakable(text), syn_config=config)]
         audio = np.concatenate(chunks) if chunks else np.zeros(1, dtype=np.int16)
+        if abs(factor - 1) > 1e-3 and len(audio) > 1:
+            positions = np.arange(0, len(audio) - 1, factor)
+            audio = np.interp(positions, np.arange(len(audio)), audio.astype(np.float32)).astype(np.int16)
         return audio, voice.config.sample_rate
 
     def say(self, text: str) -> None:

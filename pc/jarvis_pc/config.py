@@ -51,8 +51,9 @@ class Settings:
     # Jarvis's voice: speaker of the Piper model, pace and pause between sentences (pc/jarvis_pc/voiceprofile.py
     # measured them against the reference style; « python -m jarvis_pc --voix-essais » lets you compare voices).
     voice_speaker: str = "pierre"
-    voice_length_scale: float = 1.07
+    voice_length_scale: float = 1.10
     voice_sentence_silence: float = 0.3
+    voice_pitch_semitones: float = 1.5
     # Optional: the address of a SearXNG run by the user (« http://127.0.0.1:8888 »), searched first.
     searxng_url: str = ""
 

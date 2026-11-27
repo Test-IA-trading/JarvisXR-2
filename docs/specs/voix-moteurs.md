@@ -12,7 +12,7 @@ Ce que fait Jarvis : `python -m jarvis_pc --analyse-voix chemin.wav` mesure loca
 | Débit | ≈ 6,4 syllabes/s |
 | Pause médiane entre groupes | ≈ 0,31 s (90 % sous 0,58 s) |
 
-Ces mesures sont approximatives (la bande-son contient de la musique et des bruitages). `python -m jarvis_pc --voix-essais` classe ensuite les voix françaises libres par proximité de style et écrit des essais WAV à écouter. Le réglage retenu est la voix Piper « pierre » (upmc, CC BY-SA 4.0), avec un débit ajusté (`voice_length_scale` 1,07) et 0,3 s entre les phrases.
+Ces mesures sont approximatives (la bande-son contient de la musique et des bruitages). `python -m jarvis_pc --voix-essais` classe ensuite les voix françaises libres par proximité de style et écrit des essais WAV à écouter. Le réglage retenu est la voix Piper « pierre » (upmc, CC BY-SA 4.0), la voix masculine connue la plus proche. Les voix MLS plus proches en hauteur n'ont pas de sexe documenté. Réglages : hauteur relevée de 1,5 demi-ton (`voice_pitch_semitones`, 136 → 151 Hz, débit conservé), `voice_length_scale` 1,10 (6,43 syllabes/s mesurées, contre 6,42 pour la référence) et 0,3 s entre les phrases (pause médiane 0,31 s, comme la référence).
 
 ## Moteurs étudiés
 

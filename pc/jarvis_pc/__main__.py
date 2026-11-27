@@ -118,7 +118,7 @@ def build(settings: Settings, voice: bool):
         from .voice import Speaker
 
         speaker = Speaker(settings.voice_speaker, settings.voice_length_scale, model=settings.piper_voice,
-                          sentence_silence=settings.voice_sentence_silence)
+                          sentence_silence=settings.voice_sentence_silence, pitch_semitones=settings.voice_pitch_semitones)
     from . import internet
 
     internet.SEARXNG_URL = settings.searxng_url

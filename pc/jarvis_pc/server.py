@@ -97,7 +97,7 @@ class JarvisServer:
             from .voice import Speaker
 
             self._voice = Speaker(self.settings.voice_speaker, self.settings.voice_length_scale, model=self.settings.piper_voice,
-                                  sentence_silence=self.settings.voice_sentence_silence)
+                                  sentence_silence=self.settings.voice_sentence_silence, pitch_semitones=self.settings.voice_pitch_semitones)
         return self._voice
 
     def memory_payload(self) -> dict:
