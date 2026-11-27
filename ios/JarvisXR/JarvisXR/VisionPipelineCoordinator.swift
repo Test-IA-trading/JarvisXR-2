@@ -84,6 +84,11 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
     private let fusion: SceneFusionEngine
     private let narrationServiceLock = NSLock()
     private var narrationService: VisionNarrationService
+    /// Live Guide memory of real objects and its French answers (« Elle est où maintenant ? »).
+    let liveGuide = VisionLiveGuideEngine()
+    /// The phone's attitude when a frame is analysed (CoreMotion), so that turning the phone
+    /// is not announced as an object moving. Set once when wiring; read on the analysis queue.
+    var cameraPoseProvider: (() -> VisionCameraPose?)?
 
     private let stateQueue = DispatchQueue(label: "com.amrik.jarvisxr.vision.pipeline.state")
     private let analysisQueue = DispatchQueue(label: "com.amrik.jarvisxr.vision.pipeline.analysis", qos: .userInitiated)
@@ -247,6 +252,7 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
             self?.qualityAnalyzer.resetMotionHistory()
         }
         memory.clear()
+        liveGuide.end()
         emitState(mode: .inactive, state: .stopped, generation: stoppedGeneration)
         emitReadingState(.inactive, generation: stoppedGeneration)
         emitTokenAndStatistics(generation: stoppedGeneration)
@@ -289,6 +295,7 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
             return (generation, modeValue)
         }
         guard let update else { return }
+        liveGuide.noteCameraMayHaveMoved()
         emitState(mode: update.1, state: .active, generation: update.0)
         emitTokenAndStatistics(generation: update.0)
     }
@@ -373,6 +380,7 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
     func resetSession() {
         cancelAnalyzerWork()
         memory.clear()
+        liveGuide.end()
         barcodeRecognizer.clearDeduplicationHistory()
         analysisQueue.async { [weak self] in
             self?.tracker.reset()
@@ -478,6 +486,11 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
 
         cancelAnalyzerWork()
         memory.clear()
+        if mode == .liveGuide {
+            liveGuide.begin()
+        } else {
+            liveGuide.end()
+        }
         barcodeRecognizer.clearDeduplicationHistory()
         analysisQueue.async { [weak self] in
             self?.tracker.reset()
@@ -765,20 +778,25 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
                 }
             case .liveGuide:
                 if !quality.isUsable {
+                    // An unusable frame says nothing about the objects: it is not counted as
+                    // « not seen », so a blurred moment does not make the cup disappear.
                     if self.shouldNarrateQuality(quality, at: timestamp) {
                         narration = narrator.narrate(snapshot: snapshot, verbosity: self.verbosity())
                     }
                 } else {
-                    let meaningful = snapshot.changes.contains { change in
-                        switch change.kind {
-                        case .appeared, .approaching, .lost: return true
-                        case .moved, .receding: return !self.changesOnlyImportant()
-                        case .persisted, .uncertain: return false
-                        }
-                    }
-                    if meaningful {
-                        narration = narrator.narrateChanges(in: snapshot, verbosity: self.verbosity())
-                    }
+                    // Appear once, move once it rests, leave once; the phone's own motion and
+                    // detector flicker stay silent (VisionLiveGuideEngine).
+                    let sightings = VisionPipelineCoordinator.liveGuideSightings(
+                        tracking: tracking,
+                        detections: objects,
+                        policy: narrator.safetyPolicy
+                    )
+                    let events = self.liveGuide.update(
+                        sightings: sightings,
+                        pose: self.cameraPoseProvider?(),
+                        at: timestamp
+                    )
+                    narration = narrator.narrateLiveGuide(events: events, snapshot: snapshot)
                 }
             case .find:
                 if !quality.isUsable {
@@ -881,6 +899,36 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Live Guide input: every track seen in this frame, with the detector's own box (the
+    /// tracker's box is smoothed and lags behind an object being carried).
+    static func liveGuideSightings(
+        tracking: TrackingUpdate,
+        detections: [ObjectObservation],
+        policy: VisionSafetyPolicy
+    ) -> [VisionLiveGuideSighting] {
+        let boxes = Dictionary(detections.map { ($0.id, $0.boundingBox) }, uniquingKeysWith: { first, _ in first })
+        return tracking.active.map { tracked in
+            // A confirmed track keeps its standing through a missed frame.
+            let decision = policy.decision(
+                confidence: tracked.smoothedConfidence,
+                consecutiveFrames: tracked.isConfirmed ? Int.max : tracked.consecutiveFrameCount,
+                isRequested: tracked.observation.isRequested,
+                frameUsable: true
+            )
+            var speakable = true
+            if case .suppressed = decision {
+                speakable = false
+            }
+            return VisionLiveGuideSighting(
+                trackIdentifier: tracked.trackIdentifier,
+                classIdentifier: tracked.classIdentifier,
+                box: boxes[tracked.observation.id] ?? tracked.smoothedBoundingBox,
+                isConfirmed: tracked.isConfirmed && speakable,
+                isCertain: decision == .supported
+            )
+        }
+    }
+
     private func singleFrameNarration(snapshot: SceneSnapshot, target: String?) -> SceneNarration {
         let narrator = narrationServiceSnapshot()
         let minimum = target == nil ? 0.58 : 0.54
@@ -889,10 +937,11 @@ final class VisionPipelineCoordinator: @unchecked Sendable {
         }.sorted { $0.smoothedConfidence > $1.smoothedConfidence }
         let text: String
         if let first = candidates.first {
-            text = "In this single image, I may be seeing \(first.name) \(first.horizontalRegion.spokenLocation)."
+            let noun = VisionFrenchVocabulary.noun(for: first.classIdentifier)
+            text = "Sur cette image, je vois peut-être \(noun.indefinite) \(first.horizontalRegion.spokenLocation)."
         } else if let target {
-            let name = VisionClassCatalog.definition(forIdentifier: target)?.displayName ?? target
-            text = "I have not found \(name) in this image. I may be missing it."
+            let noun = VisionFrenchVocabulary.noun(for: target)
+            text = "Je n'ai pas trouvé \(noun.definite) sur cette image. Je peux \(noun.objectPronoun) manquer."
         } else {
             text = narrator.safetyPolicy.qualifiedAbsence()
         }

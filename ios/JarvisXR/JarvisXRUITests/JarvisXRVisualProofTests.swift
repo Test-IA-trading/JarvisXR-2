@@ -29,7 +29,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "ready")
         waitForOrb()
-        waitForState("Ready")
+        waitForState("Prêt")
         saveScreenshot("ready")
     }
 
@@ -37,7 +37,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "listening")
         waitForOrb()
-        waitForState("Listening")
+        waitForState("À l'écoute")
         saveScreenshot("listening")
     }
 
@@ -45,7 +45,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "no_speech")
         waitForOrb()
-        waitForHintContaining("No speech heard")
+        waitForHintContaining("Aucune parole détectée")
         saveScreenshot("no-speech")
     }
 
@@ -53,7 +53,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "processing")
         waitForOrb()
-        waitForAnyState(["Speaking", "Done", "Ready"])
+        waitForAnyState(["Réponse", "Terminé", "Prêt"])
         saveScreenshot("processing")
     }
 
@@ -61,7 +61,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "long_hold_standby")
         waitForOrb()
-        waitForState("Standby")
+        waitForState("En veille")
         saveScreenshot("long-hold-standby")
     }
 
@@ -137,7 +137,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         launch(state: "vision_idle")
         waitForVisionSurface()
         assertFixtureDisclosure()
-        waitForVisionState("Ready")
+        waitForVisionState("Prêt")
         saveScreenshot("vision-idle")
     }
 
@@ -145,7 +145,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_describe_listening")
         waitForVisionSurface()
-        waitForVisionState("Listening")
+        waitForVisionState("À l'écoute")
         saveScreenshot("vision-describe-listening")
     }
 
@@ -153,7 +153,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_describe_analyzing")
         waitForVisionSurface()
-        waitForVisionState("Active")
+        waitForVisionState("Actif")
         saveScreenshot("vision-describe-analyzing")
     }
 
@@ -162,7 +162,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         launch(state: "vision_describe_result")
         waitForVisionSurface()
         waitFor(app.staticTexts["jarvis.vision.result"], named: "Vision result")
-        XCTAssertTrue(app.staticTexts["jarvis.vision.result"].label.contains("chair"))
+        XCTAssertTrue(app.staticTexts["jarvis.vision.result"].label.contains("chaise"))
         saveScreenshot("vision-describe-result")
     }
 
@@ -170,7 +170,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_live_active")
         waitForVisionSurface()
-        waitForVisionState("Active")
+        waitForVisionState("Actif")
         XCTAssertTrue(app.buttons["jarvis.vision.stop"].isHittable)
         saveScreenshot("vision-live-active")
     }
@@ -179,7 +179,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_find_searching")
         waitForVisionSurface()
-        waitForVisionState("Searching for chair")
+        waitForVisionState("Recherche : chaise")
         saveScreenshot("vision-find-searching")
     }
 
@@ -187,7 +187,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_find_centered")
         waitForVisionSurface()
-        XCTAssertTrue(app.staticTexts["jarvis.vision.result"].label.contains("center"))
+        XCTAssertTrue(app.staticTexts["jarvis.vision.result"].label.contains("centre"))
         saveScreenshot("vision-find-centered")
     }
 
@@ -195,7 +195,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_reading")
         waitForVisionSurface()
-        waitForVisionState("Reading")
+        waitForVisionState("Lecture")
         waitFor(app.buttons["jarvis.vision.read.pause"], named: "Pause Reading")
         saveScreenshot("vision-reading")
     }
@@ -223,7 +223,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         launch(state: "vision_model_unavailable")
         waitForVisionSurface()
         waitFor(app.staticTexts["jarvis.vision.failure"], named: "model failure")
-        XCTAssertTrue(app.staticTexts["jarvis.vision.failure"].label.contains("model"))
+        XCTAssertTrue(app.staticTexts["jarvis.vision.failure"].label.contains("modèle"))
         saveScreenshot("vision-model-unavailable")
     }
 
@@ -239,7 +239,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "vision_help")
         waitFor(app.staticTexts["jarvis.help.header"], named: "Vision Help header")
-        waitFor(app.staticTexts["Safety first"], named: "Vision safety callout")
+        waitFor(app.staticTexts["La sécurité d'abord"], named: "Vision safety callout")
         saveScreenshot("vision-help")
     }
 
@@ -248,7 +248,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         launch(state: "vision_self_test")
         waitFor(app.staticTexts["jarvis.vision.selfTest.header"], named: "Vision Self-Test header")
         waitFor(app.staticTexts["jarvis.vision.selfTest.results"], named: "fixture self-test results")
-        XCTAssertTrue(app.staticTexts["jarvis.vision.selfTest.results"].label.contains("No physical camera test"))
+        XCTAssertTrue(app.staticTexts["jarvis.vision.selfTest.results"].label.contains("Aucun test avec la vraie caméra"))
         saveScreenshot("vision-self-test")
     }
 
@@ -279,7 +279,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
             XCTAssertFalse(element.label.isEmpty, "\(identifier) needs an accessibility label")
             XCTAssertGreaterThanOrEqual(element.frame.height, 44, "\(identifier) touch target is too short")
         }
-        XCTAssertEqual(app.buttons["jarvis.vision.stop"].label, "Stop Vision and speech")
+        XCTAssertEqual(app.buttons["jarvis.vision.stop"].label, "Arrêter Vision et la voix")
         XCTAssertFalse(app.staticTexts["jarvis.vision.result"].label.contains("%"), "Product result must not expose confidence percentages")
     }
 
@@ -303,12 +303,12 @@ final class JarvisXRVisualProofTests: XCTestCase {
         waitForVisionSurface()
         for _ in 0..<3 {
             app.buttons["jarvis.vision.stop"].tap()
-            waitForVisionState("Stopped")
+            waitForVisionState("Arrêté")
             app.buttons["jarvis.vision.primaryAction"].tap()
-            waitForVisionState("Active")
+            waitForVisionState("Actif")
         }
         app.buttons["jarvis.vision.stop"].tap()
-        waitForVisionState("Stopped")
+        waitForVisionState("Arrêté")
     }
 
     private func printVisualProofStart() throws {
@@ -338,7 +338,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
     private func assertFixtureDisclosure() {
         let banner = app.staticTexts["jarvis.vision.fixtureBanner"]
         waitFor(banner, named: "fixture disclosure")
-        XCTAssertTrue(banner.label.lowercased().contains("camera is not active"))
+        XCTAssertTrue(banner.label.lowercased().contains("la caméra n'est pas active"))
     }
 
     private func waitForState(_ state: String) {

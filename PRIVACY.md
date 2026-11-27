@@ -26,6 +26,8 @@ JARVIS XR does not provide a background wake word and does not intentionally rec
 
 Camera access is used for the inspection screen. Captured frames are analyzed in the app with Apple Vision for text, barcode, QR, classification, and compatible bundled model requests. The app does not upload camera images to a developer-operated server. The current inspection flow does not intentionally save captured images to the photo library.
 
+During Live Guide, the app also reads the phone's motion sensors (Core Motion attitude and acceleration, which need no permission) so that turning the phone is not announced as an object moving. These readings and the list of objects seen in the session stay in memory, are never written to storage or sent anywhere, and are erased when Live Guide stops.
+
 ### Device diagnostics
 
 The diagnostics screen may display information available through public iOS APIs, including system version, battery state, app version, permissions, feature availability, and local record counts. This information is displayed locally.
@@ -33,6 +35,14 @@ The diagnostics screen may display information available through public iOS APIs
 ## Network and Third-Party Services
 
 The core app does not require a project-operated server. When a user opens an external URL, app, Shortcut, or Apple service, that third party may process information under its own terms and privacy policy. Examples include Apple Speech services, Safari, Spotify, YouTube, AltServer, and Sideloadly.
+
+## Local Brain Download (optional)
+
+The local brain is optional. When the user taps **Télécharger le cerveau** in Settings and confirms, the app downloads one pinned model file, `qwen2.5-1.5b-instruct-q4_k_m.gguf` (Qwen2.5 1.5B Instruct, Apache 2.0, about 1.1 GB), from Hugging Face over HTTPS. The request sends no user data: no questions, notes, audio, or images. Hugging Face may log the request itself (IP address, time) under its own privacy terms. If the user picks the optional **Avancé** brain in Settings and downloads it, the app fetches a second pinned file the same way: `Qwen3-4B-Instruct-2507-IQ4_XS.gguf` (Qwen3 4B Instruct, Apache 2.0, about 2.3 GB, quantised and published by Unsloth on Hugging Face). Before loading a brain, the app checks the memory iOS leaves it and declines to load rather than be closed by the system. The file is verified by size and SHA-256, stored in the app's Application Support folder, and excluded from iCloud backups. Questions sent to the local brain and its answers are processed on the iPhone and kept only in memory for the current session; the user can delete the model at any time in Settings.
+
+The optional wake word (Settings › Réveil par la voix, off by default) keeps the microphone open while the JARVIS home screen is on screen and idle, so that « Jarvis, … » works without a tap. It uses on-device speech recognition only: the app refuses to start it when the iPhone cannot recognise French locally, and it never falls back to Apple's servers. No audio is stored or sent; words not addressed to Jarvis are dropped at once and never shown. iOS shows its microphone indicator the whole time, other audio is not lowered, and listening stops whenever JARVIS speaks, another screen opens or the app leaves the foreground.
+
+To personalise its answers, the local brain also reads, on the iPhone only, the first name the user gave (« Je m'appelle… », stored in the app's preferences until « Oublie mon prénom ») and the latest notes the user dictated (« Souviens-toi que… », at most eight, shortened). Nothing of this is sent anywhere. « Qu'est-ce que tu sais sur moi ? » lists what Jarvis keeps, and Settings › Effacer les notes removes the notes.
 
 ## Data Sharing and Sale
 
