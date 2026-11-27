@@ -224,7 +224,7 @@ final class JarvisCommandRouter {
             UIPasteboard.general.string = memory.notesSummaryForClipboard()
             return .ok("Notes copied.", display: "Local notes summary copied to clipboard.")
         }
-        return JarvisResponse(status: .refused, spokenResponse: "Command not recognized.", displayResponse: fallbackText(), data: [:], shouldSpeak: false)
+        return JarvisResponse(status: .refused, spokenResponse: Self.unrecognizedSpoken, displayResponse: fallbackText(), data: [:], shouldSpeak: false)
     }
 
     private func help() -> JarvisResponse {
@@ -494,8 +494,11 @@ final class JarvisCommandRouter {
         return nil
     }
 
+    /// Said when no command matches; the assistant then hands the request to the brain.
+    static let unrecognizedSpoken = "Command not recognized."
+
     private func fallbackText() -> String {
-        "Try: scan this, look at this, read this, detect objects, remember this, show grid, battery, or help."
+        "Je n'ai pas compris. Essayez : « décris ce que tu vois », « lis ce texte », « quelle heure est-il ? », ou « aide »."
     }
 
     private func controlMeshSummary() -> String {

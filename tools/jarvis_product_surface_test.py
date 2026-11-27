@@ -79,7 +79,7 @@ def main() -> int:
     )
     check("Preview exposes product-only mode", "--product-only" in preview_text and "Product-only view" in preview_text)
     check("Preview has Mesh sheet", "Control Mesh" in mesh_surface and "Voice Control" in mesh_surface)
-    check("Help includes scan read detect Mesh", all(term in help_swift for term in ["scan this", "read this", "detect objects", "Control Mesh"]))
+    check("Help includes scan read detect Mesh", all(term in help_swift for term in ["Scanne le code-barres", "Lis ce texte", "Qu'est-ce que tu vois", "Control Mesh"]))
     check("Help avoids forbidden words", all(term not in help_swift.lower() for term in ["json", "debug", "approval gate", "test step"]))
     check("Phone surface avoids JSON", "JSON" not in initial_surface and "json" not in initial_surface.lower())
     check("Phone surface avoids guide/checklist text", all(term not in initial_surface.lower() for term in ["checklist", "approval", "should say ready"]))
@@ -117,6 +117,8 @@ def main() -> int:
         'identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped)',
         'identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped)',
         'identifier: "jarvis.settings.about", action: #selector(aboutTapped)',
+        # docs/VISION_JARVIS.md §17.1: the emergency stop is one touch in Settings.
+        'identifier: "jarvis.settings.emergencyStop", action: #selector(emergencyStopTapped)',
     ]))
     check("Control Mesh buttons route through real deep links", all(term in mesh_view for term in [
         "inspectButton.addTarget",
@@ -150,7 +152,7 @@ def main() -> int:
     check("Long press returns standby", "enterStandbyFromLongPress" in root and "voiceInput.stopListening(process: false)" in root)
     check("Manual listening stop processes transcript", "voiceInput.stopListening(process: true)" in root and "onFinalTranscript" in voice)
     check("No speech returns ready", "case .noSpeech:" in root and "setInterfaceState(.ready, hint: \"Aucune parole détectée.\")" in root)
-    check("Ready state label matches UI proof", 'case ready = "Ready"' in state and 'waitForState("Ready")' in ui_test)
+    check("Ready state label matches UI proof", 'case ready = "Ready"' in state and 'case .ready: return "Prêt"' in state and 'waitForState("Prêt")' in ui_test)
     check("Real UIKit layout uses keyboardLayoutGuide", "keyboardLayoutGuide.topAnchor" in root and "keyboardWillChangeFrameNotification" not in root)
     check("Real UIKit source avoids copied preview layout model", "JarvisXRLayoutModel" not in root + state)
     check(
