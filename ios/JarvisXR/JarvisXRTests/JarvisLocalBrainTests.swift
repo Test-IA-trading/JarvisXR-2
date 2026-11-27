@@ -61,6 +61,32 @@ final class JarvisLocalBrainTests: XCTestCase {
         XCTAssertTrue(system.contains("Vouvoie"), "Jarvis says « vous », like Jarvis PC")
     }
 
+    func testEveryPromptStartsWithTheSameRulesSoTheModelReusesThem() {
+        // JarvisLlamaEngine only computes what follows the part shared with the last prompt.
+        for question in ["Bonjour", "J'ai mal à la tête depuis ce matin, que faire ?", String(repeating: "Explique encore ", count: 12)] {
+            let system = JarvisChatPrompt.systemPrompt(now: Date(), context: ["Souvenir (fait) : test"], question: question)
+            let prompt = JarvisChatPrompt.chatML(system: system, history: [], question: question)
+            XCTAssertTrue(prompt.hasPrefix(JarvisChatPrompt.staticPrefix), question)
+        }
+        XCTAssertFalse(JarvisChatPrompt.staticPrefix.contains("Nous sommes le"), "The date changes every minute: it comes after.")
+    }
+
+    func testTheBrainIsToldItHasARealMemory() {
+        // « Jarvis dit ne pas avoir accès à Obsidian » (docs/VISION_JARVIS.md §2).
+        let system = JarvisChatPrompt.systemPrompt(now: Date(), context: [])
+        XCTAssertTrue(system.contains("Mémoire Jarvis") && system.contains("Obsidian"))
+        XCTAssertFalse(system.contains("Tu fonctionnes hors ligne : tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone"))
+    }
+
+    func testALongDictationKeepsItsFinalCorrection() {
+        let long = "Note que la réunion est demain à 9 h. " + String(repeating: "Il faudra aussi penser au reste. ", count: 60) + "Enfin non, vendredi à 10 h."
+        let bounded = JarvisChatPrompt.boundedQuestion(long)
+        XCTAssertLessThanOrEqual(bounded.count, 1_510)
+        XCTAssertTrue(bounded.hasSuffix("Enfin non, vendredi à 10 h."))
+        XCTAssertTrue(bounded.hasPrefix("Note que la réunion"))
+        XCTAssertEqual(JarvisChatPrompt.boundedQuestion("Quelle heure est-il ?"), "Quelle heure est-il ?")
+    }
+
     // MARK: Streaming text and cleaning
 
     func testUTF8AccumulatorNeverShowsAHalfCharacter() {

@@ -687,6 +687,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
                 self.setInterfaceState(.listening, hint: self.currentTurnIsAutomatic
                     ? "Je vous écoute (conversation continue)."
                     : "Micro actif. Parlez maintenant.")
+                // While the user speaks, the iPhone's brain loads and computes its fixed rules.
+                if !(JarvisPCLink.shared.isConfigured && JarvisPCLink.shared.usesPCBrain) {
+                    JarvisLocalBrain.shared.prepare()
+                }
             case .hearingSound:
                 self.setVoiceStage(.sound)
                 if self.voiceInput.currentTranscript.isEmpty {

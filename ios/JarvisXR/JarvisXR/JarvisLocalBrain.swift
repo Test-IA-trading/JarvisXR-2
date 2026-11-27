@@ -88,22 +88,44 @@ struct JarvisChatTurn: Equatable {
 enum JarvisChatPrompt {
     static let defaultCharacterBudget = 4_500
 
+    /// Rules that never change, given first: the iPhone's model keeps them computed from one
+    /// question to the next (JarvisLlamaEngine), and Ollama does the same on the PC.
+    static let staticRules: [String] = {
+        let variable = Set([JarvisPersonality.humour, JarvisPersonality.serious, JarvisPersonality.lengthSimple,
+                            JarvisPersonality.lengthNormal, JarvisPersonality.lengthComplex])
+        // The same personality as Jarvis PC (JarvisPersonality, written from pc/jarvis_pc/personality.py).
+        return JarvisPersonality.rules(for: "").filter { !variable.contains($0) } + [
+            "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées entre elles, jamais un style télégraphique.",
+            "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
+            "Tu sais faire des mathématiques (calculs, dérivées, intégrales, équations), de la physique, de la chimie, de l'histoire, du code et de la culture générale : réponds à ces questions même difficiles, en donnant d'abord le résultat puis une courte explication.",
+            // « Jarvis says it has no access to Obsidian » (docs/VISION_JARVIS.md §2): it has, and is told so.
+            "Tu as une vraie mémoire permanente sur cet iPhone, le dossier « Mémoire Jarvis » (des notes Markdown, lisibles dans Obsidian et l'app Fichiers) : les souvenirs utiles à la question te sont donnés ci-dessous. Ne dis jamais que tu n'as pas accès à ta mémoire ou à Obsidian ; si aucun souvenir ne répond, dis que ta mémoire ne contient rien à ce sujet.",
+            "En dehors de ta mémoire et du contexte ci-dessous, tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone.",
+            "Pour un fait récent ou qui change souvent (actualités, prix, résultats sportifs), dis que tu ne peux pas le vérifier hors ligne au lieu d'inventer. Si tu n'es pas sûr d'un calcul, dis-le.",
+            "Tu ne remplaces ni un médecin, ni un professionnel, ni la vigilance de l'utilisateur pour sa sécurité.",
+        ]
+    }()
+
+    /// The start of every prompt, computed while the user speaks (JarvisLocalBrain.prepare).
+    static var staticPrefix: String { "<|im_start|>system\n" + sanitize(staticRules.joined(separator: "\n")) }
+
     static func systemPrompt(now: Date, context: [String], question: String = "") -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "fr_FR")
         formatter.dateFormat = "EEEE d MMMM yyyy, HH:mm"
-        // The same personality as Jarvis PC (JarvisPersonality, written from pc/jarvis_pc/personality.py).
-        var lines = JarvisPersonality.rules(for: question) + [
-            "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées entre elles, jamais un style télégraphique.",
-            "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
-            "Tu sais faire des mathématiques (calculs, dérivées, intégrales, équations), de la physique, de la chimie, de l'histoire, du code et de la culture générale : réponds à ces questions même difficiles, en donnant d'abord le résultat puis une courte explication.",
-            "Tu fonctionnes hors ligne : tu n'as accès ni à Internet, ni aux actualités, ni à la météo, ni aux données de l'iPhone en dehors du contexte ci-dessous.",
-            "Pour un fait récent ou qui change souvent (actualités, prix, résultats sportifs), dis que tu ne peux pas le vérifier hors ligne au lieu d'inventer. Si tu n'es pas sûr d'un calcul, dis-le.",
-            "Tu ne remplaces ni un médecin, ni un professionnel, ni la vigilance de l'utilisateur pour sa sécurité.",
-            "Nous sommes le \(formatter.string(from: now))."
-        ]
+        let staticLines = Set(staticRules)
+        var lines = staticRules + JarvisPersonality.rules(for: question).filter { !staticLines.contains($0) }
+        lines.append("Nous sommes le \(formatter.string(from: now)).")
         lines.append(contentsOf: context.filter { !$0.isEmpty })
         return lines.joined(separator: "\n")
+    }
+
+    /// A long dictation keeps its beginning and, above all, its end, where a correction
+    /// often comes (« … enfin non, vendredi »).
+    static func boundedQuestion(_ question: String, limit: Int = 1_500) -> String {
+        let clean = sanitize(question)
+        guard clean.count > limit else { return clean }
+        return String(clean.prefix(limit / 3)) + " … " + String(clean.suffix(limit - limit / 3))
     }
 
     /// Removes the chat-template control markers from user-provided text.
@@ -129,7 +151,7 @@ enum JarvisChatPrompt {
     }
 
     static func chatML(system: String, history: [JarvisChatTurn], question: String, characterBudget: Int = defaultCharacterBudget) -> String {
-        let cleanQuestion = String(sanitize(question).prefix(1_500))
+        let cleanQuestion = boundedQuestion(question)
         let turns = recentTurns(history, question: cleanQuestion, system: system, characterBudget: characterBudget)
         var prompt = "<|im_start|>system\n\(sanitize(system))<|im_end|>\n"
         for turn in turns {
@@ -333,38 +355,87 @@ final class JarvisLlamaEngine {
 
     /// Generates an answer for a complete ChatML prompt. `onText` receives the text
     /// decoded so far; `isCancelled` is checked before every token.
-    func generate(prompt: String, maxTokens: Int, isCancelled: () -> Bool, onText: (String) -> Void) throws -> (text: String, tokens: Int) {
+    /// Tokens held in the context (the last prompt and its answer). A new prompt that starts
+    /// the same way only computes what differs: the personality and rules, always first
+    /// (JarvisChatPrompt.staticPrefix), are not computed again at each question.
+    private var cachedTokens: [llama_token] = []
+
+    struct Output {
+        var text: String
+        var tokens: Int
+        var promptTokens: Int
+        /// Prompt tokens taken from the previous context instead of being computed.
+        var reusedTokens: Int
+        /// Seconds from the call to the first token written (prompt computation included).
+        var firstToken: Double?
+    }
+
+    /// Computes the prompt (`prompt`) once, keeping the part shared with the context: used
+    /// after loading, while the user is still speaking, so the first answer starts sooner.
+    func prefill(_ prompt: String) throws {
         guard let context, let vocab else { throw JarvisBrainError.modelLoadFailed }
-        llama_memory_clear(llama_get_memory(context), true)
+        let tokens = try tokenize(prompt, vocab: vocab)
+        guard tokens.count > 1, tokens.count < Int(contextLength) / 2 else { return }
+        try decodeKeepingSharedPrefix(tokens, context: context)
+    }
+
+    /// Makes the context hold exactly `tokens`, computing only those after the prefix it shares
+    /// with what it already holds; at least the last token is computed, for its predictions.
+    private func decodeKeepingSharedPrefix(_ tokens: [llama_token], context: OpaquePointer) throws {
+        let memory = llama_get_memory(context)
+        var shared = 0
+        let reusable = min(cachedTokens.count, tokens.count - 1)
+        while shared < reusable, cachedTokens[shared] == tokens[shared] { shared += 1 }
+        if shared == 0 || !llama_memory_seq_rm(memory, 0, llama_pos(shared), -1) {
+            llama_memory_clear(memory, true)
+            shared = 0
+        }
+        cachedTokens = Array(tokens.prefix(shared))
+        var start = shared
+        while start < tokens.count {
+            let end = min(start + 512, tokens.count)
+            var chunk = Array(tokens[start..<end])
+            let status = chunk.withUnsafeMutableBufferPointer { buffer in
+                llama_decode(context, llama_batch_get_one(buffer.baseAddress, Int32(buffer.count)))
+            }
+            guard status == 0 else {
+                llama_memory_clear(memory, true)
+                cachedTokens = []
+                throw JarvisBrainError.generationFailed("prompt decode \(status)")
+            }
+            cachedTokens += chunk
+            start = end
+        }
+    }
+
+    func generate(prompt: String, maxTokens: Int, isCancelled: () -> Bool, onText: (String) -> Void) throws -> Output {
+        guard let context, let vocab else { throw JarvisBrainError.modelLoadFailed }
+        let started = Date()
 
         var promptTokens = try tokenize(prompt, vocab: vocab)
         let limit = Int(contextLength) - maxTokens - 8
         guard limit > 0 else { throw JarvisBrainError.generationFailed("context too small") }
         if promptTokens.count > limit {
+            // Last resort (JarvisChatPrompt already keeps the prompt within its budget).
             promptTokens = Array(promptTokens.suffix(limit))
         }
-
-        var start = 0
-        while start < promptTokens.count {
-            let end = min(start + 512, promptTokens.count)
-            var chunk = Array(promptTokens[start..<end])
-            let status = chunk.withUnsafeMutableBufferPointer { buffer in
-                llama_decode(context, llama_batch_get_one(buffer.baseAddress, Int32(buffer.count)))
-            }
-            guard status == 0 else { throw JarvisBrainError.generationFailed("prompt decode \(status)") }
-            start = end
-        }
+        let reusable = min(cachedTokens.count, promptTokens.count - 1)
+        var reused = 0
+        while reused < reusable, cachedTokens[reused] == promptTokens[reused] { reused += 1 }
+        try decodeKeepingSharedPrefix(promptTokens, context: context)
 
         let sampler = makeSampler(vocab: vocab)
         defer { llama_sampler_free(sampler) }
         var accumulator = JarvisUTF8Accumulator()
         var piece = [CChar](repeating: 0, count: 256)
         var produced = 0
+        var firstToken: Double?
         while produced < maxTokens {
             if isCancelled() { break }
             var token = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocab, token) { break }
             produced += 1
+            if firstToken == nil { firstToken = Date().timeIntervalSince(started) }
             let count = llama_token_to_piece(vocab, token, &piece, Int32(piece.count), 0, false)
             if count > 0 {
                 accumulator.append(piece[0..<Int(count)].map { UInt8(bitPattern: $0) })
@@ -375,9 +446,19 @@ final class JarvisLlamaEngine {
             let status = withUnsafeMutablePointer(to: &token) { pointer in
                 llama_decode(context, llama_batch_get_one(pointer, 1))
             }
-            if status != 0 { break }
+            if status != 0 {
+                // The context no longer matches what is known of it.
+                llama_memory_clear(llama_get_memory(context), true)
+                cachedTokens = []
+                break
+            }
+            cachedTokens.append(token)
         }
-        return (accumulator.finalText, produced)
+        if cachedTokens.count >= Int(contextLength) - 8 {
+            llama_memory_clear(llama_get_memory(context), true)
+            cachedTokens = []
+        }
+        return Output(text: accumulator.finalText, tokens: produced, promptTokens: promptTokens.count, reusedTokens: reused, firstToken: firstToken)
     }
 
     private func tokenize(_ text: String, vocab: OpaquePointer) throws -> [llama_token] {
@@ -424,6 +505,11 @@ final class JarvisLocalBrain {
         var loadSeconds: Double?
         var lastTokens = 0
         var lastSeconds: Double = 0
+        /// Prompt of the last answer, and the part of it taken from the context already computed.
+        var lastPromptTokens = 0
+        var lastReusedTokens = 0
+        /// Seconds from the question to the first word written (prompt computation included).
+        var lastFirstTokenSeconds: Double?
         var tokensPerSecond: Double { lastSeconds > 0 ? Double(lastTokens) / lastSeconds : 0 }
     }
 
@@ -661,6 +747,40 @@ final class JarvisLocalBrain {
         #endif
     }
 
+    /// While the user is still speaking (§10.1 of docs/VISION_JARVIS.md): loads the model if
+    /// needed and computes the rules every prompt starts with, so the answer only waits for
+    /// the question's own words. Nothing is said or kept; a question asked meanwhile simply
+    /// waits on the same queue.
+    func prepare() {
+        #if canImport(llama)
+        guard availability == .ready, !isGenerating else { return }
+        let path = downloader.modelFileURL.path
+        let requiredMemory = model.requiredMemoryBytes
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                if self.enginePath != path {
+                    self.engine = nil
+                    self.enginePath = nil
+                }
+                if self.engine == nil {
+                    let available = Int64(os_proc_available_memory())
+                    guard available <= 0 || available >= requiredMemory else { return }
+                    let loadStart = Date()
+                    self.engine = try JarvisLlamaEngine(modelPath: path)
+                    self.enginePath = path
+                    let seconds = Date().timeIntervalSince(loadStart)
+                    DispatchQueue.main.async { self.measurement.loadSeconds = seconds }
+                }
+                try self.engine?.prefill(JarvisChatPrompt.staticPrefix)
+            } catch {
+                self.engine = nil
+                self.enginePath = nil
+            }
+        }
+        #endif
+    }
+
     private func generate(prompt: String, onPartial: @escaping (String) -> Void, completion: @escaping (Result<String, JarvisBrainError>) -> Void) {
         #if canImport(llama)
         guard !isGenerating else {
@@ -717,6 +837,9 @@ final class JarvisLocalBrain {
                     if let loadSeconds { self.measurement.loadSeconds = loadSeconds }
                     self.measurement.lastTokens = output.tokens
                     self.measurement.lastSeconds = seconds
+                    self.measurement.lastPromptTokens = output.promptTokens
+                    self.measurement.lastReusedTokens = output.reusedTokens
+                    self.measurement.lastFirstTokenSeconds = output.firstToken
                     if cancelled {
                         completion(.failure(.cancelled))
                     } else if answer.isEmpty {
