@@ -16,6 +16,14 @@ Typed commands, recognized command text, saved notes, preferences, and command h
 
 Message-composition commands are excluded from general command history. Jarvis uses the system contact picker to let the user authorize one recipient selection without copying or uploading the address book. The selected phone number and message body remain in an in-memory draft and are passed to Apple's standard message composer only after the user asks to open it. Sending or cancelling occurs in that system interface.
 
+### Jarvis's long-term memory and conversation journal
+
+Jarvis keeps its long-term memory as Markdown notes in the « Mémoire Jarvis » folder of the app's documents (visible in the Files app, readable as an Obsidian vault): preferences, habits, facts and corrections the user states, and answers to general questions kept for up to 30 days (7 days when not checked against a source) with their source, date and expiry. Questions about the person, the moment or the conversation are never kept as reusable answers. Searching this memory uses Apple's on-device NaturalLanguage framework (French lemmas and sentence embedding); nothing is sent over the network for it.
+
+By default the exchanges with Jarvis are also written, one page per day, in « Mémoire Jarvis/Conversations ». Message-composition commands are excluded, as from the general history. The user can say « Ne garde plus nos conversations », « Efface l'historique des conversations » (after confirmation) or « Réinitialise complètement ta mémoire » (after confirmation, erases notes, kept answers, conversations, dictated notes, history and first name on the iPhone). The copy synchronized with the user's own Jarvis PC is erased on the PC; iCloud or computer backups follow their own rules.
+
+Network requests of the connected mode are limited by a zero-cost guard to the free services listed in the app (Open-Meteo, Wikipédia, franceinfo); any other host is refused before anything is sent. An emergency stop (« Jarvis, arrêt d'urgence » or shaking the iPhone) stops listening, speech, reasoning and network requests until the user says « reprends ».
+
 ### Microphone and speech recognition
 
 Microphone access is used only after the user starts in-app voice input. Audio is provided to Apple's Speech framework for recognition. Recognition may occur on-device or may be processed by Apple depending on the device, language, operating system, network state, and Apple's service availability. Apple's handling is governed by Apple's own privacy terms.

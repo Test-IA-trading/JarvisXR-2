@@ -20,6 +20,16 @@ final class JarvisLocalVoice {
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
     }
 
+    static let pitchKey = "JarvisXR.localVoicePitch"
+    static let defaultPitch = -2.0
+    /// The pitch the voice is played at, in semitones. The package's +1,5 sounded too high
+    /// and young to the owner (docs/VISION_JARVIS.md §23): −2 by default, deeper and more
+    /// mature, at the same pace; « voix plus grave » / « plus aiguë » move it by one, −5 to +3.
+    static var pitchSemitones: Double {
+        get { UserDefaults.standard.object(forKey: pitchKey) == nil ? defaultPitch : UserDefaults.standard.double(forKey: pitchKey) }
+        set { UserDefaults.standard.set(min(max(newValue, -5), 3), forKey: pitchKey) }
+    }
+
     // The pinned package (pc/tools_pack_voice.py), published with the app's releases.
     static let packSize: Int64 = 77_396_355
     static let packSHA256 = "f3411c49b876e940b33ffa244c3407dd11fc85caf97c70ae324c6022d22bf1f6"
@@ -193,8 +203,8 @@ final class JarvisLocalVoice {
         let rate = Double(audio.sampleRate)
         let samples = audio.samples
         guard rate > 0, !samples.isEmpty else { return nil }
-        // Spoken slower by `factor` (lengthScale), played `factor` times faster: higher pitch, same pace.
-        let factor = pow(2, settings.pitchSemitones / 12)
+        // Spoken slower by `factor` (lengthScale), played `factor` times faster: another pitch, same pace.
+        let factor = pow(2, (enginePitch ?? Self.pitchSemitones) / 12)
         let shifted = Self.resample(samples, by: factor)
         let silence = Int(rate * settings.sentenceSilence)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1),
@@ -206,9 +216,15 @@ final class JarvisLocalVoice {
         return buffer
     }
 
+    /// Pitch the loaded engine was built for (its pace depends on it). On the voice's queue.
+    private var enginePitch: Double?
+
     private func loadEngine(_ settings: Settings) -> SherpaOnnxOfflineTtsWrapper? {
-        if let tts { return tts }
-        let factor = pow(2, settings.pitchSemitones / 12)
+        let pitch = Self.pitchSemitones
+        if let tts, enginePitch == pitch { return tts }
+        tts = nil
+        enginePitch = pitch
+        let factor = pow(2, pitch / 12)
         let vits = sherpaOnnxOfflineTtsVitsModelConfig(
             model: folder.appendingPathComponent("model.onnx").path,
             lexicon: "",

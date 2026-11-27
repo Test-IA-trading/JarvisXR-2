@@ -93,6 +93,11 @@ struct JarvisFrenchCommandRouter {
             return .answer(reply)
         }
 
+        // « Voix plus grave », « plus aiguë », « voix normale »: Jarvis's own voice (§23).
+        if let reply = voicePitchAnswer(request) {
+            return .answer(reply)
+        }
+
         // « Lance le raccourci Mode nuit »: the user's Shortcuts do what iOS keeps from apps
         // (Wi-Fi, luminosité, concentration, domotique).
         if let reply = shortcutRequest(original: original, normalized: text) {
@@ -660,6 +665,30 @@ struct JarvisFrenchCommandRouter {
         let spoken = "Voici ce que ma mémoire contient à ce sujet : " + items.joined(separator: " ; ") + "."
         let display = spoken + "\n" + found.map { "• [\(JarvisKnowledgeStore.labels[$0.kind] ?? $0.kind), \(JarvisKnowledgeStore.day($0.updated))] \($0.text)" }.joined(separator: "\n")
         return .ok(spoken, display: display, data: ["memory": "search", "memory_found": "\(found.count)"])
+    }
+
+    /// The pitch of Jarvis's own voice, one semitone at a time, within what keeps it natural.
+    private func voicePitchAnswer(_ request: String) -> JarvisResponse? {
+        let step: Double
+        if containsAny(request, ["voix plus grave", "parle plus grave", "prends une voix plus grave", "voix moins aigue", "parle moins aigu"]) {
+            step = -1
+        } else if containsAny(request, ["voix plus aigue", "parle plus aigu", "voix moins grave", "parle moins grave"]) {
+            step = 1
+        } else if containsAny(request, ["voix normale", "reprends ta voix normale", "ta voix par defaut", "ta voix habituelle"]) {
+            JarvisLocalVoice.pitchSemitones = JarvisLocalVoice.defaultPitch
+            return .ok("Voici ma voix habituelle, Monsieur.", data: ["voice": "pitch"])
+        } else {
+            return nil
+        }
+        guard JarvisLocalVoice.shared.isInstalled else {
+            return .ok("Ce réglage concerne ma propre voix, qui n'est pas encore installée sur l'iPhone. Dites « installe ta voix ».", data: ["voice": "pitch"])
+        }
+        let before = JarvisLocalVoice.pitchSemitones
+        JarvisLocalVoice.pitchSemitones = before + step
+        guard JarvisLocalVoice.pitchSemitones != before else {
+            return .ok(step < 0 ? "Plus grave, ma voix perdrait en naturel, Monsieur." : "Plus aiguë, ma voix perdrait en naturel, Monsieur.", data: ["voice": "pitch"])
+        }
+        return .ok(step < 0 ? "Comme ceci, plus grave ?" : "Comme ceci, un peu plus haut ?", data: ["voice": "pitch"])
     }
 
     /// « Je confirme » runs the deletion asked for less than a minute ago; « non » cancels it.

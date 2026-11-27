@@ -1225,6 +1225,13 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func render(response: JarvisResponse, visionRequest: JarvisVisionLaunchRequest? = nil) {
+        // The camera is set aside during the refonte (docs/VISION_JARVIS.md §22): its code stays
+        // in the app and in Git, but nothing visual starts; the CI's visual proofs still open it.
+        if !JarvisFeatures.cameraEnabled, !isUITestMode,
+           visionRequest != nil || ["open_camera", "inspect", "ar_cube", "ar_summary"].contains(response.data["action"] ?? "") {
+            render(response: .ok(JarvisFeatures.cameraPausedMessage, data: ["camera": "paused"]))
+            return
+        }
         // Off screen, what iOS shows only on screen (a call, the photos) waits for a tap.
         if isOffScreen, JarvisBackgroundPolicy.needsScreen(response, opensVision: visionRequest != nil) {
             waitForScreen(response)
@@ -1508,6 +1515,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     /// Opens the AR cube, optionally with the notes summary card to place on the table.
     /// ARKit then owns the camera; the Vision screen is not running.
     private func openARCube(summary: JarvisARSummaryCard? = nil) {
+        guard JarvisFeatures.cameraEnabled || isUITestMode else {
+            showTransient(JarvisFeatures.cameraPausedMessage)
+            return
+        }
         guard JarvisARCubeViewController.isSupported else {
             showTransient("La réalité augmentée n'est pas disponible sur cet appareil.")
             return
@@ -1561,6 +1572,10 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func openVision(_ request: JarvisVisionLaunchRequest) {
+        guard JarvisFeatures.cameraEnabled || isUITestMode else {
+            showTransient(JarvisFeatures.cameraPausedMessage)
+            return
+        }
         if !isUITestMode, JarvisVisionFirstRunStore.shared.shouldPresent {
             pendingVisionRequestAfterOnboarding = request
             showFirstLaunchIfNeeded()
@@ -1612,7 +1627,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     }
 
     private func showFirstLaunchIfNeeded() {
-        guard !isUITestMode else { return }
+        // The Vision welcome waits for the camera's return (§22).
+        guard !isUITestMode, JarvisFeatures.cameraEnabled else { return }
         guard JarvisVisionFirstRunStore.shared.shouldPresent else { return }
         if let existing = (presentedViewController as? UINavigationController)?.viewControllers.first as? JarvisVisionOnboardingViewController {
             configureOnboarding(existing)
