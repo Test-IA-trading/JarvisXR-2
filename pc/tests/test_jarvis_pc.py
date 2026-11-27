@@ -518,3 +518,4 @@ def test_the_iphone_has_the_same_personality():
 
     assert tools_gen_personality.TARGET.read_text(encoding="utf-8") == tools_gen_personality.render(), \
         "run pc/tools_gen_personality.py after changing personality.py"
+    assert tools_gen_personality.MEMORY_TARGET.read_text(encoding="utf-8") == tools_gen_personality.render_memory(),         "run pc/tools_gen_personality.py after changing knowledge.py"

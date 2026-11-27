@@ -77,6 +77,8 @@ class JarvisCore:
         """Learns from the exchange in the background (the answer is never delayed): what the user
         said about themselves, a correction of the previous answer, a verified answer to keep."""
         previous = next((turn["user"] for turn in reversed(self.history) if turn.get("user") != question), None)
+        if re.match(r"(?i)^\s*(?:jarvis[ ,]*)?(?:oublie|efface)", question):
+            return  # « Oublie que j'aime le café » is not learned again
 
         def work() -> None:
             try:

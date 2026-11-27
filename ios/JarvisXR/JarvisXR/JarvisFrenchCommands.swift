@@ -461,6 +461,14 @@ struct JarvisFrenchCommandRouter {
             }
             return .ok("Vous vous appelez \(name).")
         }
+        // « Oublie que j'aime le café »: a memory of Jarvis is deleted, here and on the PC.
+        for prefix in ["oublie que", "efface de ta memoire que", "oublie ce que je t'ai dit sur"] {
+            guard let what = Self.argument(in: original, normalized: normalized, after: prefix), !what.isEmpty else { continue }
+            if let removed = JarvisKnowledgeStore.shared.forget(what) {
+                return .ok("C'est oublié : \(removed.text)", data: ["mode": "memory_forget"])
+            }
+            return .ok("Je n'ai rien retenu de tel, Monsieur.", data: ["mode": "memory_forget"])
+        }
         if containsAny(request, ["oublie mon nom", "oublie mon prenom", "efface mon nom", "efface mon prenom"]) {
             profile.name = nil
             return .ok("C'est oublié : je ne vous appellerai plus par votre prénom.", data: ["mode": "profile_name_forgotten"])

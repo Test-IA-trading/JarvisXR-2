@@ -338,6 +338,8 @@ final class JarvisPCLink {
         } else {
             payload["name"] = NSNull()
         }
+        // Jarvis's memory lives on the iPhone first: its notes and deletions go to the PC.
+        payload["knowledge"] = JarvisKnowledgeStore.shared.syncPayload()
         return payload
     }
 
@@ -361,7 +363,8 @@ final class JarvisPCLink {
         return added
     }
 
-    /// Exchanges the first name and the notes with the PC, then hands over its messages.
+    /// Exchanges the first name, the notes and Jarvis's memory with the PC over the home
+    /// Wi-Fi (both ways), then hands over its messages.
     func synchronize(memory: JarvisMemoryStore = .shared, profile: JarvisUserProfile = .shared, messages: @escaping ([String]) -> Void) {
         guard isConfigured else { return }
         // Opening the app and showing the main screen often come together: one exchange.

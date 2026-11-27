@@ -169,6 +169,22 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         voiceInput.startBackgroundWatch()
     }
 
+    /// What the user just said about themselves (« J'habite à Lyon », « Non, c'est 1873 »)
+    /// goes into Jarvis's memory on the iPhone, then to the PC over the Wi-Fi.
+    private func learnFrom(_ text: String) {
+        // « Oublie que j'aime le café » deletes a memory: it must not be learned again.
+        guard text.range(of: #"^\s*(jarvis[ ,]*)?(oublie|efface)"#, options: [.regularExpression, .caseInsensitive]) == nil else { return }
+        let previous = lastLearnedQuestion
+        lastLearnedQuestion = text
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let learned = JarvisKnowledgeStore.shared.learn(said: text, previousQuestion: previous)
+            guard !learned.isEmpty else { return }
+            DispatchQueue.main.async { self?.synchronizeWithPC() }
+        }
+    }
+
+    private var lastLearnedQuestion: String?
+
     /// Shares the first name and the notes with Jarvis PC, then says its messages
     /// (« Envoie sur mon téléphone que… » on the PC).
     private func synchronizeWithPC() {
@@ -944,6 +960,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         lastCommandText = commandText
         liveShow(.thinking, title: commandText, detail: "Je réfléchis…")
         if !speech.isStreamingReply { brainReplyStreaming = false }
+        learnFrom(commandText)
         let command = JarvisCommand(commandText)
         let decision = assistant.decide(commandText)
         if decision.plan?.shouldPersistGeneralHistory != false {

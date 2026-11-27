@@ -5,21 +5,44 @@ import XCTest
 /// V10: Jarvis's memory copied from the PC, the PC's voice played on the iPhone, and the
 /// personality shared with Jarvis PC.
 final class JarvisMemoryVoiceTests: XCTestCase {
-    func testTheMemoryFromThePCReachesTheIPhoneBrain() {
+    private func freshStore() -> (JarvisKnowledgeStore, URL, UserDefaults) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Mémoire-\(UUID().uuidString)", isDirectory: true)
         let defaults = UserDefaults(suiteName: "JarvisMemoryVoiceTests")!
         defaults.removePersistentDomain(forName: "JarvisMemoryVoiceTests")
-        let store = JarvisKnowledgeStore(defaults: defaults)
-        store.adopt([
-            ["id": "a", "kind": "fait", "text": "Sœur de l'utilisateur : Julie.", "updated": "2026-11-27T10:00:00+00:00"],
-            ["id": "b", "kind": "preference", "text": "L'utilisateur aime le café noir.", "updated": "2026-11-27T11:00:00+00:00"],
-        ])
-        let lines = store.contextLines(for: "Comment s'appelle ma sœur ?")
-        XCTAssertEqual(lines.count, 2)
-        XCTAssertTrue(lines[1].contains("Julie"))
+        return (JarvisKnowledgeStore(folder: folder, defaults: defaults), folder, defaults)
+    }
+
+    func testTheIPhoneLearnsByItselfInMarkdown() {
+        let (store, folder, defaults) = freshStore()
+        XCTAssertEqual(store.learn(said: "J'habite à Paris").map(\.text), ["L'utilisateur habite Paris."])
+        store.learn(said: "J'habite à Lyon maintenant")
+        XCTAssertEqual(store.notes.filter { $0.kind == "fait" }.count, 1, "a new value replaces the old one")
+        XCTAssertTrue(store.notes[0].text.contains("Lyon"))
+        XCTAssertEqual(store.learn(said: "Ma sœur s'appelle Julie").map(\.text), ["Sœur de l'utilisateur : Julie."])
+        XCTAssertEqual(store.learn(said: "Tous les matins, je cours au parc").map(\.kind), ["habitude"])
+        XCTAssertTrue(store.learn(said: "Comment s'appelle ma sœur ?").isEmpty, "a question teaches nothing")
+        XCTAssertEqual(store.learn(said: "Non, c'est 1873", previousQuestion: "En quelle année l'arrêt Blanco ?").map(\.kind), ["correction"])
+        XCTAssertTrue(store.contextLines(for: "Comment s'appelle ma sœur ?").contains { $0.contains("Julie") })
         XCTAssertTrue(store.contextLines(for: "Combien font deux et deux ?").isEmpty, "only what is relevant")
-        store.adopt([["id": "a", "deleted": true]])
-        XCTAssertFalse(store.notes.contains { $0.text.contains("Julie") }, "a memory forgotten on the PC goes away")
-        XCTAssertEqual(JarvisKnowledgeStore(defaults: defaults).notes.count, 1, "kept between launches")
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        XCTAssertEqual(files.filter { $0.hasSuffix(".md") }.count, store.notes.count, "one Markdown note per memory (an Obsidian vault)")
+        XCTAssertEqual(JarvisKnowledgeStore(folder: folder, defaults: defaults).notes.count, store.notes.count, "read back from the files")
+    }
+
+    func testTheMemoryTravelsBothWaysOverWiFi() {
+        let (store, _, _) = freshStore()
+        store.learn(said: "J'aime le café noir")
+        XCTAssertNotNil(store.forget("le café"))
+        XCTAssertTrue(store.syncPayload().contains { $0["deleted"] as? Bool == true }, "the deletion is sent to the PC")
+        store.learn(said: "Je préfère les réponses courtes")
+        XCTAssertTrue(store.syncPayload().contains { ($0["text"] as? String)?.contains("courtes") == true }, "the notes too")
+        store.adopt([
+            ["id": "pc1", "kind": "preference", "text": "L'utilisateur aime le jazz.", "updated": "2026-11-27T10:00:00+00:00"],
+        ])
+        XCTAssertTrue(store.notes.contains { $0.text.contains("jazz") })
+        XCTAssertFalse(store.syncPayload().contains { $0["deleted"] as? Bool == true }, "deletions are sent once")
+        store.adopt([["id": "pc1", "deleted": true]])
+        XCTAssertFalse(store.notes.contains { $0.text.contains("jazz") }, "a memory forgotten on the PC goes away")
     }
 
     func testThePCVoiceIsReadFromItsWAV() {

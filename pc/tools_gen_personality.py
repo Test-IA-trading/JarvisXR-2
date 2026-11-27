@@ -64,8 +64,39 @@ def render() -> str:
     )
 
 
-TARGET = Path(__file__).resolve().parent.parent / "ios" / "JarvisXR" / "JarvisXR" / "JarvisPersonality.swift"
+MEMORY_TEMPLATE = '''import Foundation
+
+/// The rules with which Jarvis learns from what the user says (pc/jarvis_pc/knowledge.py),
+/// written from the Python by pc/tools_gen_personality.py so that the iPhone and the PC
+/// learn the same way (pc/tests check both are identical). Patterns apply to the folded
+/// text (lowercase, no accents, « œ » → « oe »).
+enum JarvisMemoryRules {{
+    static let stopwords: Set<String> = [{stopwords}]
+
+    /// (pattern, kind, template with {{0}} and {{1}} for the user's own words).
+    static let learning: [(pattern: String, kind: String, template: String)] = [
+{rules}
+    ]
+
+    /// « Non, c'est 1873 » after an answer: a correction (the words after it are group 1).
+    static let correction = {correction}
+}}
+'''
+
+
+def render_memory() -> str:
+    from jarvis_pc import knowledge as k
+
+    rules = "\n".join(f"        ({swift(pattern)}, {swift(kind)}, {swift(template)})," for pattern, kind, template in k.LEARNING_RULES)
+    return MEMORY_TEMPLATE.format(stopwords=", ".join(swift(w) for w in sorted(k.STOPWORDS)), rules=rules,
+                                  correction=swift("^[ ?!.]*" + k.CORRECTION.pattern.lstrip("^")))
+
+
+FOLDER = Path(__file__).resolve().parent.parent / "ios" / "JarvisXR" / "JarvisXR"
+TARGET = FOLDER / "JarvisPersonality.swift"
+MEMORY_TARGET = FOLDER / "JarvisMemoryRules.swift"
 
 if __name__ == "__main__":
     TARGET.write_text(render(), encoding="utf-8", newline="\n")
-    print(f"écrit : {TARGET}")
+    MEMORY_TARGET.write_text(render_memory(), encoding="utf-8", newline="\n")
+    print(f"écrit : {TARGET} et {MEMORY_TARGET.name}")
