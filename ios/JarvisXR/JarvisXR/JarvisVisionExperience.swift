@@ -52,40 +52,40 @@ extension VisionMode {
     var visionDisplayName: String {
         switch self {
         case .inactive: return "Vision"
-        case .describe: return "Describe"
-        case .liveGuide: return "Live"
-        case .find: return "Find"
-        case .readText: return "Read"
-        case .scanBarcode: return "Scan"
-        case .identifyColor: return "Color"
+        case .describe: return "Décrire"
+        case .liveGuide: return "Guide en direct"
+        case .find: return "Trouver"
+        case .readText: return "Lire"
+        case .scanBarcode: return "Code-barres"
+        case .identifyColor: return "Couleur"
         }
     }
 
     var visionPrimaryActionTitle: String {
         switch self {
-        case .inactive, .describe: return "Describe What Is Here"
-        case .liveGuide: return "Start Live Guide"
-        case .find: return "Choose an Object to Find"
-        case .readText: return "Capture and Read"
-        case .scanBarcode: return "Start Barcode Scan"
-        case .identifyColor: return "Identify Color"
+        case .inactive, .describe: return "Décrire ce qui est là"
+        case .liveGuide: return "Lancer le guide en direct"
+        case .find: return "Choisir un objet à trouver"
+        case .readText: return "Capturer et lire"
+        case .scanBarcode: return "Lancer le scan de code-barres"
+        case .identifyColor: return "Identifier la couleur"
         }
     }
 
     var visionReadyGuidance: String {
         switch self {
         case .inactive, .describe:
-            return "Point the rear camera toward the area you want described."
+            return "Orientez la caméra arrière vers ce que vous voulez décrire."
         case .liveGuide:
-            return "Live Guide announces stable, important changes while Jarvis remains in the foreground."
+            return "Le guide en direct annonce une fois chaque objet qui apparaît, bouge ou disparaît, tant que Jarvis reste ouvert."
         case .find:
-            return "Name a supported object, then pan the phone slowly."
+            return "Nommez un objet reconnu, puis balayez lentement avec le téléphone."
         case .readText:
-            return "Hold printed text steady and fill the camera view."
+            return "Tenez le texte imprimé immobile et cadrez-le en entier."
         case .scanBarcode:
-            return "Move the camera slowly across the package or code."
+            return "Passez lentement la caméra sur l'emballage ou le code."
         case .identifyColor:
-            return "Fill the center of the camera with the surface to identify."
+            return "Placez la surface à identifier au centre de l'image."
         }
     }
 }

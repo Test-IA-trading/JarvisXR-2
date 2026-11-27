@@ -49,11 +49,12 @@ FORBIDDEN_PRODUCT_STRINGS = (
     "offline tools remain",
     "guided ready",
 )
+# The in-app help is French: these phrases prove the orb gestures are explained.
 REQUIRED_HELP_STRINGS = (
-    "Tap once from standby",
-    "Tap again to listen",
-    "Tap while listening",
-    "Long hold",
+    "Touchez l'orbe et parlez",
+    "Touchez l'orbe pendant que Jarvis",
+    "pour l'interrompre",
+    "Maintenez l'orbe",
 )
 SECRET_CONTENT_PATTERNS = (
     re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
