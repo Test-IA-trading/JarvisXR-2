@@ -173,29 +173,29 @@ final class CameraQualityAnalyzer: @unchecked Sendable {
         var guidance: [String] = []
         if obstruction >= 0.72 {
             warnings.append(.cameraCovered)
-            guidance.append("The camera may be covered. Uncover the lens and try again.")
+            guidance.append("La caméra est peut-être couverte. Dégagez l'objectif et réessayez.")
         } else if brightness < configuration.darkBrightnessThreshold {
             warnings.append(.lowLight)
-            guidance.append("The image is too dark for a reliable answer. More light may help.")
+            guidance.append("L'image est trop sombre pour une réponse fiable. Plus de lumière aiderait.")
         }
         if overexposure >= configuration.overexposedFractionThreshold {
             warnings.append(.overexposed)
-            guidance.append("The image is too bright. Point away from the strongest light and try again.")
+            guidance.append("L'image est trop claire. Détournez la caméra de la lumière la plus forte et réessayez.")
         }
         if sharpness < configuration.blurSharpnessThreshold && obstruction < 0.72 {
             warnings.append(.blurry)
-            guidance.append("The image may be blurry. Hold the phone steadier and try again.")
+            guidance.append("L'image est peut-être floue. Tenez le téléphone plus immobile et réessayez.")
         }
         if motion >= configuration.excessiveMotionThreshold {
             warnings.append(.excessiveMotion)
-            guidance.append("The camera is moving too quickly. Pause briefly and hold the phone steadier.")
+            guidance.append("La caméra bouge trop vite. Marquez une pause et tenez le téléphone plus immobile.")
         }
         if variance < configuration.coveredVarianceThreshold * 0.60,
            brightness >= configuration.darkBrightnessThreshold,
            overexposure < configuration.overexposedFractionThreshold,
            obstruction < 0.72 {
             warnings.append(.poorFraming)
-            guidance.append("The view has very little detail. Aim the center of the camera at the subject and try again.")
+            guidance.append("L'image contient très peu de détails. Visez le sujet avec le centre de la caméra et réessayez.")
         }
 
         let unusable = obstruction >= 0.72 ||
