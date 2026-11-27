@@ -29,7 +29,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "ready")
         waitForOrb()
-        waitForState("Ready")
+        waitForState("Prêt")
         saveScreenshot("ready")
     }
 
@@ -37,7 +37,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "listening")
         waitForOrb()
-        waitForState("Listening")
+        waitForState("À l'écoute")
         saveScreenshot("listening")
     }
 
@@ -45,7 +45,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "no_speech")
         waitForOrb()
-        waitForHintContaining("No speech heard")
+        waitForHintContaining("Aucune parole détectée")
         saveScreenshot("no-speech")
     }
 
@@ -53,7 +53,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "processing")
         waitForOrb()
-        waitForAnyState(["Speaking", "Done", "Ready"])
+        waitForAnyState(["Réponse", "Terminé", "Prêt"])
         saveScreenshot("processing")
     }
 
@@ -61,7 +61,7 @@ final class JarvisXRVisualProofTests: XCTestCase {
         try printVisualProofStart()
         launch(state: "long_hold_standby")
         waitForOrb()
-        waitForState("Standby")
+        waitForState("En veille")
         saveScreenshot("long-hold-standby")
     }
 
