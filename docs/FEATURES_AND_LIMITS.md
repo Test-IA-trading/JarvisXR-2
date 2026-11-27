@@ -3,12 +3,17 @@
 ## Implemented
 
 - Native Swift and UIKit interface with VoiceOver labels, Dynamic Type, contrast support, and reduced-motion behavior
-- Typed local commands and in-app push-to-talk through Speech and AVAudioEngine
+- Typed local commands and in-app push-to-talk in French (`fr-FR`) through Speech and AVAudioEngine, with a deterministic French command layer and a French system voice
+- AR cube grabbed with an in-air thumb–index pinch: ARKit world tracking and horizontal planes, Vision hand pose on ARKit frames (no second camera session), hysteresis pinch with guided calibration, touch fallback, and a scene memory that answers « Qu'est-ce que je viens de déplacer ? »
+- French conversation facts that follow corrections (departure times, « Et maintenant ? », « juste l'heure du train »), notes summary over a period with « Montre-les-moi » and an AR summary card grabbed with the same pinch, hands-free continuous conversation, and the « Parler à JARVIS » intent for an iOS Vocal Shortcut « Dis Jarvis »
+- Optional on-device local brain for open French questions: pinned llama.cpp b12262 framework (iPhone builds) with Qwen2.5-1.5B-Instruct Q4_K_M downloaded once with consent, verified by SHA-256, conversation context of 6 turns plus app facts, never used for actions
+- Named timers with notifications, EventKit reminders and agenda reading, and a spoken daily briefing, all on the iPhone after permission
 - Local speech output through `AVSpeechSynthesizer`, including session-scoped priority for warnings, requested targets, scene changes, and detail
 - Persistent voice and Vision preferences, notes, and command history with explicit clear controls
 - Accessible contact selection and in-memory message drafting with readback, explicit confirmation, and the standard iOS message composer
 - AVFoundation rear or front camera preview, still capture, torch, focus, exposure, white balance, interruption handling, and foreground lifecycle
 - Six Jarvis Vision modes: Describe, Live Guide, Find, Read Text, Barcode, and Color
+- French Live Guide: each real object is announced once, a move is reported once the object rests, a removal is noticed, and « Elle est où maintenant ? » is answered from session memory; the phone's own motion (Core Motion) is not reported as an object moving
 - Checksum-pinned `YOLOv3TinyInt8LUT` Core ML detector with 80 documented classes, manifest validation, and bundled license notice
 - Model-agnostic detector interface, frame backpressure, generation-token cancellation, temporal tracking, scene fusion, and bounded session memory
 - Vision OCR, reading order, barcode and QR deduplication, face and person counting, common-color naming, and camera-quality guidance
