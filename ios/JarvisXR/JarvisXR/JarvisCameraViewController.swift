@@ -10,6 +10,10 @@ final class JarvisCameraViewController: UIViewController {
     private let voiceInput = JarvisVoiceInputService.shared
     private let haptics = VisionHapticsService.shared
     private let preferencesStore = VisionPreferencesStore.shared
+    /// The phone's own rotation during Live Guide, so a pan is not announced as a move.
+    private let motionMonitor = VisionCameraMotionMonitor()
+    /// Vision speech is held while the microphone listens, so Jarvis does not hear itself.
+    private var narrationPausedForListening = false
 
     private var launchRequest: JarvisVisionLaunchRequest
     private var currentMode: VisionMode
@@ -41,16 +45,16 @@ final class JarvisCameraViewController: UIViewController {
     private let resultLabel = UILabel()
     private let failurePanel = JarvisPanelView()
     private let failureLabel = UILabel()
-    private let openSystemSettingsButton = JarvisTheme.button(title: "Open iOS Settings")
-    private let retryButton = JarvisTheme.button(title: "Try Again")
+    private let openSystemSettingsButton = JarvisTheme.button(title: "Ouvrir les Réglages iOS")
+    private let retryButton = JarvisTheme.button(title: "Réessayer")
     private let primaryButton = UIButton(type: .system)
-    private let repeatButton = JarvisTheme.button(title: "Repeat")
-    private let lightButton = JarvisTheme.button(title: "Flashlight Off")
-    private let moreDetailButton = JarvisTheme.button(title: "More Detail")
+    private let repeatButton = JarvisTheme.button(title: "Répéter")
+    private let lightButton = JarvisTheme.button(title: "Lampe éteinte")
+    private let moreDetailButton = JarvisTheme.button(title: "Plus de détails")
     private let readingControls = UIStackView()
-    private let previousLineButton = JarvisTheme.button(title: "Previous Line")
-    private let pauseReadingButton = JarvisTheme.button(title: "Pause Reading")
-    private let nextLineButton = JarvisTheme.button(title: "Next Line")
+    private let previousLineButton = JarvisTheme.button(title: "Ligne précédente")
+    private let pauseReadingButton = JarvisTheme.button(title: "Pause lecture")
+    private let nextLineButton = JarvisTheme.button(title: "Ligne suivante")
     private let bottomBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterialDark))
     private let voiceButton = UIButton(type: .system)
     private let stopButton = UIButton(type: .system)
@@ -94,7 +98,7 @@ final class JarvisCameraViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         guard isMovingFromParent || navigationController?.topViewController !== self else { return }
-        stopVision(announce: false, message: "Vision stopped.")
+        stopVision(announce: false, message: "Vision arrêtée.")
     }
 
     override func viewDidLayoutSubviews() {
@@ -108,6 +112,7 @@ final class JarvisCameraViewController: UIViewController {
         pipeline.unbindCamera()
         camera.shutdown()
         voiceInput.cancel()
+        motionMonitor.stop()
     }
 
     func apply(_ request: JarvisVisionLaunchRequest) {
@@ -131,7 +136,7 @@ final class JarvisCameraViewController: UIViewController {
         if selectsMode, request.mode != .inactive {
             if request.mode != currentMode,
                currentState == .active || currentState == .paused || currentState == .preparing {
-                stopVision(announce: false, message: "Previous Vision mode stopped.")
+                stopVision(announce: false, message: "Mode Vision précédent arrêté.")
             }
             setMode(request.mode, announce: true)
         }
@@ -142,7 +147,7 @@ final class JarvisCameraViewController: UIViewController {
                 beginCurrentMode()
             }
         case .stop:
-            stopVision(announce: true, message: "Vision and speech stopped.")
+            stopVision(announce: true, message: "Vision et voix arrêtées.")
         case .pause:
             pauseVision()
         case .resume:
@@ -157,11 +162,11 @@ final class JarvisCameraViewController: UIViewController {
                 if request.mode == .liveGuide { $0.importantChangesOnly = true }
             }
             showResult(
-                request.mode == .liveGuide ? "Live Guide will speak only important changes." : "Descriptions are now concise.",
+                request.mode == .liveGuide ? "Le guide en direct n'annoncera que les changements importants." : "Les descriptions sont maintenant concises.",
                 announce: true
             )
         case .whatChanged:
-            repeatLastResult(prefix: "Latest confirmed change. ")
+            repeatLastResult(prefix: "Dernier changement confirmé. ")
         case .nextReadingLine:
             pipeline.advanceReadingLine(by: 1)
             speakCurrentReadingLine()
@@ -174,9 +179,9 @@ final class JarvisCameraViewController: UIViewController {
             setFlashlight(false)
         case .flashlightStatus:
             let enabled = camera.isTorchEnabled
-            lightButton.setTitle(enabled ? "Flashlight On" : "Flashlight Off", for: .normal)
-            lightButton.accessibilityValue = enabled ? "On" : "Off"
-            showResult(enabled ? "The Vision flashlight is on." : "The Vision flashlight is off.", announce: true)
+            lightButton.setTitle(enabled ? "Lampe allumée" : "Lampe éteinte", for: .normal)
+            lightButton.accessibilityValue = enabled ? "Allumée" : "Éteinte"
+            showResult(enabled ? "La lampe de Vision est allumée." : "La lampe de Vision est éteinte.", announce: true)
         case .checkQuality:
             setMode(.describe, announce: true)
             beginCurrentMode()
@@ -242,29 +247,29 @@ final class JarvisCameraViewController: UIViewController {
 
     private func configureNavigation() {
         let help = UIBarButtonItem(
-            title: "Help",
+            title: "Aide",
             style: .plain,
             target: self,
             action: #selector(helpTapped)
         )
-        help.accessibilityLabel = "Vision Help"
-        help.accessibilityHint = "Opens task-based help and safety limits."
+        help.accessibilityLabel = "Aide Vision"
+        help.accessibilityHint = "Ouvre l'aide par tâche et les limites de sécurité."
         help.accessibilityIdentifier = "jarvis.vision.help"
 
         let settings = UIBarButtonItem(
-            title: "Settings",
+            title: "Réglages",
             style: .plain,
             target: self,
             action: #selector(settingsTapped)
         )
-        settings.accessibilityLabel = "Vision Settings"
-        settings.accessibilityHint = "Opens speech, haptic, camera, and privacy settings."
+        settings.accessibilityLabel = "Réglages Vision"
+        settings.accessibilityHint = "Ouvre les réglages de voix, vibrations, caméra et confidentialité."
         settings.accessibilityIdentifier = "jarvis.vision.settings"
         navigationItem.rightBarButtonItems = [settings, help]
     }
 
     private func configureFixtureBanner() {
-        fixtureBanner.text = "DEMO FIXTURE • Camera is not active"
+        fixtureBanner.text = "DÉMONSTRATION • La caméra n'est pas active"
         fixtureBanner.textColor = JarvisTheme.background
         fixtureBanner.backgroundColor = JarvisTheme.warning
         fixtureBanner.font = UIFont.preferredFont(forTextStyle: .caption1)
@@ -275,7 +280,7 @@ final class JarvisCameraViewController: UIViewController {
         fixtureBanner.clipsToBounds = true
         fixtureBanner.isHidden = true
         fixtureBanner.accessibilityIdentifier = "jarvis.vision.fixtureBanner"
-        fixtureBanner.accessibilityLabel = "Demonstration fixture. Camera is not active."
+        fixtureBanner.accessibilityLabel = "Démonstration. La caméra n'est pas active."
         fixtureBanner.heightAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
     }
 
@@ -310,7 +315,7 @@ final class JarvisCameraViewController: UIViewController {
             button.layer.cornerRadius = 12
             button.contentEdgeInsets = UIEdgeInsets(top: 11, left: 15, bottom: 11, right: 15)
             button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
-            button.accessibilityLabel = "\(mode.visionDisplayName) mode"
+            button.accessibilityLabel = "Mode \(mode.visionDisplayName)"
             button.accessibilityHint = mode.visionReadyGuidance
             button.accessibilityIdentifier = "jarvis.vision.mode.\(mode.rawValue)"
             button.addAction(UIAction { [weak self] _ in self?.modeSelected(mode) }, for: .touchUpInside)
@@ -365,12 +370,12 @@ final class JarvisCameraViewController: UIViewController {
         previewView.clipsToBounds = true
         previewView.heightAnchor.constraint(equalToConstant: 164).isActive = true
         previewView.isAccessibilityElement = true
-        previewView.accessibilityLabel = "Camera preview"
-        previewView.accessibilityHint = "The spoken result contains the useful camera information."
+        previewView.accessibilityLabel = "Aperçu de la caméra"
+        previewView.accessibilityHint = "Le résultat parlé contient l'information utile de la caméra."
         previewView.accessibilityIdentifier = "jarvis.vision.preview"
 
         let previewMessage = UILabel()
-        previewMessage.text = "Camera starts only when you choose an action."
+        previewMessage.text = "La caméra ne démarre que lorsque vous choisissez une action."
         previewMessage.textColor = JarvisTheme.mutedText
         previewMessage.font = UIFont.preferredFont(forTextStyle: .footnote)
         previewMessage.adjustsFontForContentSizeCategory = true
@@ -386,9 +391,9 @@ final class JarvisCameraViewController: UIViewController {
     }
 
     private func configureResultPanel() {
-        let title = makeSectionLabel("Result")
+        let title = makeSectionLabel("Résultat")
         title.accessibilityIdentifier = "jarvis.vision.resultHeading"
-        resultLabel.text = "No result yet."
+        resultLabel.text = "Pas encore de résultat."
         resultLabel.textColor = JarvisTheme.text
         resultLabel.font = UIFont.preferredFont(forTextStyle: .body)
         resultLabel.adjustsFontForContentSizeCategory = true
@@ -417,7 +422,7 @@ final class JarvisCameraViewController: UIViewController {
         failureLabel.accessibilityIdentifier = "jarvis.vision.failure"
 
         openSystemSettingsButton.addTarget(self, action: #selector(openSystemSettingsTapped), for: .touchUpInside)
-        openSystemSettingsButton.accessibilityHint = "Opens the Jarvis page in iOS Settings so camera access can be changed."
+        openSystemSettingsButton.accessibilityHint = "Ouvre la page Jarvis des Réglages iOS pour modifier l'accès à la caméra."
         openSystemSettingsButton.accessibilityIdentifier = "jarvis.vision.openSystemSettings"
         retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
         retryButton.accessibilityIdentifier = "jarvis.vision.retry"
@@ -427,7 +432,7 @@ final class JarvisCameraViewController: UIViewController {
         buttons.axis = .horizontal
         buttons.spacing = 8
         buttons.distribution = .fillEqually
-        let stack = UIStackView(arrangedSubviews: [makeSectionLabel("Needs Attention"), failureLabel, buttons])
+        let stack = UIStackView(arrangedSubviews: [makeSectionLabel("À vérifier"), failureLabel, buttons])
         stack.axis = .vertical
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -457,15 +462,15 @@ final class JarvisCameraViewController: UIViewController {
         primaryButton.accessibilityIdentifier = "jarvis.vision.primaryAction"
 
         repeatButton.addTarget(self, action: #selector(repeatTapped), for: .touchUpInside)
-        repeatButton.accessibilityLabel = "Repeat last Vision result"
-        repeatButton.accessibilityHint = "Speaks the latest result again without taking another photo."
+        repeatButton.accessibilityLabel = "Répéter le dernier résultat Vision"
+        repeatButton.accessibilityHint = "Relit le dernier résultat sans reprendre de photo."
         repeatButton.accessibilityIdentifier = "jarvis.vision.repeat"
         lightButton.addTarget(self, action: #selector(lightTapped), for: .touchUpInside)
-        lightButton.accessibilityLabel = "Flashlight"
+        lightButton.accessibilityLabel = "Lampe"
         lightButton.accessibilityIdentifier = "jarvis.vision.flashlight"
         moreDetailButton.addTarget(self, action: #selector(moreDetailTapped), for: .touchUpInside)
-        moreDetailButton.accessibilityLabel = "More detail"
-        moreDetailButton.accessibilityHint = "Describes the latest scene in more detail without taking another photo."
+        moreDetailButton.accessibilityLabel = "Plus de détails"
+        moreDetailButton.accessibilityHint = "Décrit la dernière scène plus en détail sans reprendre de photo."
         moreDetailButton.accessibilityIdentifier = "jarvis.vision.moreDetail"
         [repeatButton, lightButton, moreDetailButton, previousLineButton, pauseReadingButton, nextLineButton]
             .forEach(configureDynamicButton)
@@ -497,7 +502,7 @@ final class JarvisCameraViewController: UIViewController {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
         bottomBar.accessibilityIdentifier = "jarvis.vision.persistentActions"
 
-        voiceButton.setTitle("Voice", for: .normal)
+        voiceButton.setTitle("Voix", for: .normal)
         voiceButton.setTitleColor(JarvisTheme.text, for: .normal)
         voiceButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
         voiceButton.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -506,8 +511,8 @@ final class JarvisCameraViewController: UIViewController {
         voiceButton.layer.borderColor = JarvisTheme.panelBorder.cgColor
         voiceButton.layer.borderWidth = 1
         voiceButton.addTarget(self, action: #selector(voiceTapped), for: .touchUpInside)
-        voiceButton.accessibilityLabel = "Voice command inside Vision"
-        voiceButton.accessibilityHint = "Starts or stops listening for a Vision command."
+        voiceButton.accessibilityLabel = "Commande vocale dans Vision"
+        voiceButton.accessibilityHint = "Lance ou arrête l'écoute d'une commande Vision."
         voiceButton.accessibilityIdentifier = "jarvis.vision.voice"
 
         stopButton.setTitle("Stop", for: .normal)
@@ -517,8 +522,8 @@ final class JarvisCameraViewController: UIViewController {
         stopButton.backgroundColor = JarvisTheme.error
         stopButton.layer.cornerRadius = 14
         stopButton.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
-        stopButton.accessibilityLabel = "Stop Vision and speech"
-        stopButton.accessibilityHint = "Immediately stops camera analysis, narration, haptics, and voice input."
+        stopButton.accessibilityLabel = "Arrêter Vision et la voix"
+        stopButton.accessibilityHint = "Arrête aussitôt l'analyse de la caméra, les annonces, les vibrations et l'écoute."
         stopButton.accessibilityIdentifier = "jarvis.vision.stop"
 
         let row = UIStackView(arrangedSubviews: [voiceButton, stopButton])
@@ -559,6 +564,8 @@ final class JarvisCameraViewController: UIViewController {
     private func wireServices() {
         pipeline.bind(to: camera)
         pipeline.apply(preferences: preferences)
+        let motionMonitor = self.motionMonitor
+        pipeline.cameraPoseProvider = { motionMonitor.sample() }
 
         pipeline.onStateChange = { [weak self] mode, state in
             DispatchQueue.main.async { self?.pipelineStateChanged(mode: mode, state: state) }
@@ -578,8 +585,8 @@ final class JarvisCameraViewController: UIViewController {
         pipeline.onColorResult = { [weak self] result in
             DispatchQueue.main.async {
                 self?.guidanceLabel.text = result.isUncertain
-                    ? "The center color varies across the sampled area."
-                    : "Center color identified from the current image."
+                    ? "La couleur du centre varie dans la zone mesurée."
+                    : "Couleur du centre identifiée sur l'image actuelle."
             }
         }
 
@@ -587,24 +594,33 @@ final class JarvisCameraViewController: UIViewController {
             guard let self else { return }
             switch state {
             case .standby:
-                self.voiceButton.setTitle("Voice", for: .normal)
+                self.voiceButton.setTitle("Voix", for: .normal)
+                self.resumeNarrationAfterListening()
             case .listening:
-                self.voiceButton.setTitle("Finish", for: .normal)
-                self.renderState(self.currentState, guidance: "Listening for a Vision command.", announce: true)
+                self.voiceButton.setTitle("Terminer", for: .normal)
+                self.pauseNarrationForListening()
+                self.renderState(self.currentState, guidance: "Micro actif : dites une commande Vision.", announce: true)
+            case .hearingSound:
+                if self.voiceInput.currentTranscript.isEmpty {
+                    self.guidanceLabel.text = "Son reçu…"
+                }
             case .heardYou(let transcript):
-                self.guidanceLabel.text = "Heard: \(transcript)"
+                self.guidanceLabel.text = "Compris : « \(transcript) »"
             case .processing:
-                self.guidanceLabel.text = "Processing voice command."
+                self.guidanceLabel.text = "Traitement de la commande vocale."
             case .noSpeech:
-                self.renderState(self.currentState, guidance: "No speech heard. Try again or use a button.", announce: true)
-            case .unavailable(let message):
-                self.showFailure(message, offersSettings: true)
+                self.resumeNarrationAfterListening()
+                self.renderState(self.currentState, guidance: "Aucune parole détectée. Réessayez ou utilisez un bouton.", announce: true)
+            case .unavailable(let failure):
+                self.resumeNarrationAfterListening()
+                self.showFailure(failure.message, offersSettings: failure.offersSettings)
             }
         }
         voiceInput.onPartialTranscript = { [weak self] text in
             guard !text.isEmpty else { return }
-            self?.guidanceLabel.text = "Listening: \(text)"
+            self?.guidanceLabel.text = "J'écoute : \(text)"
         }
+        voiceInput.onInputLevel = nil
         voiceInput.onFinalTranscript = { [weak self] text in
             self?.handleVisionVoiceCommand(text)
         }
@@ -637,13 +653,13 @@ final class JarvisCameraViewController: UIViewController {
 
     private func modeSelected(_ mode: VisionMode) {
         if currentState == .active || currentState == .paused || currentState == .preparing {
-            stopVision(announce: false, message: "Previous Vision mode stopped.")
+            stopVision(announce: false, message: "Mode Vision précédent arrêté.")
         }
         currentTarget = mode == .find ? currentTarget : nil
         requestedRegion = nil
         latestSnapshot = nil
         lastPresentedNarration = nil
-        resultLabel.text = "No result yet."
+        resultLabel.text = "Pas encore de résultat."
         setMode(mode, announce: true)
         if mode == .find {
             promptForFindTarget()
@@ -652,7 +668,7 @@ final class JarvisCameraViewController: UIViewController {
 
     private func setMode(_ mode: VisionMode, announce: Bool) {
         currentMode = mode == .inactive ? .describe : mode
-        modeLabel.text = "\(currentMode.visionDisplayName) mode"
+        modeLabel.text = "Mode \(currentMode.visionDisplayName)"
         for (buttonMode, button) in modeButtons {
             let selected = buttonMode == currentMode
             button.backgroundColor = selected ? JarvisTheme.accentDim : JarvisTheme.panelRaised
@@ -668,7 +684,7 @@ final class JarvisCameraViewController: UIViewController {
         primaryButton.setTitle(primaryTitle(), for: .normal)
         renderState(.idle, guidance: currentMode.visionReadyGuidance, announce: false)
         if announce {
-            postAnnouncement("\(currentMode.visionDisplayName) mode. \(currentMode.visionReadyGuidance)", force: true)
+            postAnnouncement("Mode \(currentMode.visionDisplayName). \(currentMode.visionReadyGuidance)", force: true)
             playHaptic(.success)
         }
     }
@@ -681,10 +697,10 @@ final class JarvisCameraViewController: UIViewController {
         }
         latestSnapshot = nil
         lastPresentedNarration = nil
-        resultLabel.text = "Waiting for a confirmed result."
+        resultLabel.text = "En attente d'un résultat confirmé."
         failurePanel.isHidden = true
         resetFeedbackSessions()
-        renderState(.preparing, guidance: "Preparing the camera.", announce: true)
+        renderState(.preparing, guidance: "Préparation de la caméra.", announce: true)
         ensureFeedbackSessions()
         let position: CameraSessionService.CameraPosition = preferences.cameraChoice == .front ? .front : .rear
         camera.requestAccessAndStart(position: position) { [weak self] result in
@@ -704,6 +720,11 @@ final class JarvisCameraViewController: UIViewController {
                 )
                 self.pipeline.apply(preferences: self.preferences)
                 self.speech.setQuietVisionGuideEnabled(self.preferences.importantChangesOnly)
+                if self.currentMode == .liveGuide {
+                    self.motionMonitor.start()
+                } else {
+                    self.motionMonitor.stop()
+                }
                 self.pipeline.start(mode: self.currentMode, target: self.currentTarget)
                 self.updateScreenAwake()
                 switch self.currentMode {
@@ -719,7 +740,7 @@ final class JarvisCameraViewController: UIViewController {
     }
 
     private func captureStillForCurrentMode() {
-        renderState(.active, guidance: currentMode == .readText ? "Capturing text. Hold steady." : "Capturing and analyzing.", announce: true)
+        renderState(.active, guidance: currentMode == .readText ? "Capture du texte. Restez immobile." : "Capture et analyse en cours.", announce: true)
         camera.captureHighResolutionPhoto { [weak self] result in
             guard let self else { return }
             switch result {
@@ -742,12 +763,13 @@ final class JarvisCameraViewController: UIViewController {
 
     private func pauseVision() {
         guard currentState == .active else {
-            showResult("Vision is not currently active.", announce: true)
+            showResult("Vision n'est pas active pour le moment.", announce: true)
             return
         }
         pipeline.pause()
+        motionMonitor.stop()
         speech.pauseVisionNarration()
-        renderState(.paused, guidance: "Vision paused. The camera is not being analyzed.", announce: true)
+        renderState(.paused, guidance: "Vision en pause. La caméra n'est plus analysée.", announce: true)
         updateScreenAwake()
     }
 
@@ -755,6 +777,9 @@ final class JarvisCameraViewController: UIViewController {
         guard currentState == .paused else {
             beginCurrentMode()
             return
+        }
+        if currentMode == .liveGuide {
+            motionMonitor.start()
         }
         pipeline.resume()
         speech.resumeVisionNarration()
@@ -764,8 +789,10 @@ final class JarvisCameraViewController: UIViewController {
 
     private func stopVision(announce: Bool, message: String) {
         voiceInput.cancel()
+        narrationPausedForListening = false
         pipeline.stop()
         camera.stop()
+        motionMonitor.stop()
         if let speechSessionID {
             speech.cancelVisionNarrationSession(speechSessionID)
             self.speechSessionID = nil
@@ -778,14 +805,14 @@ final class JarvisCameraViewController: UIViewController {
         }
         latestSnapshot = nil
         lastPresentedNarration = nil
-        resultLabel.text = "Vision stopped. Session result cleared."
+        resultLabel.text = "Vision arrêtée. Le résultat de la session est effacé."
         VisionDiagnosticsStore.shared.setActiveCamera(nil)
         UIApplication.shared.isIdleTimerDisabled = false
         currentState = .stopped
-        stateLabel.text = "Stopped"
+        stateLabel.text = "Arrêté"
         guidanceLabel.text = message
         primaryButton.setTitle(primaryTitle(), for: .normal)
-        pauseReadingButton.setTitle("Pause Reading", for: .normal)
+        pauseReadingButton.setTitle("Pause lecture", for: .normal)
         if announce {
             postAnnouncement(message, force: true)
         }
@@ -850,8 +877,8 @@ final class JarvisCameraViewController: UIViewController {
     private func readingStateChanged(_ state: VisionReadingState) {
         readingControls.isHidden = currentMode != .readText
         let isPaused = state.status == .paused
-        pauseReadingButton.setTitle(isPaused ? "Resume Reading" : "Pause Reading", for: .normal)
-        pauseReadingButton.accessibilityLabel = isPaused ? "Resume reading" : "Pause reading"
+        pauseReadingButton.setTitle(isPaused ? "Reprendre la lecture" : "Pause lecture", for: .normal)
+        pauseReadingButton.accessibilityLabel = isPaused ? "Reprendre la lecture" : "Mettre la lecture en pause"
     }
 
     private func handle(error: VisionError) {
@@ -860,40 +887,40 @@ final class JarvisCameraViewController: UIViewController {
         let offersSettings: Bool
         switch error {
         case .cameraPermissionDenied:
-            message = "Camera access is off. Enable Camera in iOS Settings, then return and try again."
+            message = "L'accès à la caméra est coupé. Activez Caméra dans les Réglages iOS, puis revenez et réessayez."
             offersSettings = true
         case .cameraUnavailable, .cameraInterrupted:
-            message = "The camera is unavailable right now. Stop other camera use and try again."
+            message = "La caméra est indisponible pour le moment. Fermez les autres usages de la caméra et réessayez."
             offersSettings = false
         case .modelMissing, .modelChecksumMismatch, .modelLoadFailed(_), .invalidModelOutput:
-            message = "The on-device object model is unavailable or failed validation. Read Text and Scan may still work."
+            message = "Le modèle d'objets de l'iPhone est indisponible ou n'a pas passé la vérification. Lire et Code-barres peuvent encore fonctionner."
             offersSettings = false
-        case .unsupportedTarget(let target):
-            message = "Jarvis cannot reliably find \(target) with the installed model. Choose a supported object."
+        case .unsupportedTarget:
+            message = "Jarvis ne reconnaît pas cet objet avec le modèle installé. Essayez un objet courant : tasse, bouteille, chaise, livre, téléphone…"
             offersSettings = false
         case .targetNotFound(let target):
-            message = "I have not found \(target). Pan slowly, or stop and try from another position."
+            message = "Je n'ai pas trouvé \(VisionFrenchVocabulary.noun(for: target).definite). Balayez lentement, ou arrêtez et réessayez d'un autre endroit."
             offersSettings = false
         case .noTextFound:
-            message = "No readable text was confirmed. Move closer, hold steadier, and try again."
+            message = "Aucun texte lisible confirmé. Approchez-vous, tenez le téléphone plus immobile et réessayez."
             offersSettings = false
         case .flashlightUnavailable:
-            message = "The flashlight is unavailable on this camera."
+            message = "La lampe n'est pas disponible sur cette caméra."
             offersSettings = false
         case .thermalDegraded:
-            message = "Vision is running less often because the device is warm."
+            message = "Vision analyse moins souvent car l'iPhone chauffe."
             offersSettings = false
         case .textRecognitionFailed:
-            message = "Text recognition could not finish. Hold the phone steady and try again."
+            message = "La lecture du texte n'a pas abouti. Tenez le téléphone immobile et réessayez."
             offersSettings = false
         case .speechUnavailable:
-            message = "Speech output is unavailable. Results remain visible on screen."
+            message = "La voix est indisponible. Les résultats restent affichés à l'écran."
             offersSettings = true
         case .hapticsUnavailable:
-            message = "Haptics are unavailable. Direction guidance will use speech."
+            message = "Les vibrations sont indisponibles. Le guidage passera par la voix."
             offersSettings = false
         case .insufficientMemory:
-            message = "Vision stopped because memory is constrained. Close other apps and try again."
+            message = "Vision s'est arrêtée faute de mémoire. Fermez d'autres apps et réessayez."
             offersSettings = false
         case .cancelled:
             return
@@ -916,7 +943,7 @@ final class JarvisCameraViewController: UIViewController {
             : (authorization == .restricted ? .restricted : .unavailable)
         VisionDiagnosticsStore.shared.setPermissions(camera: diagnosticState)
         let message = authorization == .restricted
-            ? "Camera access is restricted on this device. A device administrator or parental-control setting may need to change it."
+            ? "L'accès à la caméra est restreint sur cet iPhone. Un administrateur ou le contrôle parental doit peut-être le modifier."
             : error.localizedDescription
         showFailure(message, offersSettings: authorization == .denied)
     }
@@ -933,57 +960,57 @@ final class JarvisCameraViewController: UIViewController {
 
     private func stateDisplayName(_ state: VisionSessionState) -> String {
         switch state {
-        case .idle: return "Ready"
-        case .preparing: return "Preparing"
+        case .idle: return "Prêt"
+        case .preparing: return "Préparation"
         case .active:
-            if currentMode == .find, let currentTarget { return "Searching for \(currentTarget)" }
-            if currentMode == .readText { return "Reading"
+            if currentMode == .find, let currentTarget { return "Recherche : \(VisionFrenchVocabulary.noun(for: currentTarget).singular)" }
+            if currentMode == .readText { return "Lecture"
             }
-            return "Active"
-        case .paused: return "Paused"
-        case .stopping: return "Stopping"
-        case .stopped: return "Stopped"
-        case .unavailable: return "Unavailable"
-        case .failed: return "Needs attention"
+            return "Actif"
+        case .paused: return "En pause"
+        case .stopping: return "Arrêt en cours"
+        case .stopped: return "Arrêté"
+        case .unavailable: return "Indisponible"
+        case .failed: return "À vérifier"
         }
     }
 
     private func guidance(for state: VisionSessionState) -> String {
         switch state {
         case .idle: return currentMode.visionReadyGuidance
-        case .preparing: return "Preparing on-device Vision."
+        case .preparing: return "Préparation de Vision sur l'iPhone."
         case .active: return activeGuidance()
-        case .paused: return "Vision is paused."
-        case .stopping: return "Stopping camera analysis and narration."
-        case .stopped: return "Vision is stopped."
-        case .unavailable: return "Vision is unavailable. Review the recovery action below."
-        case .failed: return "Vision could not finish. Review the recovery action below."
+        case .paused: return "Vision est en pause."
+        case .stopping: return "Arrêt de l'analyse et des annonces."
+        case .stopped: return "Vision est arrêtée."
+        case .unavailable: return "Vision est indisponible. Voyez la solution proposée ci-dessous."
+        case .failed: return "Vision n'a pas pu terminer. Voyez la solution proposée ci-dessous."
         }
     }
 
     private func activeGuidance() -> String {
         switch currentMode {
-        case .liveGuide: return "Live Guide is active in the foreground. Stop is always available below."
-        case .find: return "Searching for \(currentTarget ?? "the selected object"). Pan slowly."
-        case .scanBarcode: return "Scanning for a barcode. Jarvis will not open links automatically."
-        case .readText: return "Reading captured text on this device."
-        case .identifyColor: return "Identifying the center color."
-        case .describe, .inactive: return "Analyzing the captured scene on this device."
+        case .liveGuide: return "Guide en direct actif : j'annonce une fois ce qui apparaît, bouge ou disparaît. Demandez « Elle est où ? » avec Voix. Stop reste en bas."
+        case .find: return "Je cherche \(currentTarget.map { VisionFrenchVocabulary.noun(for: $0).definite } ?? "l'objet choisi"). Balayez lentement."
+        case .scanBarcode: return "Recherche d'un code-barres. Jarvis n'ouvre jamais de lien tout seul."
+        case .readText: return "Lecture du texte capturé, sur l'iPhone."
+        case .identifyColor: return "Identification de la couleur du centre."
+        case .describe, .inactive: return "Analyse de la scène capturée, sur l'iPhone."
         }
     }
 
     private func primaryTitle() -> String {
-        if currentState == .paused { return "Resume \(currentMode.visionDisplayName)" }
+        if currentState == .paused { return "Reprendre : \(currentMode.visionDisplayName)" }
         if currentState == .active {
             switch currentMode {
-            case .liveGuide: return "Pause Live Guide"
-            case .find: return "Change Find Target"
-            case .scanBarcode: return "Pause Barcode Scan"
+            case .liveGuide: return "Mettre le guide en pause"
+            case .find: return "Changer l'objet à trouver"
+            case .scanBarcode: return "Mettre le scan en pause"
             default: break
             }
         }
         if currentMode == .find, let currentTarget {
-            return "Find \(currentTarget)"
+            return "Trouver \(VisionFrenchVocabulary.noun(for: currentTarget).definite)"
         }
         return currentMode.visionPrimaryActionTitle
     }
@@ -1000,22 +1027,22 @@ final class JarvisCameraViewController: UIViewController {
 
     private func showFailure(_ message: String, offersSettings: Bool) {
         currentState = .unavailable
-        stateLabel.text = "Needs attention"
+        stateLabel.text = "À vérifier"
         guidanceLabel.text = message
         failureLabel.text = message
         failurePanel.isHidden = false
         openSystemSettingsButton.isHidden = !offersSettings
         retryButton.isHidden = false
         playHaptic(.warning)
-        postAnnouncement("Vision needs attention. \(message)", force: true)
+        postAnnouncement("Vision : à vérifier. \(message)", force: true)
     }
 
     private func repeatLastResult(prefix: String = "") {
         guard let narration = lastPresentedNarration ?? pipeline.repeatLastNarration() else {
-            if resultLabel.text != "No result yet." {
+            if resultLabel.text != "Pas encore de résultat." {
                 postAnnouncement("\(prefix)\(resultLabel.text ?? "")", force: true)
             } else {
-                showResult("There is no Vision result to repeat yet.", announce: true)
+                showResult("Il n'y a pas encore de résultat Vision à répéter.", announce: true)
             }
             return
         }
@@ -1048,7 +1075,7 @@ final class JarvisCameraViewController: UIViewController {
             narration = pipeline.narration(moreDetailed: true)
         }
         guard let narration else {
-            showResult("Capture a scene before asking for more detail.", announce: true)
+            showResult("Capturez une scène avant de demander plus de détails.", announce: true)
             return
         }
         received(narration: narration)
@@ -1056,7 +1083,7 @@ final class JarvisCameraViewController: UIViewController {
 
     private func speakCurrentReadingLine() {
         guard let line = pipeline.currentReadingLine() else {
-            showResult("No additional reading line is available.", announce: true)
+            showResult("Il n'y a pas d'autre ligne à lire.", announce: true)
             return
         }
         showResult(line.text, announce: false)
@@ -1132,7 +1159,7 @@ final class JarvisCameraViewController: UIViewController {
     private func setFlashlight(_ enabled: Bool) {
         guard camera.state == .running else {
             let position: CameraSessionService.CameraPosition = preferences.cameraChoice == .front ? .front : .rear
-            renderState(.preparing, guidance: "Preparing the camera for the flashlight.", announce: true)
+            renderState(.preparing, guidance: "Préparation de la caméra pour la lampe.", announce: true)
             camera.requestAccessAndStart(position: position) { [weak self] result in
                 guard let self else { return }
                 switch result {
@@ -1142,7 +1169,7 @@ final class JarvisCameraViewController: UIViewController {
                     VisionDiagnosticsStore.shared.setActiveCamera(
                         self.preferences.cameraChoice == .front ? .front : .rear
                     )
-                    self.renderState(.active, guidance: "Camera active for flashlight control. Stop turns it off.", announce: false)
+                    self.renderState(.active, guidance: "Caméra active pour la lampe. Stop l'éteint.", announce: false)
                     self.setFlashlight(enabled)
                 case .failure(let error):
                     self.handleCameraStartFailure(error)
@@ -1153,9 +1180,9 @@ final class JarvisCameraViewController: UIViewController {
         camera.setTorch(enabled: enabled) { [weak self] result in
             switch result {
             case .success(let actual):
-                self?.lightButton.setTitle(actual ? "Flashlight On" : "Flashlight Off", for: .normal)
-                self?.lightButton.accessibilityValue = actual ? "On" : "Off"
-                self?.showResult(actual ? "Flashlight turned on." : "Flashlight turned off.", announce: true)
+                self?.lightButton.setTitle(actual ? "Lampe allumée" : "Lampe éteinte", for: .normal)
+                self?.lightButton.accessibilityValue = actual ? "Allumée" : "Éteinte"
+                self?.showResult(actual ? "Lampe allumée." : "Lampe éteinte.", announce: true)
             case .failure:
                 self?.handle(error: .flashlightUnavailable)
             }
@@ -1171,8 +1198,41 @@ final class JarvisCameraViewController: UIViewController {
         view.setNeedsLayout()
     }
 
-    private func handleVisionVoiceCommand(_ raw: String) {
-        voiceButton.setTitle("Voice", for: .normal)
+    private static let frenchStopPhrases: Set<String> = [
+        "stop", "arrete", "arrete tout", "annule", "coupe", "coupe tout", "stop vision", "stop jarvis",
+        "arrete le guide", "arrete le guide en direct", "coupe le guide", "coupe le guide en direct",
+        "arrete d'observer", "arrete de regarder", "arrete la camera", "coupe la camera", "ferme la camera",
+        "eteins la camera", "arrete la vision", "coupe la vision"
+    ]
+
+    private func handleVisionVoiceCommand(_ spokenText: String) {
+        voiceButton.setTitle("Voix", for: .normal)
+        resumeNarrationAfterListening()
+        let frenchRequest = JarvisFrenchCommandRouter.stripWakeWord(JarvisFrenchCommandRouter.normalize(spokenText))
+        if Self.frenchStopPhrases.contains(frenchRequest) {
+            apply(JarvisVisionLaunchRequest(mode: currentMode, command: .stop, source: "vision_voice"))
+            return
+        }
+        // Live Guide answers from what it saw: « Elle est où maintenant ? », « Qu'est-ce qui a bougé ? ».
+        // Once stopped, « décris » still starts a description instead.
+        if currentMode == .liveGuide, let answer = pipeline.liveGuide.answer(to: spokenText),
+           pipeline.liveGuide.isObserving || JarvisFrenchCommandRouter.translateAction(spokenText)?.command != "describe this" {
+            presentSpokenAnswer(answer)
+            return
+        }
+        // « Trouve la tasse », « Cherche mon téléphone » : Find with the detector's own class name.
+        if let target = VisionFrenchVocabulary.findTarget(inNormalized: frenchRequest) {
+            apply(JarvisVisionLaunchRequest(
+                mode: .find,
+                command: .run,
+                target: target,
+                source: "vision_voice",
+                startsImmediately: true
+            ))
+            return
+        }
+        // Dictation is French: translate the French wording of a Vision action first.
+        let raw = JarvisFrenchCommandRouter.translateAction(spokenText)?.command ?? spokenText
         let normalized = JarvisCommandPlanner().normalize(raw)
         if ["stop", "stop vision", "stop live guide", "stop reading", "stop speaking", "cancel"].contains(normalized) {
             apply(JarvisVisionLaunchRequest(mode: currentMode, command: .stop, source: "vision_voice"))
@@ -1188,7 +1248,7 @@ final class JarvisCameraViewController: UIViewController {
         }
         let plan = JarvisCommandPlanner().plan(raw)
         guard let request = plan.visionLaunchRequest else {
-            showResult("That is not a recognized Vision command. Try describe, live guide, find, read, scan, repeat, more detail, flashlight, or stop.", announce: true)
+            showResult("Commande Vision non reconnue. Essayez : « décris », « guide en direct », « lis ce texte », « code-barres » ou « stop ».", announce: true)
             return
         }
         var sourced = request
@@ -1196,26 +1256,59 @@ final class JarvisCameraViewController: UIViewController {
         apply(sourced)
     }
 
+    /// Shows and speaks an answer through the Vision speech queue, so Stop silences it too.
+    private func presentSpokenAnswer(_ text: String) {
+        let narration = SceneNarration(
+            snapshotIdentifier: latestSnapshot?.id ?? UUID(),
+            text: VisionSafetyPolicy().safeNarration(text),
+            priority: .target,
+            verbosity: preferences.narrationVerbosity,
+            contentKind: .target
+        )
+        lastPresentedNarration = narration
+        showResult(narration.text, announce: !speech.isEnabled)
+        ensureFeedbackSessions()
+        if let speechSessionID {
+            speech.enqueueVisionNarration(narration, sessionID: speechSessionID)
+        }
+    }
+
+    private func pauseNarrationForListening() {
+        guard !narrationPausedForListening, currentState == .active else { return }
+        narrationPausedForListening = true
+        speech.pauseVisionNarration()
+    }
+
+    private func resumeNarrationAfterListening() {
+        guard narrationPausedForListening else { return }
+        narrationPausedForListening = false
+        if currentState == .active {
+            speech.resumeVisionNarration()
+        }
+    }
+
     private func promptForFindTarget() {
         let alert = UIAlertController(
-            title: "Find an Object",
-            message: "Name an object supported by the installed model. Jarvis will tell you honestly when a target is unsupported.",
+            title: "Trouver un objet",
+            message: "Nommez un objet reconnu par le modèle installé (tasse, chaise, bouteille…). Jarvis vous dira honnêtement s'il ne le reconnaît pas.",
             preferredStyle: .alert
         )
         alert.addTextField { field in
-            field.placeholder = "Example: chair or door"
-            field.accessibilityLabel = "Object to find"
+            field.placeholder = "Exemple : tasse ou chaise"
+            field.accessibilityLabel = "Objet à trouver"
             field.textContentType = .none
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Start Finding", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Lancer la recherche", style: .default) { [weak self, weak alert] _ in
             guard let self else { return }
             let target = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !target.isEmpty else {
-                self.showResult("Name an object before starting Find.", announce: true)
+                self.showResult("Nommez un objet avant de lancer la recherche.", announce: true)
                 return
             }
-            self.currentTarget = target
+            // « tasse » or « cup »: a French name is turned into the detector's class first.
+            let normalized = JarvisFrenchCommandRouter.normalize(target)
+            self.currentTarget = VisionFrenchVocabulary.classesMentioned(in: normalized).first ?? target
             self.primaryButton.setTitle(self.primaryTitle(), for: .normal)
             self.beginCurrentMode()
         })
@@ -1241,60 +1334,60 @@ final class JarvisCameraViewController: UIViewController {
         guard fixture == "inspection" || fixture == "object_model_missing" || fixture.hasPrefix("vision_") else { return }
         isFixtureDriven = true
         fixtureBanner.isHidden = false
-        previewView.accessibilityLabel = "Fixture preview. Camera is not active."
+        previewView.accessibilityLabel = "Aperçu de démonstration. La caméra n'est pas active."
 
         switch fixture {
         case "vision_describe_listening":
             setMode(.describe, announce: false)
-            stateLabel.text = "Listening"
-            guidanceLabel.text = "Listening for a Vision command."
+            stateLabel.text = "À l'écoute"
+            guidanceLabel.text = "J'écoute une commande Vision."
         case "vision_describe_analyzing":
             setMode(.describe, announce: false)
-            renderState(.active, guidance: "Analyzing a demonstration fixture on this device.", announce: false)
+            renderState(.active, guidance: "Analyse d'une image de démonstration, sur l'iPhone.", announce: false)
         case "vision_describe_result":
             setMode(.describe, announce: false)
-            renderState(.stopped, guidance: "Fixture analysis complete.", announce: false)
-            showResult("I may be seeing a chair near the center and a table on the left.", announce: false)
+            renderState(.stopped, guidance: "Analyse de démonstration terminée.", announce: false)
+            showResult("Je vois peut-être une chaise au centre et une table à gauche.", announce: false)
         case "vision_live_active":
             setMode(.liveGuide, announce: false)
-            renderState(.active, guidance: "Live Guide fixture is active. Camera is not active.", announce: false)
-            showResult("A person-sized fixture moved from center to the right.", announce: false)
+            renderState(.active, guidance: "Démonstration du guide en direct. La caméra n'est pas active.", announce: false)
+            showResult("La tasse s'est déplacée du centre vers la droite.", announce: false)
         case "vision_find_searching":
             currentTarget = "chair"
             setMode(.find, announce: false)
-            renderState(.active, guidance: "Searching fixture for chair. Pan slowly.", announce: false)
+            renderState(.active, guidance: "Recherche de démonstration : chaise. Balayez lentement.", announce: false)
         case "vision_find_centered":
             currentTarget = "chair"
             setMode(.find, announce: false)
-            renderState(.active, guidance: "Target centered in demonstration fixture.", announce: false)
-            showResult("I detect a chair near the center.", announce: false)
+            renderState(.active, guidance: "Objet centré dans la démonstration.", announce: false)
+            showResult("Je détecte une chaise au centre.", announce: false)
         case "vision_reading":
             setMode(.readText, announce: false)
-            renderState(.active, guidance: "Reading demonstration text. Camera is not active.", announce: false)
-            showResult("Jarvis Vision fixture: local processing, no image saved.", announce: false)
+            renderState(.active, guidance: "Lecture d'un texte de démonstration. La caméra n'est pas active.", announce: false)
+            showResult("Démonstration Jarvis Vision : traitement sur l'iPhone, aucune image enregistrée.", announce: false)
         case "vision_scan_result":
             setMode(.scanBarcode, announce: false)
-            renderState(.active, guidance: "Barcode fixture found. No link was opened.", announce: false)
-            showResult("Barcode fixture: 012345678905", announce: false)
+            renderState(.active, guidance: "Code-barres de démonstration trouvé. Aucun lien ouvert.", announce: false)
+            showResult("Code-barres de démonstration : 012345678905", announce: false)
         case "vision_permission_denied":
             setMode(.describe, announce: false)
-            showFailure("Camera access is off. Enable Camera in iOS Settings, then return and try again.", offersSettings: true)
+            showFailure("L'accès à la caméra est coupé. Activez Caméra dans les Réglages iOS, puis revenez et réessayez.", offersSettings: true)
         case "vision_model_unavailable", "object_model_missing":
             setMode(.describe, announce: false)
-            showFailure("The on-device object model is unavailable or failed validation. Read Text and Scan may still work.", offersSettings: false)
+            showFailure("Le modèle d'objets de l'iPhone est indisponible ou n'a pas passé la vérification. Lire et Code-barres peuvent encore fonctionner.", offersSettings: false)
             guidanceLabel.text = "Visual scan ready. The on-device object model is unavailable."
         default:
             setMode(.describe, announce: false)
-            renderState(.idle, guidance: "Vision is ready. Demonstration fixture only; camera is not active.", announce: false)
+            renderState(.idle, guidance: "Vision est prête. Démonstration seulement : la caméra n'est pas active.", announce: false)
         }
     }
 
     @objc private func primaryTapped() {
         if isFixtureDriven {
             if currentState == .active {
-                renderState(.paused, guidance: "Fixture Vision paused. Camera is not active.", announce: false)
+                renderState(.paused, guidance: "Démonstration en pause. La caméra n'est pas active.", announce: false)
             } else {
-                renderState(.active, guidance: "Fixture Vision active. Camera is not active.", announce: false)
+                renderState(.active, guidance: "Démonstration active. La caméra n'est pas active.", announce: false)
             }
             return
         }
@@ -1310,7 +1403,7 @@ final class JarvisCameraViewController: UIViewController {
     }
 
     @objc private func stopTapped() {
-        stopVision(announce: true, message: "Vision and speech stopped.")
+        stopVision(announce: true, message: "Vision et voix arrêtées.")
     }
 
     @objc private func voiceTapped() {
@@ -1334,7 +1427,7 @@ final class JarvisCameraViewController: UIViewController {
         speakCurrentReadingLine()
     }
     @objc private func pauseReadingTapped() {
-        let shouldPause = pauseReadingButton.currentTitle != "Resume Reading"
+        let shouldPause = pauseReadingButton.currentTitle != "Reprendre la lecture"
         pipeline.setReadingPaused(shouldPause)
         if shouldPause { speech.pauseVisionNarration() } else { speech.resumeVisionNarration() }
     }
@@ -1355,7 +1448,7 @@ final class JarvisCameraViewController: UIViewController {
 
     @objc private func applicationEnteredBackground() {
         guard currentState == .active || currentState == .preparing || currentState == .paused else { return }
-        stopVision(announce: false, message: "Vision stopped because Jarvis moved to the background.")
+        stopVision(announce: false, message: "Vision arrêtée : Jarvis est passé en arrière-plan.")
     }
 
     @objc private func preferencesChanged() {
