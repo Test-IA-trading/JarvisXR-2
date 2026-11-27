@@ -37,6 +37,16 @@ The fetch is atomic and fails if the artifact is not exactly 8,913,366 bytes wit
 
 Do not substitute or redistribute a different model under the same name. Review [Model Decision](JARVIS_VISION_MODEL_DECISION.md) and the model directory's `MODEL_LICENSE.md` before changing the detector.
 
+## Fetch and Verify the llama.cpp iPhone Framework
+
+The local brain links the pinned llama.cpp release `b12262` for iPhoneOS builds only (the release has no iOS simulator slice; simulator builds compile the brain's unavailable path):
+
+```bash
+python3 tools/fetch_llama_framework.py
+```
+
+The tool verifies the release archive's size and SHA-256 and extracts only `ios-arm64/llama.framework` into `ios/JarvisXR/Frameworks/` (ignored by Git). A post-build script embeds it into device builds; the MIT license ships in the app as `ThirdParty/llama.cpp-LICENSE.txt`.
+
 ## Generate the Project
 
 ```bash
