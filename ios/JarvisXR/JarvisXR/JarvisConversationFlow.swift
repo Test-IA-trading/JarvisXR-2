@@ -8,12 +8,23 @@ import Foundation
 /// sounds finished (« Quelle heure est-il ? ») ends quickly; one that stops on « et »,
 /// « de », « parce que » or on a bare verb (« Appelle… ») waits for the rest.
 enum JarvisTurnEndDetector {
-    // Initial values of docs/specs/voix.md §4 (to calibrate on the iPhone): the recognizer's
-    // own delay (≈ 0,2–0,3 s) comes on top of these silences.
-    static let finished: TimeInterval = 0.55
-    static let ordinary: TimeInterval = 0.9
-    static let shortStart: TimeInterval = 1.3
-    static let unfinished: TimeInterval = 1.9
+    // The owner's first complaint was a listening cut too early (docs/VISION_JARVIS.md §2, §10):
+    // the shorter values of docs/specs/voix.md §4 (0,55 s after « ? ») ended turns on the
+    // recognizer's own punctuation, which it writes before the real end of an idea. Longer
+    // waits, punctuation trusted only after a real sentence, hesitations kept, and the voice
+    // still heard on the microphone (`deadline`) push the end back. To calibrate on the
+    // iPhone: the recognizer's own delay (≈ 0,2–0,3 s) comes on top of these silences.
+    static let finished: TimeInterval = 0.8
+    static let ordinary: TimeInterval = 1.2
+    static let shortStart: TimeInterval = 1.5
+    static let unfinished: TimeInterval = 2.2
+    /// After « euh », « attends », « enfin »: the person is looking for their words.
+    static let hesitation: TimeInterval = 2.6
+    /// How much longer the voice alone (no new words written) may keep the turn open.
+    static let maximumVoiceExtension: TimeInterval = 2.5
+
+    /// Sounds and words of someone who has not finished (« Je voudrais… euh… »).
+    static let hesitationWords: Set<String> = ["euh", "heu", "hum", "hmm", "mmh", "bah", "ben", "enfin", "genre", "attends", "attend"]
 
     /// Words after which French goes on: articles, prepositions, conjunctions, possessives.
     static let continuationWords: Set<String> = [
@@ -36,31 +47,91 @@ enum JarvisTurnEndDetector {
     static let shortAnswers: Set<String> = [
         "oui", "non", "stop", "merci", "ok", "d'accord", "pause", "continue", "arrete", "bonjour", "salut", "bonsoir",
         "c'est tout", "ca suffit", "tais-toi", "chut", "jarvis", "merci beaucoup", "non merci", "oui merci", "parfait",
-        "super", "genial", "encore", "pardon", "quoi", "attends", "suivant", "annule",
+        "super", "genial", "encore", "pardon", "quoi", "suivant", "annule",
     ]
 
     /// The silence that ends the turn after `transcript` (the recognizer's text so far).
     static func silence(after transcript: String) -> TimeInterval {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return unfinished }
-        if trimmed.hasSuffix("?") || trimmed.hasSuffix("!") { return finished }
-        if trimmed.hasSuffix("…") || trimmed.hasSuffix(",") || trimmed.hasSuffix(":") { return unfinished }
+        if trimmed.hasSuffix("…") || trimmed.hasSuffix(",") || trimmed.hasSuffix(":") || trimmed.hasSuffix(";") { return unfinished }
         let words = JarvisFrenchCommandRouter.normalize(trimmed.replacingOccurrences(of: "-", with: "_"))
             .replacingOccurrences(of: "_", with: "-")
             .split(separator: " ").map(String.init)
         guard let last = words.last else { return unfinished }
-        let joined = words.joined(separator: " ")
-        if shortAnswers.contains(joined) { return finished }
+        // The words decide before the punctuation: « Je voudrais que ? » is not finished.
+        if hesitationWords.contains(last) { return hesitation }
         if continuationWords.contains(last) || (words.count >= 2 && continuationWords.contains(words.suffix(2).joined(separator: " "))) {
             return unfinished
         }
+        let joined = words.joined(separator: " ")
+        if shortAnswers.contains(joined) { return finished }
         // « Appelle », « Envoie un message à » (handled above), « Rappelle-moi »: the request goes on.
         if words.count <= 2, openingVerbs.contains(words[0]), words.count == 1 || openingVerbs.contains(last) {
             return unfinished
         }
         if words.count <= 2 { return shortStart }
-        if trimmed.hasSuffix(".") { return finished }
+        // The recognizer's « ? », « ! » or « . » after a real sentence.
+        if trimmed.hasSuffix("?") || trimmed.hasSuffix("!") || trimmed.hasSuffix(".") { return finished }
         return ordinary
+    }
+
+    /// When the turn ends: `needed` seconds after the last new words, pushed back while the
+    /// microphone still hears the user's voice (a long « euuuh » the recognizer does not
+    /// write, a breath before the rest), by at most `maximumVoiceExtension`.
+    static func deadline(needed: TimeInterval, lastWords: Date, lastVoice: Date?) -> Date {
+        let afterWords = lastWords.addingTimeInterval(needed)
+        guard let lastVoice, lastVoice > lastWords else { return afterWords }
+        return max(afterWords, min(lastVoice.addingTimeInterval(needed), afterWords.addingTimeInterval(maximumVoiceExtension)))
+    }
+
+    /// Text of successive recognitions of one turn: Apple's recognizer may close its text at
+    /// a pause, the turn goes on in a new one; its own final period is not the end of the idea.
+    static func joined(_ committed: String, _ segment: String) -> String {
+        let head = committed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tail = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !head.isEmpty else { return tail }
+        guard !tail.isEmpty else { return head }
+        let open = head.hasSuffix(".") && !head.hasSuffix("...") ? String(head.dropLast()) : head
+        return open + " " + tail
+    }
+}
+
+/// The user's voice on the microphone while they hold the floor, from its level over the
+/// room's (as JarvisBargeInDetector): what keeps a turn open during a hesitation the
+/// recognizer does not write. A click or a short noise does not count. Main queue.
+struct JarvisVoiceActivity {
+    var minimumLevel: Float = -48
+    var marginOverFloor: Float = 10
+    var requiredSpeech: TimeInterval = 0.12
+
+    private(set) var floor: Float?
+    private(set) var voiced: TimeInterval = 0
+    /// Last moment the voice was heard, nil before any.
+    private(set) var lastVoice: Date?
+    private var lastBuffer: Date?
+
+    var threshold: Float { max(minimumLevel, (floor ?? -65) + marginOverFloor) }
+
+    /// `level`: peak dBFS of the microphone buffer received at `now`.
+    mutating func ingest(level: Float, at now: Date) {
+        let duration = min(0.2, max(0, now.timeIntervalSince(lastBuffer ?? now)))
+        lastBuffer = now
+        guard let current = floor else {
+            floor = level
+            return
+        }
+        if level < current {
+            floor = 0.7 * current + 0.3 * level
+        } else if level < threshold {
+            floor = current + 0.02 * (level - current)
+        }
+        if level >= threshold {
+            voiced += duration
+            if voiced >= requiredSpeech { lastVoice = now }
+        } else {
+            voiced = max(0, voiced - duration * 0.5)
+        }
     }
 }
 

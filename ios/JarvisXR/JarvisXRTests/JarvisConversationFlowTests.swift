@@ -93,6 +93,62 @@ final class JarvisConversationFlowTests: XCTestCase {
         XCTAssertLessThan(JarvisTurnEndDetector.ordinary, JarvisTurnEndDetector.unfinished)
     }
 
+    func testTheRecognizersPunctuationNeverCutsAnUnfinishedIdea() {
+        // The recognizer writes « ? » or « . » before the real end of the idea.
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Je voudrais que ?"), JarvisTurnEndDetector.unfinished)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Je voudrais que…"), JarvisTurnEndDetector.unfinished)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Euh"), JarvisTurnEndDetector.hesitation)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Et si, euh"), JarvisTurnEndDetector.hesitation)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Attends"), JarvisTurnEndDetector.hesitation)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Note qu'on se voit jeudi… enfin"), JarvisTurnEndDetector.hesitation)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Attends… quel courrier ?"), JarvisTurnEndDetector.finished)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Le musée dure quarante minutes."), JarvisTurnEndDetector.finished)
+        XCTAssertEqual(JarvisTurnEndDetector.silence(after: "Non, mardi"), JarvisTurnEndDetector.shortStart)
+        XCTAssertGreaterThanOrEqual(JarvisTurnEndDetector.finished, 0.8, "0,55 s cut the owner's sentences on the iPhone.")
+        XCTAssertGreaterThan(JarvisTurnEndDetector.hesitation, JarvisTurnEndDetector.unfinished)
+    }
+
+    func testTheVoiceStillHeardPushesTheEndOfTurnBackWithinALimit() {
+        let words = Date(timeIntervalSinceReferenceDate: 1_000)
+        func wait(_ voice: TimeInterval?) -> TimeInterval {
+            JarvisTurnEndDetector.deadline(needed: 1.2, lastWords: words, lastVoice: voice.map { words.addingTimeInterval($0) })
+                .timeIntervalSince(words)
+        }
+        XCTAssertEqual(wait(nil), 1.2, accuracy: 0.001)
+        XCTAssertEqual(wait(-1), 1.2, accuracy: 0.001)
+        XCTAssertEqual(wait(1), 2.2, accuracy: 0.001)
+        // A television that never stops does not keep the turn open forever.
+        XCTAssertEqual(wait(10), 1.2 + JarvisTurnEndDetector.maximumVoiceExtension, accuracy: 0.001)
+    }
+
+    func testSuccessiveRecognitionsOfOneTurnAreJoined() {
+        XCTAssertEqual(JarvisTurnEndDetector.joined("", "Bonjour"), "Bonjour")
+        XCTAssertEqual(JarvisTurnEndDetector.joined("Je voudrais.", "que tu m'expliques ce mot"), "Je voudrais que tu m'expliques ce mot")
+        XCTAssertEqual(JarvisTurnEndDetector.joined("Quelle heure ?", "Et demain"), "Quelle heure ? Et demain")
+        XCTAssertEqual(JarvisTurnEndDetector.joined("Note ceci", ""), "Note ceci")
+    }
+
+    func testVoiceActivityIgnoresAClickAndHearsAHesitation() {
+        var activity = JarvisVoiceActivity()
+        var now = Date(timeIntervalSinceReferenceDate: 0)
+        for _ in 0..<40 {
+            activity.ingest(level: -60, at: now)
+            now.addTimeInterval(0.021)
+        }
+        activity.ingest(level: -25, at: now)
+        now.addTimeInterval(0.021)
+        activity.ingest(level: -60, at: now)
+        now.addTimeInterval(0.021)
+        XCTAssertNil(activity.lastVoice, "A click is not a voice.")
+        let start = now
+        for _ in 0..<24 {
+            activity.ingest(level: -30, at: now)
+            now.addTimeInterval(0.021)
+        }
+        XCTAssertNotNil(activity.lastVoice)
+        XCTAssertGreaterThan(activity.lastVoice ?? .distantPast, start)
+    }
+
     // MARK: Thinking aloud
 
     func testThinkingWordsFitTheQuestionAndNeverRepeat() {

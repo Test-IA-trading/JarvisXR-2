@@ -149,6 +149,26 @@ struct JarvisVoiceSignalMeter {
     }
 }
 
+/// The speech request the classic microphone feeds, on the audio thread; the main queue
+/// swaps it when a turn goes on in a new recognition.
+final class JarvisRecognitionSink {
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+
+    func replace(_ newRequest: SFSpeechAudioBufferRecognitionRequest?) {
+        lock.lock()
+        request = newRequest
+        lock.unlock()
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        let current = request
+        lock.unlock()
+        current?.append(buffer)
+    }
+}
+
 /// Push-to-talk dictation in French. Main-thread owned: every public entry point and
 /// every callback runs on the main queue. Each turn carries a generation number so a
 /// late callback from a previous recognition task can never end or duplicate a new turn.
@@ -183,6 +203,17 @@ final class JarvisVoiceInputService: NSObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var lastTranscript = ""
+    /// Words of the turn's earlier recognitions (Apple's recognizer closed them at a pause).
+    private var committedTranscript = ""
+    /// Recognition of the turn whose callbacks count: a closed one may still call back.
+    private var segment = 0
+    private var segmentsInTurn = 0
+    private let maximumSegments = 12
+    /// When the recognizer last wrote new words, and the voice heard since (endpointing).
+    private var lastWordsAt = Date()
+    private var voiceActivity = JarvisVoiceActivity()
+    /// The classic microphone's speech request, swapped when the turn goes on in a new recognition.
+    private var classicSink: JarvisRecognitionSink?
     private var listenStartedAt: Date?
     private var silenceTimer: Timer?
     private var maxListenTimer: Timer?
@@ -219,7 +250,8 @@ final class JarvisVoiceInputService: NSObject {
         return recognizer.supportsOnDeviceRecognition && !preferServerRecognition
     }
 
-    init(locale: Locale = Locale(identifier: "fr-FR"), maximumListenDuration: TimeInterval = 30) {
+    // 60 s: a long dictation goes on across Apple's recognitions (`startNextSegment`).
+    init(locale: Locale = Locale(identifier: "fr-FR"), maximumListenDuration: TimeInterval = 60) {
         self.locale = locale
         self.maximumListenDuration = maximumListenDuration
         super.init()
@@ -362,9 +394,14 @@ final class JarvisVoiceInputService: NSObject {
         task?.cancel()
         task = nil
         lastTranscript = ""
+        committedTranscript = ""
+        segment += 1
+        segmentsInTurn = 0
+        voiceActivity = JarvisVoiceActivity()
         meter = JarvisVoiceSignalMeter()
         reportedSound = false
         listenStartedAt = Date()
+        lastWordsAt = Date()
         duplexTurn = false
 
         // A request in conversation: the microphone already open, with echo cancellation.
@@ -403,6 +440,9 @@ final class JarvisVoiceInputService: NSObject {
 
         let (recognitionRequest, onDevice) = makeRequest(for: recognizer)
         request = recognitionRequest
+        let sink = JarvisRecognitionSink()
+        sink.replace(recognitionRequest)
+        classicSink = sink
 
         inputNode.removeTap(onBus: 0)
         var levelCounter = 0
@@ -410,8 +450,8 @@ final class JarvisVoiceInputService: NSObject {
         let clapDetector: JarvisClapDetectorBox? = mode == .wake && JarvisWakeWordSettings.clapsEnabled
             ? JarvisClapDetectorBox(sampleRate: format.sampleRate)
             : nil
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak recognitionRequest] buffer, _ in
-            recognitionRequest?.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            sink.append(buffer)
             guard let channel = buffer.floatChannelData?[0] else { return }
             let samples = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
             if let clapDetector, clapDetector.ingest(samples) {
@@ -430,6 +470,7 @@ final class JarvisVoiceInputService: NSObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == turn, self.capturing else { return }
                 self.meter.record(nonZero: nonZero, sound: sound, peakDecibels: peak)
+                self.voiceActivity.ingest(level: peak, at: Date())
                 if sound && !self.reportedSound {
                     self.reportedSound = true
                     self.onStateChange?(.hearingSound)
@@ -478,12 +519,15 @@ final class JarvisVoiceInputService: NSObject {
 
     /// Same handling for both microphones: the text so far, the end of the turn, the errors.
     private func startRecognitionTask(with recognizer: SFSpeechRecognizer, request recognitionRequest: SFSpeechAudioBufferRecognitionRequest, onDevice: Bool, turn: Int) {
+        let segmentID = segment
         task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            let transcript = result?.bestTranscription.formattedString
+            let segmentText = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             DispatchQueue.main.async {
-                guard let self, self.generation == turn, self.capturing else { return }
-                if let transcript {
+                guard let self, self.generation == turn, self.segment == segmentID, self.capturing else { return }
+                if let segmentText {
+                    let transcript = JarvisTurnEndDetector.joined(self.committedTranscript, segmentText)
+                    if transcript != self.lastTranscript { self.lastWordsAt = Date() }
                     self.lastTranscript = transcript
                     self.onPartialTranscript?(transcript)
                     // While waiting for « Jarvis », other voices (a TV, a conversation)
@@ -494,6 +538,9 @@ final class JarvisVoiceInputService: NSObject {
                     }
                 }
                 if isFinal {
+                    // Apple closed its text at a pause: in a request, Jarvis's own end of turn
+                    // decides (the person may only be looking for their words).
+                    if self.mode == .command, self.startNextSegment(with: recognizer, turn: turn) { return }
                     self.finishRecognition(process: true, turn: turn)
                     return
                 }
@@ -511,6 +558,30 @@ final class JarvisVoiceInputService: NSObject {
                 }
             }
         }
+    }
+
+    /// The turn goes on in a new recognition, joined to the words already heard, so a pause
+    /// never ends it before Jarvis's own end of turn (`scheduleSilenceEndpoint`), and a long
+    /// dictation passes Apple's limit of one recognition. False when the turn must end.
+    private func startNextSegment(with recognizer: SFSpeechRecognizer, turn: Int) -> Bool {
+        let elapsed = Date().timeIntervalSince(listenStartedAt ?? Date())
+        guard capturing, segmentsInTurn < maximumSegments, elapsed < maximumListenDuration - 1 else { return false }
+        segmentsInTurn += 1
+        segment += 1
+        committedTranscript = lastTranscript
+        let (nextRequest, onDevice) = makeRequest(for: recognizer)
+        request = nextRequest
+        if duplexTurn {
+            JarvisDuplexAudio.shared.listener.attach(nextRequest, withPreRoll: false)
+        } else if let classicSink {
+            classicSink.replace(nextRequest)
+        } else {
+            return false
+        }
+        startRecognitionTask(with: recognizer, request: nextRequest, onDevice: onDevice, turn: turn)
+        // Nothing said yet: the turn still ends after 7 s of silence (noSpeechTimer).
+        if !lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { scheduleSilenceEndpoint(turn: turn) }
+        return true
     }
 
     // MARK: - Conversation audio (echo cancellation)
@@ -651,6 +722,7 @@ final class JarvisVoiceInputService: NSObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == turn, self.capturing, self.duplexTurn else { return }
                 self.meter.record(nonZero: nonZero, sound: sound, peakDecibels: peak)
+                self.voiceActivity.ingest(level: peak, at: Date())
                 if sound && !self.reportedSound {
                     self.reportedSound = true
                     self.onStateChange?(.hearingSound)
@@ -741,6 +813,8 @@ final class JarvisVoiceInputService: NSObject {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
         }
+        classicSink?.replace(nil)
+        classicSink = nil
         audioEngine = nil
         if endRequest { request?.endAudio() }
         if cancelTask { task?.cancel() } else { task?.finish() }
@@ -788,12 +862,18 @@ final class JarvisVoiceInputService: NSObject {
         return request.isEmpty ? 1.0 : JarvisTurnEndDetector.silence(after: request)
     }
 
+    /// When this turn ends if nothing new is heard: after the words, later while the voice goes on.
+    private func endOfTurn() -> Date {
+        JarvisTurnEndDetector.deadline(needed: silenceNeeded(after: lastTranscript), lastWords: lastWordsAt, lastVoice: voiceActivity.lastVoice)
+    }
+
     private func scheduleSilenceEndpoint(turn: Int) {
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceNeeded(after: lastTranscript), repeats: false) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: max(0.05, endOfTurn().timeIntervalSinceNow), repeats: false) { [weak self] _ in
             guard let self, self.generation == turn else { return }
             let elapsed = Date().timeIntervalSince(self.listenStartedAt ?? Date())
-            if elapsed < self.minimumListenDuration {
+            // The voice was still heard after the words (a hesitation): the end moves back.
+            if elapsed < self.minimumListenDuration || self.endOfTurn().timeIntervalSinceNow > 0.05 {
                 self.scheduleSilenceEndpoint(turn: turn)
             } else {
                 self.finishRecognition(process: true, turn: turn)
