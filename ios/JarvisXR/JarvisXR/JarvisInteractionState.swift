@@ -11,6 +11,32 @@ enum JarvisInteractionState: String {
     case inspection = "Inspection"
     case quiet = "Quiet"
     case attention = "Attention"
+
+    /// French label shown on the home screen and read by VoiceOver. `rawValue` stays the
+    /// stable technical identifier.
+    var displayName: String {
+        switch self {
+        case .standby: return "En veille"
+        case .ready: return "Prêt"
+        case .listening: return "À l'écoute"
+        case .heardYou: return "Compris"
+        case .processing: return "Traitement"
+        case .speaking: return "Réponse"
+        case .done: return "Terminé"
+        case .inspection: return "Inspection"
+        case .quiet: return "Silencieux"
+        case .attention: return "Attention"
+        }
+    }
+}
+
+/// Progress of one voice turn, shown as "Micro · Son · Texte · Réponse".
+enum JarvisVoiceStage: Int {
+    case idle = 0
+    case micro
+    case sound
+    case text
+    case reply
 }
 
 enum JarvisIntent: String {
@@ -36,13 +62,73 @@ struct JarvisAssistantDecision {
 final class JarvisAssistantCore {
     private let router: JarvisCommandRouter
     private let planner: JarvisCommandPlanner
+    private let french: JarvisFrenchCommandRouter
+    private let conversation: JarvisConversationContext
 
-    init(router: JarvisCommandRouter = JarvisCommandRouter(), planner: JarvisCommandPlanner = JarvisCommandPlanner()) {
+    init(
+        router: JarvisCommandRouter = JarvisCommandRouter(),
+        planner: JarvisCommandPlanner = JarvisCommandPlanner(),
+        french: JarvisFrenchCommandRouter = JarvisFrenchCommandRouter(),
+        conversation: JarvisConversationContext = .shared
+    ) {
         self.router = router
         self.planner = planner
+        self.french = french
+        self.conversation = conversation
     }
 
     func decide(_ rawCommand: String) -> JarvisAssistantDecision {
+        let decision = decideWithoutMemory(rawCommand)
+        // Every answered exchange becomes context for the local brain. Open questions
+        // are recorded by the brain itself once it has answered.
+        if decision.response.data["action"] != "local_brain", decision.response.status == .ok {
+            conversation.recordTurn(user: rawCommand, assistant: decision.response.spokenResponse)
+        }
+        return decision
+    }
+
+    private func decideWithoutMemory(_ rawCommand: String) -> JarvisAssistantDecision {
+        switch french.route(rawCommand) {
+        case .answer(let response):
+            let normalized = JarvisFrenchCommandRouter.normalize(rawCommand)
+            return JarvisAssistantDecision(intent: classify(normalized, response: response), plan: nil, response: response)
+        case .forward(let command, let spoken, let display):
+            let decision = decideCanonical(command)
+            let base = decision.response
+            let response = JarvisResponse(
+                status: base.status,
+                spokenResponse: base.status == .ok ? spoken : base.spokenResponse,
+                displayResponse: display ?? base.displayResponse,
+                data: base.data,
+                shouldSpeak: base.shouldSpeak
+            )
+            return JarvisAssistantDecision(intent: decision.intent, plan: decision.plan, response: response)
+        case .openQuestion(let question):
+            return Self.openQuestion(question)
+        case .notHandled:
+            let decision = decideCanonical(rawCommand)
+            // No command of the old English router either (« Elon Musk », « Netflix demain ») :
+            // the brain answers, never the old English help text.
+            if decision.response.status == .refused, decision.response.spokenResponse == JarvisCommandRouter.unrecognizedSpoken {
+                return Self.openQuestion(rawCommand.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return decision
+        }
+    }
+
+    /// Screens that know the local brain replace this placeholder with its answer; the
+    /// text below is what is said when the brain is not available.
+    private static func openQuestion(_ question: String) -> JarvisAssistantDecision {
+        let response = JarvisResponse(
+            status: .ok,
+            spokenResponse: "Je n'ai pas encore de réponse locale à cette demande.",
+            displayResponse: "J'ai compris : « \(question) ». Je n'ai pas encore de réponse locale à cette demande.",
+            data: ["action": "local_brain", "question": question]
+        )
+        return JarvisAssistantDecision(intent: .unsupported, plan: nil, response: response)
+    }
+
+    private func decideCanonical(_ rawCommand: String) -> JarvisAssistantDecision {
         let plan = planner.plan(rawCommand)
         let normalized = plan.normalizedCommand
         if normalized == "jarvis ready" || normalized == "ready" {

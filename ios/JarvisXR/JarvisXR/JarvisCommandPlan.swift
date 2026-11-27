@@ -436,7 +436,7 @@ final class JarvisCommandPlanner {
             intent: "unknown",
             route: .unknown,
             action: .none,
-            display: "Try: describe this, start live guide, find a chair, read this, or scan a barcode.",
+            display: "Je n'ai pas compris. Essayez : « décris ce que tu vois », « guide-moi », « trouve une chaise », « lis ce texte ».",
             spoken: "Command not recognized.",
             state: .attention,
             routeLabel: "No route",
