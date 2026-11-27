@@ -59,6 +59,17 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     private var duplexIsStream = false
     /// What Jarvis is saying in the current reply, to tell its echo from the user's words.
     private(set) var currentReplyText = ""
+    /// What the voice has really played of the current reply, whole sentences only, as
+    /// opposed to `currentReplyText`, which also holds what is only queued (lot 1 of
+    /// docs/CONVERSATION_NATURELLE.md).
+    private(set) var spokenReply = JarvisSpokenReply()
+    var spokenSoFar: String { spokenReply.text }
+    /// The reply utterance the synthesizer is saying and where it is in it (UTF-16), so a
+    /// stop keeps the whole sentences already said.
+    private var speakingReplyUtterance: AVSpeechUtterance?
+    private var speakingReplyLocation = 0
+    /// The synthesizer's reply utterances of the current reply (not Vision's).
+    private var replyUtterances: [AVSpeechUtterance] = []
 
     var isEnabled: Bool {
         get {
@@ -327,13 +338,25 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
             lastSpeakRequestAt = Date()
         }
         currentReplyText = text
+        spokenReply.begin()
+        replyUtterances = []
+        speakingReplyUtterance = nil
         // In a conversation, the voice goes through the echo-cancelled audio (interruptions).
         if notifyState, speakThroughConversationAudio(utterance, text: text) { return }
+        replyUtterances = [utterance]
         activateAudioSession()
         synthesizer.speak(utterance)
     }
 
     func stop() {
+        // The whole sentences already said stay heard; nothing said after this counts.
+        if let utterance = speakingReplyUtterance, synthesizer.isSpeaking {
+            spokenReply.played(JarvisSpokenReply.completedSentences(in: utterance.speechString, before: speakingReplyLocation),
+                               generation: spokenReply.generation)
+        }
+        spokenReply.freeze()
+        speakingReplyUtterance = nil
+        replyUtterances = []
         visionQueue.cancelAll()
         activeVisionItem = nil
         activeVisionUtterance = nil
@@ -370,16 +393,19 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         duplexActive = true
         duplexIsStream = stream
         duplexRendering += 1
+        let playback = JarvisSentencePlayback(text: text, reply: spokenReply.generation)
         // Jarvis's voice (Piper « pierre »), made on the iPhone or else on the PC, played in
         // order; the iPhone's system voice for a sentence they cannot say.
         let deliver: (AVAudioPCMBuffer?) -> Void = { [weak self] buffer in
             guard let self, self.duplexGeneration == generation else { return }
             guard let buffer else {
-                self.renderWithSystemVoice(utterance, generation: generation)
+                self.renderWithSystemVoice(utterance, generation: generation, playback: playback)
                 return
             }
             self.duplexRendering = max(0, self.duplexRendering - 1)
-            self.playConversationBuffer(buffer, generation: generation)
+            self.playConversationBuffer(buffer, generation: generation, playback: playback)
+            playback.rendered = true
+            self.notePlayedIfDone(playback)
             self.finishConversationVoiceIfDone()
         }
         if JarvisLocalVoice.shared.isUsable {
@@ -387,7 +413,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         } else if JarvisPCVoice.shared.isUsable {
             JarvisPCVoice.shared.render(text, deliver: deliver)
         } else {
-            renderWithSystemVoice(utterance, generation: generation)
+            renderWithSystemVoice(utterance, generation: generation, playback: playback)
         }
         // A voice that renders nothing: the synthesizer says the text instead.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -395,13 +421,14 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
             self.stopConversationVoice(reportFinish: false)
             self.activateAudioSession()
             let fallback = self.makeUtterance(self.currentReplyText.isEmpty ? text : self.currentReplyText, profile: self.profile)
+            self.replyUtterances = [fallback]
             self.synthesizer.speak(fallback)
         }
         return true
     }
 
     /// The iPhone's own voice, rendered into buffers for the conversation audio.
-    private func renderWithSystemVoice(_ utterance: AVSpeechUtterance, generation: Int) {
+    private func renderWithSystemVoice(_ utterance: AVSpeechUtterance, generation: Int, playback: JarvisSentencePlayback) {
         renderer.write(utterance) { [weak self] buffer in
             guard let pcm = buffer as? AVAudioPCMBuffer else { return }
             let ended = pcm.frameLength == 0
@@ -410,23 +437,37 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
                 guard let self, self.duplexGeneration == generation else { return }
                 if ended {
                     self.duplexRendering = max(0, self.duplexRendering - 1)
+                    playback.rendered = true
+                    self.notePlayedIfDone(playback)
                     self.finishConversationVoiceIfDone()
                     return
                 }
                 guard let copy else { return }
-                self.playConversationBuffer(copy, generation: generation)
+                self.playConversationBuffer(copy, generation: generation, playback: playback)
             }
         }
     }
 
+    /// A sentence is heard once all its sound has been played (`.dataPlayedBack`), never
+    /// when it is only rendered or queued.
+    private func notePlayedIfDone(_ playback: JarvisSentencePlayback) {
+        guard playback.rendered, playback.pending == 0, playback.played > 0, !playback.reported else { return }
+        playback.reported = true
+        spokenReply.played(playback.text, generation: playback.reply)
+    }
+
     /// Queues one buffer of Jarvis's voice after the others in the conversation audio.
-    private func playConversationBuffer(_ buffer: AVAudioPCMBuffer, generation: Int) {
+    private func playConversationBuffer(_ buffer: AVAudioPCMBuffer, generation: Int, playback: JarvisSentencePlayback) {
         let accepted = JarvisDuplexAudio.shared.play(buffer) { [weak self] in
             guard let self, self.duplexGeneration == generation else { return }
             self.duplexPendingBuffers = max(0, self.duplexPendingBuffers - 1)
+            playback.pending = max(0, playback.pending - 1)
+            playback.played += 1
+            self.notePlayedIfDone(playback)
             self.finishConversationVoiceIfDone()
         }
         guard accepted else { return }
+        playback.pending += 1
         duplexPendingBuffers += 1
         if !duplexStarted {
             duplexStarted = true
@@ -494,6 +535,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         streamOpen = true
         streamStarted = false
         currentReplyText = ""
+        spokenReply.begin()
+        replyUtterances = []
+        speakingReplyUtterance = nil
         lastSpeakRequestAt = Date()
     }
 
@@ -519,6 +563,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         let utterance = makeUtterance(text, profile: profile)
         utterance.postUtteranceDelay = 0
         streamUtterances.append(utterance)
+        replyUtterances.append(utterance)
         activateAudioSession()
         synthesizer.speak(utterance)
     }
@@ -566,6 +611,10 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     /// Near the end of the sentence being said, the sentences written meanwhile are queued,
     /// so the next one starts without a pause.
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
+        if replyUtterances.contains(where: { $0 === utterance }) {
+            speakingReplyUtterance = utterance
+            speakingReplyLocation = characterRange.location
+        }
         guard !streamPending.isEmpty, let last = streamUtterances.last, last === utterance else { return }
         let length = (utterance.speechString as NSString).length
         guard length > 0, characterRange.location + characterRange.length >= length * 3 / 5 else { return }
@@ -825,6 +874,12 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        // Said to the end: heard (after a stop, the reply is frozen and this changes nothing).
+        if let index = replyUtterances.firstIndex(where: { $0 === utterance }) {
+            replyUtterances.remove(at: index)
+            spokenReply.played(utterance.speechString, generation: spokenReply.generation)
+            if speakingReplyUtterance === utterance { speakingReplyUtterance = nil }
+        }
         if finishStreamUtterance(utterance) { return }
         if activeVisionUtterance === utterance, let completed = activeVisionItem {
             visionQueue.markCompleted(completed)
@@ -867,5 +922,22 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         onSpeechFinish?()
         speakNextVisionItemIfPossible()
         deactivateAudioSessionIfIdle()
+    }
+}
+
+/// One sentence of Jarvis's voice in the conversation audio: heard once every buffer of it
+/// has been played (main queue only).
+final class JarvisSentencePlayback {
+    let text: String
+    /// The reply it belongs to (JarvisSpokenReply.generation).
+    let reply: Int
+    var pending = 0
+    var played = 0
+    var rendered = false
+    var reported = false
+
+    init(text: String, reply: Int) {
+        self.text = text
+        self.reply = reply
     }
 }

@@ -676,6 +676,7 @@ final class JarvisLocalBrain {
             context.append("Extrait de Wikipédia sur « \(article.title) » : \(JarvisWikipediaAnswer.cleaned(article.extract))")
         }
         var heardFromPC = false
+        let interruptions = conversation.interruptions
         pcLink.ask(question: question, history: conversation.recentTurns, context: context, commands: allowCommands, onPartial: { partial in
             // « COMMANDE: … » is a rewording for the iPhone, never shown or said.
             guard !JarvisBrainCommand.mayBeCommand(partial) else { return }
@@ -688,7 +689,7 @@ final class JarvisLocalBrain {
                     completion(.ok("", display: "", data: ["action": "reroute", "text": command, "question": question], shouldSpeak: false))
                     return
                 }
-                conversation.recordTurn(user: question, assistant: answer)
+                conversation.recordAnswer(user: question, assistant: answer, interruptionsAtRequest: interruptions)
                 JarvisKnowledgeStore.shared.keepAnswer(question: question, answer: answer, source: article == nil ? "Jarvis PC" : "Jarvis PC et Wikipédia",
                                                         verified: article != nil)
                 completion(.ok(answer))
@@ -729,10 +730,11 @@ final class JarvisLocalBrain {
         // brain answer « Qu'est-ce que je bois le matin ? »; everything stays on the iPhone.
         let system = JarvisChatPrompt.systemPrompt(now: now, context: conversation.brainContextLines() + profile.brainContextLines(memory: memory) + JarvisKnowledgeStore.shared.contextLines(for: question), question: question)
         let prompt = JarvisChatPrompt.chatML(system: system, history: conversation.recentTurns, question: question)
+        let interruptions = conversation.interruptions
         generate(prompt: prompt, onPartial: onPartial) { result in
             switch result {
             case .success(let answer):
-                conversation.recordTurn(user: question, assistant: answer)
+                conversation.recordAnswer(user: question, assistant: answer, interruptionsAtRequest: interruptions)
                 JarvisKnowledgeStore.shared.keepAnswer(question: question, answer: answer, source: "le cerveau de l'iPhone", verified: false)
                 completion(.ok(answer))
             case .failure(let error):

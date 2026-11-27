@@ -862,8 +862,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         bargeInConfirmed = true
         bargeInTimeout?.cancel()
         bargeInTimeout = nil
-        // The brain hears the next request as a correction of what it was saying.
-        JarvisConversationContext.shared.noteInterruption(spoken: speech.currentReplyText)
+        // The brain hears the next request as a correction of what it was saying, and the
+        // context keeps only what the person really heard (whole sentences played).
+        let heard = speech.spokenSoFar
+        JarvisConversationContext.shared.noteInterruption(spoken: heard)
+        JarvisConversationContext.shared.noteInterruptedTurn(question: lastCommandText, heard: heard)
         speech.setVoiceLowered(false)
         JarvisLocalBrain.shared.cancel()
         speech.stop()

@@ -201,6 +201,36 @@ final class JarvisConversationContext {
         interruptedReply = said.isEmpty ? nil : String(said.prefix(220))
     }
 
+    /// Counts the interruptions: an answer written for a request asked before the last one
+    /// (`answeredWithoutInterruption`) is not what the person heard, and is not recorded.
+    private(set) var interruptions = 0
+
+    /// The voice was interrupted: the exchange keeps only what the person really heard
+    /// (CONVERSATION_NATURELLE, lot 1), and the question stays in the context even when no
+    /// word of the answer was said. `heard`: whole sentences played (JarvisSpokenReply).
+    func noteInterruptedTurn(question: String, heard: String) {
+        let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !asked.isEmpty else { return }
+        let said = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = said.isEmpty ? "(interrompu avant d'avoir répondu)" : said + " (interrompu ici)"
+        interruptions += 1
+        if let last = recentTurns.last, last.user == asked {
+            recentTurns[recentTurns.count - 1] = JarvisChatTurn(user: asked, assistant: answer)
+        } else {
+            recentTurns.append(JarvisChatTurn(user: asked, assistant: answer))
+            if recentTurns.count > Self.maximumTurns {
+                recentTurns.removeFirst(recentTurns.count - Self.maximumTurns)
+            }
+        }
+    }
+
+    /// Records an answer written by a brain, unless the person interrupted it since
+    /// `interruptionsAtRequest` (they heard only its beginning, kept by noteInterruptedTurn).
+    func recordAnswer(user: String, assistant: String, interruptionsAtRequest: Int) {
+        guard interruptions == interruptionsAtRequest else { return }
+        recordTurn(user: user, assistant: assistant)
+    }
+
     func recordTurn(user: String, assistant: String) {
         interruptedReply = nil
         let question = user.trimmingCharacters(in: .whitespacesAndNewlines)

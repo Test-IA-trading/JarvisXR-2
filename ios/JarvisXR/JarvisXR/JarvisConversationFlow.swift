@@ -97,6 +97,48 @@ enum JarvisTurnEndDetector {
     }
 }
 
+/// What Jarvis's voice has really played of the current reply (CONVERSATION_NATURELLE, lot 1):
+/// whole sentences, in order, once their sound has left the speaker, never what is only
+/// written or queued. A callback of a reply that was stopped or replaced changes nothing.
+struct JarvisSpokenReply {
+    private(set) var generation = 0
+    private(set) var sentences: [String] = []
+
+    /// A new reply starts: what was said before belonged to the previous one.
+    @discardableResult
+    mutating func begin() -> Int {
+        generation += 1
+        sentences = []
+        return generation
+    }
+
+    /// The voice stopped (interruption): the reply keeps what was heard, later callbacks are ignored.
+    mutating func freeze() {
+        generation += 1
+    }
+
+    mutating func played(_ text: String, generation reply: Int) {
+        guard reply == generation else { return }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        sentences.append(clean)
+    }
+
+    var text: String { sentences.joined(separator: " ") }
+
+    /// The whole sentences of `text` before `location` (UTF-16, as the synthesizer reports
+    /// it): what was surely said when the voice stops in the middle of a sentence.
+    static func completedSentences(in text: String, before location: Int) -> String {
+        let ns = text as NSString
+        let end = min(max(0, location), ns.length)
+        let head = ns.substring(to: end)
+        guard let regex = try? NSRegularExpression(pattern: "[.!?…][»\"”]?\\s") else { return "" }
+        let matches = regex.matches(in: head, range: NSRange(location: 0, length: (head as NSString).length))
+        guard let last = matches.last else { return "" }
+        return (head as NSString).substring(to: last.range.location + last.range.length).trimmingCharacters(in: .whitespaces)
+    }
+}
+
 /// The user's voice on the microphone while they hold the floor, from its level over the
 /// room's (as JarvisBargeInDetector): what keeps a turn open during a hesitation the
 /// recognizer does not write. A click or a short noise does not count. Main queue.

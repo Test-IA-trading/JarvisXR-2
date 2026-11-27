@@ -149,6 +149,51 @@ final class JarvisConversationFlowTests: XCTestCase {
         XCTAssertGreaterThan(activity.lastVoice ?? .distantPast, start)
     }
 
+    // MARK: What the person really heard (CONVERSATION_NATURELLE, lot 1)
+
+    func testOnlyTheSentencesPlayedBeforeTheInterruptionWereHeard() {
+        var reply = JarvisSpokenReply()
+        let generation = reply.begin()
+        // Three sentences written and queued; the first one plays, the user speaks during the second.
+        reply.played("Le musée tient dans vos quarante-cinq minutes.", generation: generation)
+        XCTAssertEqual(reply.text, "Le musée tient dans vos quarante-cinq minutes.")
+        reply.freeze()
+        // The buffers dropped at the stop call back late: nothing more was heard.
+        reply.played("Il vous restera cinq minutes.", generation: generation)
+        reply.played("La balade dure une heure.", generation: generation)
+        XCTAssertEqual(reply.text, "Le musée tient dans vos quarante-cinq minutes.")
+        // Interrupted before the first sound: nothing was heard.
+        let next = reply.begin()
+        reply.freeze()
+        reply.played("Voyons voir.", generation: next)
+        XCTAssertEqual(reply.text, "")
+    }
+
+    func testAStopInTheMiddleOfASentenceKeepsTheWholeSentencesSaid() {
+        let text = "Le tribunal retient le courrier du 12 avril. Ce courrier confirme la date. La facture suit."
+        let middle = (text as NSString).range(of: "confirme").location
+        XCTAssertEqual(JarvisSpokenReply.completedSentences(in: text, before: middle), "Le tribunal retient le courrier du 12 avril.")
+        XCTAssertEqual(JarvisSpokenReply.completedSentences(in: text, before: 3), "")
+        XCTAssertEqual(JarvisSpokenReply.completedSentences(in: "Midi. Et demain ?", before: 100), "Midi.")
+    }
+
+    func testTheContextKeepsWhatWasHeardNotWhatWasWritten() {
+        let conversation = JarvisConversationContext()
+        conversation.recordTurn(user: "Musée ou balade ?", assistant: "Le musée tient. Il vous restera cinq minutes. La balade dure une heure.")
+        conversation.noteInterruptedTurn(question: "Musée ou balade ?", heard: "Le musée tient.")
+        XCTAssertEqual(conversation.recentTurns.last?.assistant, "Le musée tient. (interrompu ici)")
+        // The answer of a request interrupted before its first word still keeps the question.
+        let interruptions = conversation.interruptions
+        conversation.noteInterruptedTurn(question: "Et l'autre ?", heard: "")
+        XCTAssertEqual(conversation.recentTurns.last?.user, "Et l'autre ?")
+        XCTAssertEqual(conversation.recentTurns.last?.assistant, "(interrompu avant d'avoir répondu)")
+        // The full answer written later is not what was heard: it does not replace it.
+        conversation.recordAnswer(user: "Et l'autre ?", assistant: "La balade dure une heure.", interruptionsAtRequest: interruptions)
+        XCTAssertEqual(conversation.recentTurns.last?.assistant, "(interrompu avant d'avoir répondu)")
+        conversation.recordAnswer(user: "Juste la plus courte", assistant: "Le musée.", interruptionsAtRequest: conversation.interruptions)
+        XCTAssertEqual(conversation.recentTurns.last?.assistant, "Le musée.")
+    }
+
     // MARK: Thinking aloud
 
     func testThinkingWordsFitTheQuestionAndNeverRepeat() {
