@@ -17,6 +17,7 @@
 
 ## Capabilities and Limits
 
+- [Idées pour un vrai Jarvis (proposées, non planifiées)](JARVIS_IDEES.md)
 - [Features and limits](FEATURES_AND_LIMITS.md)
 - [Vision pipeline](VISION.md)
 - [Vision model decision](JARVIS_VISION_MODEL_DECISION.md)
