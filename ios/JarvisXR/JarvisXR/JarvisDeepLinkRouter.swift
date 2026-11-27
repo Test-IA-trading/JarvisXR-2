@@ -14,6 +14,8 @@ enum JarvisDeepLinkAction {
     case standby
     case online
     case controlMesh
+    /// Open the microphone on the home screen (« Parler à JARVIS », raccourci vocal « Dis Jarvis »).
+    case listen
     case unknown(String)
 
     var commandText: String? {
@@ -77,6 +79,8 @@ enum JarvisDeepLinkRouter {
             return .online
         case "control", "controlmesh", "control-mesh":
             return .controlMesh
+        case "listen", "ecoute", "parler":
+            return .listen
         default:
             return .unknown(url.absoluteString)
         }
@@ -172,6 +176,7 @@ enum JarvisPendingIntentStore {
             case "settings": return .settings
             case "standby": return .standby
             case "controlMesh", "controlmesh", "control-mesh": return .controlMesh
+            case "listen": return .listen
             default: return .unknown(route)
             }
         }

@@ -150,7 +150,7 @@ def main() -> int:
     check("Long press returns standby", "enterStandbyFromLongPress" in root and "voiceInput.stopListening(process: false)" in root)
     check("Manual listening stop processes transcript", "voiceInput.stopListening(process: true)" in root and "onFinalTranscript" in voice)
     check("No speech returns ready", "case .noSpeech:" in root and "setInterfaceState(.ready, hint: \"Aucune parole détectée.\")" in root)
-    check("Ready state label matches UI proof", 'case ready = "Ready"' in state and 'waitForState("Ready")' in ui_test)
+    check("Ready state label matches UI proof", 'case ready = "Ready"' in state and 'case .ready: return "Prêt"' in state and 'waitForState("Prêt")' in ui_test)
     check("Real UIKit layout uses keyboardLayoutGuide", "keyboardLayoutGuide.topAnchor" in root and "keyboardWillChangeFrameNotification" not in root)
     check("Real UIKit source avoids copied preview layout model", "JarvisXRLayoutModel" not in root + state)
     check(

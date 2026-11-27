@@ -3,7 +3,9 @@
 ## Implemented
 
 - Native Swift and UIKit interface with VoiceOver labels, Dynamic Type, contrast support, and reduced-motion behavior
-- Typed local commands and in-app push-to-talk through Speech and AVAudioEngine
+- Typed local commands and in-app push-to-talk in French (`fr-FR`) through Speech and AVAudioEngine, with a deterministic French command layer and a French system voice
+- AR cube grabbed with an in-air thumb–index pinch: ARKit world tracking and horizontal planes, Vision hand pose on ARKit frames (no second camera session), hysteresis pinch with guided calibration, touch fallback, and a scene memory that answers « Qu'est-ce que je viens de déplacer ? »
+- French conversation facts that follow corrections (departure times, « Et maintenant ? », « juste l'heure du train »), notes summary over a period with « Montre-les-moi » and an AR summary card grabbed with the same pinch, hands-free continuous conversation, and the « Parler à JARVIS » intent for an iOS Vocal Shortcut « Dis Jarvis »
 - Local speech output through `AVSpeechSynthesizer`, including session-scoped priority for warnings, requested targets, scene changes, and detail
 - Persistent voice and Vision preferences, notes, and command history with explicit clear controls
 - Accessible contact selection and in-memory message drafting with readback, explicit confirmation, and the standard iOS message composer
