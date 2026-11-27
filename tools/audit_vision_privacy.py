@@ -20,6 +20,12 @@ NETWORK_TOKENS = (
     ".uploadTask(",
     "WebSocketTask",
 )
+# The single network path the app may contain: the one-time, user-approved download
+# of the local brain's pinned model file (see JarvisModelDownloader.swift). It may not
+# embed URLs itself; the pinned Hugging Face URL lives in the model catalogue.
+NETWORK_ALLOWLIST = {
+    "JarvisModelDownloader.swift": "one-time, user-approved download of the pinned local-brain model; no user data sent",
+}
 TELEMETRY_TOKENS = (
     "FirebaseAnalytics",
     "import Sentry",
@@ -49,9 +55,16 @@ def scan_privacy(source_root: Path, model_manifest_path: Path = DEFAULT_MANIFEST
     for path in files:
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(source_root)
-        for token in NETWORK_TOKENS:
-            if token in text:
-                failures.append(f"{relative} contains production network API token: {token}")
+        allowed_reason = NETWORK_ALLOWLIST.get(relative.as_posix())
+        if allowed_reason:
+            if "http://" in text or "https://" in text:
+                failures.append(f"{relative} is the allowed model downloader but embeds a URL; use the pinned model catalogue")
+            else:
+                passed.append(f"{relative} network use allowed: {allowed_reason}")
+        else:
+            for token in NETWORK_TOKENS:
+                if token in text:
+                    failures.append(f"{relative} contains production network API token: {token}")
         for token in TELEMETRY_TOKENS:
             if token in text:
                 failures.append(f"{relative} contains telemetry SDK token: {token}")

@@ -497,7 +497,7 @@ final class JarvisCameraViewController: UIViewController {
         bottomBar.translatesAutoresizingMaskIntoConstraints = false
         bottomBar.accessibilityIdentifier = "jarvis.vision.persistentActions"
 
-        voiceButton.setTitle("Voice", for: .normal)
+        voiceButton.setTitle("Voix", for: .normal)
         voiceButton.setTitleColor(JarvisTheme.text, for: .normal)
         voiceButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
         voiceButton.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -587,24 +587,29 @@ final class JarvisCameraViewController: UIViewController {
             guard let self else { return }
             switch state {
             case .standby:
-                self.voiceButton.setTitle("Voice", for: .normal)
+                self.voiceButton.setTitle("Voix", for: .normal)
             case .listening:
-                self.voiceButton.setTitle("Finish", for: .normal)
-                self.renderState(self.currentState, guidance: "Listening for a Vision command.", announce: true)
+                self.voiceButton.setTitle("Terminer", for: .normal)
+                self.renderState(self.currentState, guidance: "Micro actif : dites une commande Vision.", announce: true)
+            case .hearingSound:
+                if self.voiceInput.currentTranscript.isEmpty {
+                    self.guidanceLabel.text = "Son reçu…"
+                }
             case .heardYou(let transcript):
-                self.guidanceLabel.text = "Heard: \(transcript)"
+                self.guidanceLabel.text = "Compris : « \(transcript) »"
             case .processing:
-                self.guidanceLabel.text = "Processing voice command."
+                self.guidanceLabel.text = "Traitement de la commande vocale."
             case .noSpeech:
-                self.renderState(self.currentState, guidance: "No speech heard. Try again or use a button.", announce: true)
-            case .unavailable(let message):
-                self.showFailure(message, offersSettings: true)
+                self.renderState(self.currentState, guidance: "Aucune parole détectée. Réessayez ou utilisez un bouton.", announce: true)
+            case .unavailable(let failure):
+                self.showFailure(failure.message, offersSettings: failure.offersSettings)
             }
         }
         voiceInput.onPartialTranscript = { [weak self] text in
             guard !text.isEmpty else { return }
-            self?.guidanceLabel.text = "Listening: \(text)"
+            self?.guidanceLabel.text = "J'écoute : \(text)"
         }
+        voiceInput.onInputLevel = nil
         voiceInput.onFinalTranscript = { [weak self] text in
             self?.handleVisionVoiceCommand(text)
         }
@@ -1171,8 +1176,10 @@ final class JarvisCameraViewController: UIViewController {
         view.setNeedsLayout()
     }
 
-    private func handleVisionVoiceCommand(_ raw: String) {
-        voiceButton.setTitle("Voice", for: .normal)
+    private func handleVisionVoiceCommand(_ spokenText: String) {
+        voiceButton.setTitle("Voix", for: .normal)
+        // Dictation is French: translate the French wording of a Vision action first.
+        let raw = JarvisFrenchCommandRouter.translateAction(spokenText)?.command ?? spokenText
         let normalized = JarvisCommandPlanner().normalize(raw)
         if ["stop", "stop vision", "stop live guide", "stop reading", "stop speaking", "cancel"].contains(normalized) {
             apply(JarvisVisionLaunchRequest(mode: currentMode, command: .stop, source: "vision_voice"))
@@ -1188,7 +1195,7 @@ final class JarvisCameraViewController: UIViewController {
         }
         let plan = JarvisCommandPlanner().plan(raw)
         guard let request = plan.visionLaunchRequest else {
-            showResult("That is not a recognized Vision command. Try describe, live guide, find, read, scan, repeat, more detail, flashlight, or stop.", announce: true)
+            showResult("Commande Vision non reconnue. Essayez : « décris », « guide en direct », « lis ce texte », « code-barres » ou « stop ».", announce: true)
             return
         }
         var sourced = request

@@ -34,6 +34,10 @@ The diagnostics screen may display information available through public iOS APIs
 
 The core app does not require a project-operated server. When a user opens an external URL, app, Shortcut, or Apple service, that third party may process information under its own terms and privacy policy. Examples include Apple Speech services, Safari, Spotify, YouTube, AltServer, and Sideloadly.
 
+## Local Brain Download (optional)
+
+The local brain is optional. When the user taps **Télécharger le cerveau** in Settings and confirms, the app downloads one pinned model file, `qwen2.5-1.5b-instruct-q4_k_m.gguf` (Qwen2.5 1.5B Instruct, Apache 2.0, about 1.1 GB), from Hugging Face over HTTPS. The request sends no user data: no questions, notes, audio, or images. Hugging Face may log the request itself (IP address, time) under its own privacy terms. The file is verified by size and SHA-256, stored in the app's Application Support folder, and excluded from iCloud backups. Questions sent to the local brain and its answers are processed on the iPhone and kept only in memory for the current session; the user can delete the model at any time in Settings.
+
 ## Data Sharing and Sale
 
 The project maintainer does not receive, sell, rent, or share personal information from the app because the app does not transmit app data to a maintainer-operated service.
