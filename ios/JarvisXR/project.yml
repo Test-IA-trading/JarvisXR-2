@@ -4,6 +4,12 @@ options:
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
+packages:
+  # Jarvis's voice on the iPhone (Piper « pierre » through sherpa-onnx, with espeak-ng):
+  # 1.13.8 is the last release that phonemizes French by itself. Apache 2.0.
+  SherpaOnnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    exactVersion: 1.13.8
 settings:
   base:
     SWIFT_VERSION: 5.9
@@ -38,6 +44,8 @@ targets:
     dependencies:
       # The Dynamic Island and lock screen of the background watch (embedded in PlugIns).
       - target: JarvisXRWidgets
+      - package: SherpaOnnx
+        product: sherpa-onnx
     postBuildScripts:
       - name: Embed llama.cpp framework (iPhone builds)
         basedOnDependencyAnalysis: false

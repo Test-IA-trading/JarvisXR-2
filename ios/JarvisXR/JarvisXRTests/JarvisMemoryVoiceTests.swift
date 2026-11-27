@@ -62,6 +62,35 @@ final class JarvisMemoryVoiceTests: XCTestCase {
         XCTAssertNil(JarvisPCVoice.pcmBuffer(wav: Data("not a wav".utf8)))
     }
 
+    func testJarvisVoicePackageIsCheckedAndUnpacked() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Voix-\(UUID().uuidString)/v1", isDirectory: true)
+        let files: [(String, Data)] = [("model.onnx", Data([1, 2, 3])), ("tokens.txt", Data("a 1".utf8)), ("espeak-ng-data/fr_dict", Data([9]))]
+        var offset = 0
+        var index: [[String: Any]] = []
+        for (path, data) in files {
+            index.append(["path": path, "offset": offset, "size": data.count])
+            offset += data.count
+        }
+        let voice: [String: Any] = ["speaker_id": 1, "length_scale": 1.1, "pitch_semitones": 1.5, "sentence_silence": 0.3]
+        let header = try JSONSerialization.data(withJSONObject: ["files": index, "voice": voice])
+        var pack = Data()
+        var length = UInt64(header.count).littleEndian
+        pack.append(Data(bytes: &length, count: 8))
+        pack.append(header)
+        files.forEach { pack.append($0.1) }
+        let packURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pack")
+        try pack.write(to: packURL)
+        let sha = try JarvisModelDownloader.sha256(of: packURL)
+        let voiceEngine = JarvisLocalVoice(folder: folder)
+        XCTAssertNotNil(voiceEngine.unpack(packURL, expectedSize: Int64(pack.count), expectedSHA256: String(repeating: "0", count: 64)), "a different file is refused")
+        XCTAssertNil(voiceEngine.unpack(packURL, expectedSize: Int64(pack.count), expectedSHA256: sha))
+        XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("espeak-ng-data/fr_dict")), Data([9]))
+        XCTAssertTrue(JarvisLocalVoice(folder: folder).isInstalled, "found again at the next launch")
+        // The pitch change keeps the pace: 1.5 semitone higher = 9 % fewer samples.
+        let shifted = JarvisLocalVoice.resample([Float](repeating: 0.5, count: 1000), by: pow(2, 1.5 / 12))
+        XCTAssertTrue(abs(shifted.count - 916) <= 2)
+    }
+
     func testThePersonalityIsTheValidatedOne() {
         XCTAssertEqual(JarvisPersonality.profile, ["humour": 60, "sarcasme": 45, "formalite": 90, "initiative": 80, "longueur": 45, "adaptation": 100])
         let simple = JarvisPersonality.rules(for: "Quelle heure est-il ?")

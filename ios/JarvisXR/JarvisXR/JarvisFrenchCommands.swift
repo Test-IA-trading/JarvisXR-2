@@ -87,12 +87,24 @@ struct JarvisFrenchCommandRouter {
             return .answer(reply)
         }
 
-        // Which voice speaks: the PC's (Piper, smoother) or the iPhone's own.
+        // Which voice speaks: Jarvis's own (on the iPhone), the PC's, or the iPhone's system voice.
+        if containsAny(request, ["installe ta voix", "installe la voix de jarvis", "telecharge ta voix", "telecharge la voix de jarvis"]) {
+            return .answer(.ok("J'installe ma voix sur l'iPhone : 77 Mo, une seule fois.", data: ["action": "install_voice"]))
+        }
+        if containsAny(request, ["utilise ta voix", "reprends ta voix", "voix de jarvis", "ta vraie voix"]) {
+            JarvisLocalVoice.isEnabled = true
+            JarvisPCVoice.isEnabled = true
+            return .answer(JarvisLocalVoice.shared.isInstalled
+                ? .ok("Très bien, Monsieur. Je reprends ma voix.", data: ["mode": "jarvis_voice"])
+                : .ok("Ma voix n'est pas encore installée sur l'iPhone. Je l'installe : 77 Mo, une seule fois.", data: ["action": "install_voice"]))
+        }
         if containsAny(request, ["utilise la voix du pc", "prends la voix du pc", "parle avec la voix du pc", "voix du pc"]) {
+            JarvisLocalVoice.isEnabled = false
             JarvisPCVoice.isEnabled = true
             return .answer(.ok("Entendu. Je parlerai avec la voix du PC dès qu'il est joignable.", data: ["mode": "pc_voice"]))
         }
-        if containsAny(request, ["utilise la voix de l'iphone", "prends la voix de l'iphone", "voix de l'iphone", "voix du telephone"]) {
+        if containsAny(request, ["utilise la voix de l'iphone", "prends la voix de l'iphone", "voix de l'iphone", "voix du telephone", "voix d'apple"]) {
+            JarvisLocalVoice.isEnabled = false
             JarvisPCVoice.isEnabled = false
             return .answer(.ok("Très bien. Je parlerai avec la voix de l'iPhone.", data: ["mode": "iphone_voice"]))
         }

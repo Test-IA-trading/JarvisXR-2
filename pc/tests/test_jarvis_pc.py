@@ -519,3 +519,24 @@ def test_the_iphone_has_the_same_personality():
     assert tools_gen_personality.TARGET.read_text(encoding="utf-8") == tools_gen_personality.render(), \
         "run pc/tools_gen_personality.py after changing personality.py"
     assert tools_gen_personality.MEMORY_TARGET.read_text(encoding="utf-8") == tools_gen_personality.render_memory(),         "run pc/tools_gen_personality.py after changing knowledge.py"
+
+
+def test_the_iphone_voice_package_round_trips(tmp_path):
+    import io
+    import tarfile
+
+    import tools_pack_voice
+
+    source = tmp_path / "voice.tar.bz2"
+    with tarfile.open(source, "w:bz2") as archive:
+        for name, data in [("v/fr_FR-upmc-medium.onnx", b"model"), ("v/tokens.txt", b"a 1"), ("v/MODEL_CARD", b"card"),
+                           ("v/espeak-ng-data/fr_dict", b"fr"), ("v/espeak-ng-data/de_dict", b"de"), ("v/espeak-ng-data/lang/roa/fr", b"lang")]:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    built = tools_pack_voice.build(source, tmp_path / "voix.pack")
+    assert built["files"] == 6, "German and the other languages are left out"
+    voice = tools_pack_voice.unpack(tmp_path / "voix.pack", tmp_path / "out")
+    assert (tmp_path / "out" / "model.onnx").read_bytes() == b"model" and (tmp_path / "out" / "espeak-ng-data" / "fr_dict").read_bytes() == b"fr"
+    assert not (tmp_path / "out" / "espeak-ng-data" / "de_dict").exists()
+    assert voice["speaker_id"] == 1 and voice["pitch_semitones"] == 1.5 and voice["length_scale"] == 1.10

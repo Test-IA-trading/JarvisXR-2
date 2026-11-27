@@ -370,18 +370,22 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         duplexActive = true
         duplexIsStream = stream
         duplexRendering += 1
-        if JarvisPCVoice.shared.isUsable {
-            // The PC's voice (Piper): asked now, played in order; the iPhone's voice if it fails.
-            JarvisPCVoice.shared.render(text) { [weak self] buffer in
-                guard let self, self.duplexGeneration == generation else { return }
-                guard let buffer else {
-                    self.renderWithSystemVoice(utterance, generation: generation)
-                    return
-                }
-                self.duplexRendering = max(0, self.duplexRendering - 1)
-                self.playConversationBuffer(buffer, generation: generation)
-                self.finishConversationVoiceIfDone()
+        // Jarvis's voice (Piper « pierre »), made on the iPhone or else on the PC, played in
+        // order; the iPhone's system voice for a sentence they cannot say.
+        let deliver: (AVAudioPCMBuffer?) -> Void = { [weak self] buffer in
+            guard let self, self.duplexGeneration == generation else { return }
+            guard let buffer else {
+                self.renderWithSystemVoice(utterance, generation: generation)
+                return
             }
+            self.duplexRendering = max(0, self.duplexRendering - 1)
+            self.playConversationBuffer(buffer, generation: generation)
+            self.finishConversationVoiceIfDone()
+        }
+        if JarvisLocalVoice.shared.isUsable {
+            JarvisLocalVoice.shared.render(text, deliver: deliver)
+        } else if JarvisPCVoice.shared.isUsable {
+            JarvisPCVoice.shared.render(text, deliver: deliver)
         } else {
             renderWithSystemVoice(utterance, generation: generation)
         }
@@ -451,6 +455,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         duplexPendingBuffers = 0
         renderer.stopSpeaking(at: .immediate)
         JarvisPCVoice.shared.cancelAll()
+        JarvisLocalVoice.shared.cancelAll()
         JarvisDuplexAudio.shared.stopVoice()
         if reportFinish {
             DispatchQueue.main.async { [weak self] in

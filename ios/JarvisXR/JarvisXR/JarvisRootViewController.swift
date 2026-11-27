@@ -97,6 +97,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             didCheckFirstLaunch = true
             showFirstLaunchIfNeeded()
         }
+        offerLocalVoiceIfNeeded()
         // Back from Settings or another screen: share notes and hear the PC's messages.
         if !isUITestMode { synchronizeWithPC() }
         scheduleWakeListening()
@@ -167,6 +168,40 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private func returnToBackgroundWatch() {
         guard isOffScreen, JarvisWakeWordSettings.watchesInBackground, !voiceInput.isListening else { return }
         voiceInput.startBackgroundWatch()
+    }
+
+    // MARK: - Jarvis's voice on the iPhone
+
+    /// Once: Jarvis offers to install its own voice on the iPhone (77 Mo, a single time).
+    private func offerLocalVoiceIfNeeded() {
+        let key = "JarvisXR.localVoiceOffered"
+        guard !isUITestMode, !JarvisLocalVoice.shared.isInstalled, presentedViewController == nil,
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let alert = UIAlertController(
+            title: "Installer la voix de Jarvis ?",
+            message: "Pour que Jarvis parle avec sa propre voix directement sur l'iPhone, sans le PC ni Internet ensuite : 77 Mo téléchargés une seule fois (Wi-Fi conseillé).",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Plus tard", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Installer", style: .default) { [weak self] _ in self?.installLocalVoice() })
+        present(alert, animated: true)
+    }
+
+    /// Downloads and installs Jarvis's voice, then says so with it.
+    private func installLocalVoice() {
+        guard !JarvisLocalVoice.shared.isInstalled else {
+            showTransient("Ma voix est déjà installée sur l'iPhone.")
+            return
+        }
+        JarvisLocalVoice.isEnabled = true
+        showTransient("Installation de ma voix : 77 Mo, gardez JARVIS ouvert…")
+        JarvisLocalVoice.shared.install { [weak self] problem in
+            guard let self else { return }
+            let message = problem ?? "Ma voix est installée, Monsieur. Je parle désormais directement depuis l'iPhone."
+            self.showTransient(message)
+            if self.speech.isEnabled, !self.voiceInput.isListening { self.speech.speak(message) }
+        }
     }
 
     /// What the user just said about themselves (« J'habite à Lyon », « Non, c'est 1873 »)
@@ -1161,6 +1196,8 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             diagnosticsTapped()
         } else if response.data["action"] == "settings" {
             settingsTapped()
+        } else if response.data["action"] == "install_voice" {
+            installLocalVoice()
         } else if response.data["action"] == "control_mesh" {
             controlMeshTapped()
         } else if response.data["url_scheme"] != nil {
