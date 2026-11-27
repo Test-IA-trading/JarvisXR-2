@@ -174,7 +174,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     /// Once: Jarvis offers to install its own voice on the iPhone (77 Mo, a single time).
     private func offerLocalVoiceIfNeeded() {
-        let key = "JarvisXR.localVoiceOffered"
+        let key = "Jarvis.localVoiceOffered"
         guard !isUITestMode, !JarvisLocalVoice.shared.isInstalled, presentedViewController == nil,
               !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
