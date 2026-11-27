@@ -8,7 +8,7 @@ final class JarvisVisionOnboardingViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Welcome to Jarvis Vision"
+        title = "Bienvenue dans Jarvis Vision"
         view.backgroundColor = JarvisTheme.background
         buildInterface()
     }
@@ -35,50 +35,50 @@ final class JarvisVisionOnboardingViewController: UIViewController {
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
         ])
 
-        let heading = label("Practical sight from your iPhone camera", style: .largeTitle, color: JarvisTheme.text)
+        let heading = label("Des yeux pratiques, grâce à la caméra de l'iPhone", style: .largeTitle, color: JarvisTheme.text)
         heading.accessibilityTraits.insert(.header)
         heading.accessibilityIdentifier = "jarvis.vision.onboarding.header"
         stackView.addArrangedSubview(heading)
 
         let intro = label(
-            "Jarvis Vision can describe visible objects, follow important changes, find supported objects, read print, and scan barcodes.",
+            "Jarvis Vision décrit les objets visibles, suit ce qui change, retrouve les objets reconnus, lit les textes imprimés et scanne les codes-barres.",
             style: .body,
             color: JarvisTheme.mutedText
         )
         stackView.addArrangedSubview(intro)
 
         addPoint(
-            title: "Private by default",
-            text: "Core camera analysis runs on device. Jarvis does not automatically save camera photos, video, recognized text, or barcode values."
+            title: "Privé par défaut",
+            text: "L'analyse de la caméra se fait sur l'iPhone. Jarvis n'enregistre pas automatiquement les photos, les vidéos, les textes reconnus ni les codes-barres."
         )
         addPoint(
-            title: "Useful, not infallible",
-            text: "Camera and model results can be wrong or incomplete. Jarvis states uncertainty and may ask for better light or a steadier view."
+            title: "Utile, pas infaillible",
+            text: "Les résultats de la caméra et du modèle peuvent être faux ou incomplets. Jarvis dit quand il doute et peut demander plus de lumière ou une image plus stable."
         )
         addPoint(
-            title: "Keep mobility practices",
-            text: "Jarvis Vision is not a replacement for a cane, guide dog, human assistance, or safe mobility practices. Never treat a camera result as permission to cross or proceed."
+            title: "Gardez vos repères de déplacement",
+            text: "Jarvis Vision ne remplace ni une canne, ni un chien guide, ni l'aide d'une personne, ni les précautions de déplacement. Un résultat de la caméra n'est jamais une autorisation de traverser ou d'avancer."
         )
         addPoint(
-            title: "You stay in control",
-            text: "Choose a large primary action to begin. The red Stop control remains visible and stops camera analysis, narration, haptics, and voice input."
+            title: "Vous gardez la main",
+            text: "Choisissez une grande action pour commencer. Le bouton rouge Stop reste visible : il coupe l'analyse de la caméra, les annonces, les vibrations et l'écoute."
         )
         addPoint(
-            title: "Permissions when needed",
-            text: "Camera access is requested only when you start a Vision action. Microphone and Speech access are requested only when you use voice input."
+            title: "Des autorisations au bon moment",
+            text: "L'accès à la caméra n'est demandé qu'au lancement d'une action Vision. Le micro et la reconnaissance vocale ne le sont qu'à la première commande vocale."
         )
 
-        let hapticButton = actionButton("Try a Short Haptic Tutorial", identifier: "jarvis.vision.onboarding.haptics", action: #selector(hapticTutorialTapped))
-        hapticButton.accessibilityHint = "Demonstrates left, center, right, and target found patterns."
+        let hapticButton = actionButton("Essayer les vibrations", identifier: "jarvis.vision.onboarding.haptics", action: #selector(hapticTutorialTapped))
+        hapticButton.accessibilityHint = "Fait sentir les vibrations gauche, centre, droite et objet trouvé."
         stackView.addArrangedSubview(hapticButton)
 
-        let openButton = actionButton("Open Jarvis Vision", identifier: "jarvis.vision.onboarding.open", action: #selector(openVisionTapped))
+        let openButton = actionButton("Ouvrir Jarvis Vision", identifier: "jarvis.vision.onboarding.open", action: #selector(openVisionTapped))
         openButton.backgroundColor = JarvisTheme.accentHot
         openButton.setTitleColor(JarvisTheme.background, for: .normal)
         stackView.addArrangedSubview(openButton)
 
         let continueButton = actionButton("Continue to JARVIS", identifier: "jarvis.vision.onboarding.continue", action: #selector(continueTapped))
-        let skipButton = actionButton("Skip for Now", identifier: "jarvis.vision.onboarding.skip", action: #selector(continueTapped))
+        let skipButton = actionButton("Plus tard", identifier: "jarvis.vision.onboarding.skip", action: #selector(continueTapped))
         stackView.addArrangedSubview(horizontalRow([continueButton, skipButton]))
     }
 
@@ -133,17 +133,17 @@ final class JarvisVisionOnboardingViewController: UIViewController {
     @objc private func hapticTutorialTapped() {
         let service = VisionHapticsService.shared
         guard service.backend != .unavailable else {
-            let alert = UIAlertController(title: "Haptics Unavailable", message: "This device will use spoken direction guidance instead.", preferredStyle: .alert)
+            let alert = UIAlertController(title: "Vibrations indisponibles", message: "Cet appareil donnera les directions à voix haute.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
             return
         }
         let sessionID = service.beginSession()
         let cues: [(VisionHapticCue, String)] = [
-            (.directionLeft, "Left"),
-            (.directionCenter, "Center"),
-            (.directionRight, "Right"),
-            (.targetAcquired, "Target found"),
+            (.directionLeft, "Gauche"),
+            (.directionCenter, "Centre"),
+            (.directionRight, "Droite"),
+            (.targetAcquired, "Objet trouvé"),
         ]
         for (index, cue) in cues.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.8) {
