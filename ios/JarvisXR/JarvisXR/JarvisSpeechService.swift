@@ -10,7 +10,13 @@ enum JarvisVoiceProfile: String {
     case quiet
 
     var displayName: String {
-        rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        switch self {
+        case .natural: return "Naturelle"
+        case .friendly: return "Chaleureuse"
+        case .formal: return "Posée"
+        case .crisp: return "Nette"
+        case .quiet: return "Douce"
+        }
     }
 }
 
@@ -247,7 +253,55 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     func testPhrase() -> String {
-        "JARVIS voice output is ready."
+        "Bonjour, je suis JARVIS. Ma voix française est prête."
+    }
+
+    /// Language spoken by Jarvis. The voice is chosen by language and quality rather
+    /// than by a hard-coded voice name, because installed voices differ per iPhone.
+    static let outputLanguage = "fr-FR"
+
+    /// Ranks installed voices: exact language first, then any French variant, then by
+    /// quality (premium > enhanced > default). Returns nil when no French voice exists.
+    static func bestVoice(
+        from voices: [AVSpeechSynthesisVoice],
+        language: String = JarvisSpeechService.outputLanguage
+    ) -> AVSpeechSynthesisVoice? {
+        let languagePrefix = String(language.prefix(2))
+        func qualityRank(_ voice: AVSpeechSynthesisVoice) -> Int {
+            switch voice.quality {
+            case .premium: return 3
+            case .enhanced: return 2
+            default: return 1
+            }
+        }
+        func isUsable(_ voice: AVSpeechSynthesisVoice) -> Bool {
+            if #available(iOS 17.0, *) {
+                // Novelty voices (Bells, Bubbles…) and personal voices are never a default.
+                return !voice.voiceTraits.contains(.isNoveltyVoice) && !voice.voiceTraits.contains(.isPersonalVoice)
+            }
+            return true
+        }
+        let candidates = voices.filter { $0.language.hasPrefix(languagePrefix) && isUsable($0) }
+        return candidates.max { lhs, rhs in
+            let lhsExact = lhs.language == language ? 1 : 0
+            let rhsExact = rhs.language == language ? 1 : 0
+            if lhsExact != rhsExact { return lhsExact < rhsExact }
+            return qualityRank(lhs) < qualityRank(rhs)
+        }
+    }
+
+    /// Short description of the voice Jarvis will use, for Settings and Diagnostics.
+    func currentVoiceDescription() -> String {
+        guard let voice = preferredVoice(for: profile) else {
+            return "Aucune voix française installée : la voix par défaut d'iOS sera utilisée."
+        }
+        let quality: String
+        switch voice.quality {
+        case .premium: quality = "premium"
+        case .enhanced: quality = "améliorée"
+        default: quality = "standard"
+        }
+        return "Voix \(voice.name) (\(voice.language), qualité \(quality))."
     }
 
     func previewAllProfiles() {
@@ -255,7 +309,7 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         synthesizer.stopSpeaking(at: .immediate)
         let current = profile
         for previewProfile in JarvisVoiceProfile.ordered {
-            let utterance = makeUtterance("\(previewProfile.displayName). JARVIS is ready.", profile: previewProfile)
+            let utterance = makeUtterance("Voix \(previewProfile.displayName). JARVIS est prêt.", profile: previewProfile)
             utterance.postUtteranceDelay = 0.16
             synthesizer.speak(utterance)
         }
@@ -345,27 +399,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
         if prefersPersonalVoice, let personal = personalVoices().first {
             return personal
         }
-        let voices = AVSpeechSynthesisVoice.speechVoices()
-        let preferredLanguages: [String]
-        switch voiceProfile {
-        case .formal:
-            preferredLanguages = ["en-GB", "en-US", "en-AU", "en-IE", "en-ZA"]
-        default:
-            preferredLanguages = ["en-US", "en-GB", "en-AU", "en-IE", "en-ZA"]
-        }
-        for language in preferredLanguages {
-            if let enhanced = voices.first(where: { $0.language == language && $0.quality == .enhanced }) {
-                return enhanced
-            }
-        }
-        for language in preferredLanguages {
-            if let voice = voices.first(where: { $0.language == language }) {
-                return voice
-            }
-        }
-        return voices.first(where: { $0.language.hasPrefix("en") && $0.quality == .enhanced }) ??
-            voices.first(where: { $0.language.hasPrefix("en") }) ??
-            AVSpeechSynthesisVoice(language: "en-US")
+        // Profiles change rate, pitch and volume; every profile speaks French.
+        return Self.bestVoice(from: AVSpeechSynthesisVoice.speechVoices()) ??
+            AVSpeechSynthesisVoice(language: Self.outputLanguage)
     }
 
     private func personalVoices() -> [AVSpeechSynthesisVoice] {
@@ -394,6 +430,9 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
     }
 
     private func activateAudioSession() {
+        // While the microphone is open, its play-and-record session already allows
+        // output; switching to `.playback` here would silently cut the capture.
+        guard !JarvisVoiceInputService.shared.isListening else { return }
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
@@ -410,6 +449,11 @@ final class JarvisSpeechService: NSObject, AVSpeechSynthesizerDelegate, @uncheck
 
     private func deactivateAudioSessionIfIdle() {
         guard activeVisionItem == nil, !synthesizer.isSpeaking, !synthesizer.isPaused else { return }
+        // Never release the shared session under an open microphone. Before this guard,
+        // `stop()` (called when listening starts) and the asynchronous didCancel callback
+        // deactivated the session the dictation had just activated, leaving the
+        // recognizer with no usable audio ("Aucune parole détectée").
+        guard !JarvisVoiceInputService.shared.isListening else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

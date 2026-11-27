@@ -12,12 +12,12 @@ final class JarvisSettingsViewController: UIViewController {
     private let stackView = UIStackView()
 
     private let speechSwitch = UISwitch()
-    private let voiceProfileControl = UISegmentedControl(items: ["Natural", "Friendly", "Crisp", "Quiet", "Formal"])
-    private let narrationControl = UISegmentedControl(items: ["Concise", "Standard", "Detailed"])
-    private let cameraControl = UISegmentedControl(items: ["Rear", "Front"])
-    private let defaultModeControl = UISegmentedControl(items: ["Describe", "Live", "Find", "Read", "Scan"])
-    private let sensitivityControl = UISegmentedControl(items: ["Conservative", "Balanced", "Sensitive"])
-    private let processingControl = UISegmentedControl(items: ["Auto", "Standard", "Reduced"])
+    private let voiceProfileControl = UISegmentedControl(items: ["Naturel", "Amical", "Claire", "Silencieuse", "Formelle"])
+    private let narrationControl = UISegmentedControl(items: ["Concis", "Standard", "Détaillé"])
+    private let cameraControl = UISegmentedControl(items: ["Arrière", "Avant"])
+    private let defaultModeControl = UISegmentedControl(items: ["Décrire", "Guide", "Trouver", "Lire", "Scanner"])
+    private let sensitivityControl = UISegmentedControl(items: ["Conservateur", "Équilibré", "Sensible"])
+    private let processingControl = UISegmentedControl(items: ["Auto", "Standard", "Réduit"])
     private let importantChangesSwitch = UISwitch()
     private let screenAwakeSwitch = UISwitch()
     private let hapticsSwitch = UISwitch()
@@ -25,7 +25,7 @@ final class JarvisSettingsViewController: UIViewController {
     private let sessionMemorySwitch = UISwitch()
     private let autoLightSwitch = UISwitch()
     private let debugOverlaySwitch = UISwitch()
-    private let hapticIntensityControl = UISegmentedControl(items: ["Reduced", "Standard", "Strong"])
+    private let hapticIntensityControl = UISegmentedControl(items: ["Réduit", "Standard", "Fort"])
 
     init(initialSection: JarvisSettingsSection = .general) {
         self.initialSection = initialSection
@@ -39,7 +39,7 @@ final class JarvisSettingsViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = initialSection == .vision ? "Vision Settings" : "Settings"
+        title = initialSection == .vision ? "Réglages Vision" : "Réglages"
         view.backgroundColor = JarvisTheme.background
         buildInterface()
         loadValues()
@@ -67,7 +67,7 @@ final class JarvisSettingsViewController: UIViewController {
         ])
 
         let header = textLabel(
-            initialSection == .vision ? "Accessible Vision preferences" : "JARVIS preferences",
+            initialSection == .vision ? "Préférences Vision accessibles" : "Préférences JARVIS",
             style: .title2,
             color: JarvisTheme.text
         )
@@ -77,54 +77,54 @@ final class JarvisSettingsViewController: UIViewController {
 
         configureSwitch(
             speechSwitch,
-            label: "Speech Output",
-            hint: "Speaks JARVIS and Vision results.",
+            label: "Sortie vocale",
+            hint: "Énonce les résultats de JARVIS et Vision.",
             identifier: "jarvis.settings.speechSwitch",
             action: #selector(speechChanged)
         )
-        stackView.addArrangedSubview(settingRow(title: "Speech Output", control: speechSwitch, identifier: "jarvis.settings.speechLabel"))
+        stackView.addArrangedSubview(settingRow(title: "Sortie vocale", control: speechSwitch, identifier: "jarvis.settings.speechLabel"))
 
         configureSegmented(voiceProfileControl, identifier: "jarvis.settings.voiceProfile", action: #selector(profileChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Voice Profile", detail: "Changes the local system voice pace, pitch, and volume.", control: voiceProfileControl))
+        stackView.addArrangedSubview(settingPanel(title: "Profil vocal", detail: "Modifie le débit, la tonalité et le volume de la voix système locale.", control: voiceProfileControl))
 
-        stackView.addArrangedSubview(sectionHeading("Vision narration"))
+        stackView.addArrangedSubview(sectionHeading("Narration Vision"))
         configureSegmented(defaultModeControl, identifier: "jarvis.settings.vision.defaultMode", action: #selector(defaultModeChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Default Vision Mode", detail: "Used when opening Vision without a specific command.", control: defaultModeControl))
+        stackView.addArrangedSubview(settingPanel(title: "Mode Vision par défaut", detail: "Utilisé à l'ouverture de Vision sans commande spécifique.", control: defaultModeControl))
         configureSegmented(narrationControl, identifier: "jarvis.settings.vision.verbosity", action: #selector(narrationChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Detail Level", detail: "Choose shorter updates or more grounded scene detail.", control: narrationControl))
-        configureSwitch(importantChangesSwitch, label: "Only Important Changes", hint: "Suppresses low-priority Live Guide narration.", identifier: "jarvis.settings.vision.importantChanges", action: #selector(importantChangesChanged))
-        stackView.addArrangedSubview(settingRow(title: "Only Important Changes", control: importantChangesSwitch))
-        configureSwitch(directionSpeechSwitch, label: "Speak Direction", hint: "Adds broad left, center, and right guidance.", identifier: "jarvis.settings.vision.directionSpeech", action: #selector(directionSpeechChanged))
-        stackView.addArrangedSubview(settingRow(title: "Speak Direction", control: directionSpeechSwitch))
+        stackView.addArrangedSubview(settingPanel(title: "Niveau de détail", detail: "Choisissez des mises à jour plus courtes ou un détail de scène plus complet.", control: narrationControl))
+        configureSwitch(importantChangesSwitch, label: "Seuls les changements importants", hint: "Réduit la narration du Guide en direct aux priorités élevées.", identifier: "jarvis.settings.vision.importantChanges", action: #selector(importantChangesChanged))
+        stackView.addArrangedSubview(settingRow(title: "Seuls les changements importants", control: importantChangesSwitch))
+        configureSwitch(directionSpeechSwitch, label: "Énoncer la direction", hint: "Ajoute les repères gauche, centre et droite.", identifier: "jarvis.settings.vision.directionSpeech", action: #selector(directionSpeechChanged))
+        stackView.addArrangedSubview(settingRow(title: "Énoncer la direction", control: directionSpeechSwitch))
 
-        stackView.addArrangedSubview(sectionHeading("Camera and Live Guide"))
+        stackView.addArrangedSubview(sectionHeading("Caméra et Guide en direct"))
         configureSegmented(cameraControl, identifier: "jarvis.settings.vision.camera", action: #selector(cameraChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Camera", detail: "Rear camera is recommended for understanding surroundings.", control: cameraControl))
-        configureSwitch(screenAwakeSwitch, label: "Keep Screen Awake in Live Guide", hint: "Prevents screen lock only while Live Guide is active in the foreground.", identifier: "jarvis.settings.vision.screenAwake", action: #selector(screenAwakeChanged))
-        stackView.addArrangedSubview(settingRow(title: "Keep Screen Awake in Live Guide", control: screenAwakeSwitch))
-        configureSwitch(autoLightSwitch, label: "Suggest More Light", hint: "Allows camera-quality guidance to suggest the flashlight. It never turns on automatically.", identifier: "jarvis.settings.vision.autoLight", action: #selector(autoLightChanged))
-        stackView.addArrangedSubview(settingRow(title: "Suggest More Light", control: autoLightSwitch))
+        stackView.addArrangedSubview(settingPanel(title: "Caméra", detail: "La caméra arrière est recommandée pour comprendre l'environnement.", control: cameraControl))
+        configureSwitch(screenAwakeSwitch, label: "Maintenir l'écran allumé en Guide en direct", hint: "Empêche la mise en veille uniquement quand le Guide en direct est actif au premier plan.", identifier: "jarvis.settings.vision.screenAwake", action: #selector(screenAwakeChanged))
+        stackView.addArrangedSubview(settingRow(title: "Maintenir l'écran allumé en Guide en direct", control: screenAwakeSwitch))
+        configureSwitch(autoLightSwitch, label: "Suggérer plus de lumière", hint: "Permet aux conseils de qualité d'image de suggérer la torche. Elle ne s'allume jamais automatiquement.", identifier: "jarvis.settings.vision.autoLight", action: #selector(autoLightChanged))
+        stackView.addArrangedSubview(settingRow(title: "Suggérer plus de lumière", control: autoLightSwitch))
         configureSegmented(sensitivityControl, identifier: "jarvis.settings.vision.sensitivity", action: #selector(sensitivityChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Detection Sensitivity", detail: "Conservative requires stronger, more stable evidence. More sensitive can increase false detections.", control: sensitivityControl))
+        stackView.addArrangedSubview(settingPanel(title: "Sensibilité de détection", detail: "Conservateur exige des preuves plus fortes et stables. Plus sensible peut augmenter les fausses détections.", control: sensitivityControl))
         configureSegmented(processingControl, identifier: "jarvis.settings.vision.processing", action: #selector(processingChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Processing", detail: "Automatic adapts for heat and Low Power Mode. Reduced uses fewer analyses.", control: processingControl))
+        stackView.addArrangedSubview(settingPanel(title: "Traitement", detail: "Auto s'adapte à la chaleur et au mode Économie d'énergie. Réduit utilise moins d'analyses.", control: processingControl))
 
-        stackView.addArrangedSubview(sectionHeading("Haptics"))
-        configureSwitch(hapticsSwitch, label: "Vision Haptics", hint: "Provides direction, target, warning, and completion patterns.", identifier: "jarvis.settings.vision.haptics", action: #selector(hapticsChanged))
-        stackView.addArrangedSubview(settingRow(title: "Vision Haptics", control: hapticsSwitch))
+        stackView.addArrangedSubview(sectionHeading("Haptique"))
+        configureSwitch(hapticsSwitch, label: "Haptique Vision", hint: "Fournit les motifs de direction, cible, avertissement et achèvement.", identifier: "jarvis.settings.vision.haptics", action: #selector(hapticsChanged))
+        stackView.addArrangedSubview(settingRow(title: "Haptique Vision", control: hapticsSwitch))
         configureSegmented(hapticIntensityControl, identifier: "jarvis.settings.vision.hapticIntensity", action: #selector(hapticIntensityChanged))
-        stackView.addArrangedSubview(settingPanel(title: "Haptic Intensity", detail: "Adjusts Vision patterns when haptics are enabled.", control: hapticIntensityControl))
-        let hapticTutorialButton = actionButton("Try Haptic Tutorial", identifier: "jarvis.settings.vision.hapticTutorial", action: #selector(hapticTutorialTapped))
+        stackView.addArrangedSubview(settingPanel(title: "Intensité haptique", detail: "Ajuste les motifs Vision quand l'haptique est activé.", control: hapticIntensityControl))
+        let hapticTutorialButton = actionButton("Essayer le tutoriel haptique", identifier: "jarvis.settings.vision.hapticTutorial", action: #selector(hapticTutorialTapped))
         stackView.addArrangedSubview(hapticTutorialButton)
 
-        stackView.addArrangedSubview(sectionHeading("Privacy and diagnostics"))
-        configureSwitch(sessionMemorySwitch, label: "Temporary Session Memory", hint: "Keeps short-lived scene changes until Vision stops. Images are never stored in session memory.", identifier: "jarvis.settings.vision.sessionMemory", action: #selector(sessionMemoryChanged))
-        stackView.addArrangedSubview(settingRow(title: "Temporary Session Memory", control: sessionMemorySwitch))
-        configureSwitch(debugOverlaySwitch, label: "Diagnostics Overlay", hint: "Shows advanced diagnostic details. Off by default.", identifier: "jarvis.settings.vision.debugOverlay", action: #selector(debugOverlayChanged))
-        stackView.addArrangedSubview(settingRow(title: "Diagnostics Overlay", control: debugOverlaySwitch))
+        stackView.addArrangedSubview(sectionHeading("Vie privée et diagnostics"))
+        configureSwitch(sessionMemorySwitch, label: "Mémoire de session temporaire", hint: "Conserve les changements de scène éphémères jusqu'à l'arrêt de Vision. Les images ne sont jamais stockées en mémoire de session.", identifier: "jarvis.settings.vision.sessionMemory", action: #selector(sessionMemoryChanged))
+        stackView.addArrangedSubview(settingRow(title: "Mémoire de session temporaire", control: sessionMemorySwitch))
+        configureSwitch(debugOverlaySwitch, label: "Superposition diagnostics", hint: "Affiche les détails de diagnostic avancés. Désactivé par défaut.", identifier: "jarvis.settings.vision.debugOverlay", action: #selector(debugOverlayChanged))
+        stackView.addArrangedSubview(settingRow(title: "Superposition diagnostics", control: debugOverlaySwitch))
 
         let privacy = textLabel(
-            "Privacy defaults cannot be disabled: camera images and video are not automatically saved, recognized text and barcode values are not added to general history, and core Vision analysis stays on device.",
+            "Les réglages de vie privée ne peuvent pas être désactivés : les images et vidéos de la caméra ne sont pas sauvegardées automatiquement, les textes et codes-barres reconnus ne sont pas ajoutés à l'historique général, et l'analyse Vision reste sur l'appareil.",
             style: .body,
             color: JarvisTheme.text
         )
@@ -133,30 +133,30 @@ final class JarvisSettingsViewController: UIViewController {
         privacyPanel.layer.borderColor = JarvisTheme.success.cgColor
         stackView.addArrangedSubview(privacyPanel)
 
-        let selfTestButton = actionButton("Run Accessible Vision Self-Test", identifier: "jarvis.settings.vision.selfTest", action: #selector(selfTestTapped))
-        let diagnosticsButton = actionButton("Open Diagnostics", identifier: "jarvis.settings.diagnostics", action: #selector(diagnosticsTapped))
+        let selfTestButton = actionButton("Lancer l'autotest Vision accessible", identifier: "jarvis.settings.vision.selfTest", action: #selector(selfTestTapped))
+        let diagnosticsButton = actionButton("Ouvrir Diagnostics", identifier: "jarvis.settings.diagnostics", action: #selector(diagnosticsTapped))
         stackView.addArrangedSubview(horizontalRow([selfTestButton, diagnosticsButton]))
 
-        stackView.addArrangedSubview(sectionHeading("Local data and voice tools"))
-        let clearNotesButton = actionButton("Clear Notes", identifier: "jarvis.settings.clearNotes", action: #selector(clearNotesTapped))
-        let clearHistoryButton = actionButton("Clear History", identifier: "jarvis.settings.clearHistory", action: #selector(clearHistoryTapped))
+        stackView.addArrangedSubview(sectionHeading("Données locales et outils vocaux"))
+        let clearNotesButton = actionButton("Effacer les notes", identifier: "jarvis.settings.clearNotes", action: #selector(clearNotesTapped))
+        let clearHistoryButton = actionButton("Effacer l'historique", identifier: "jarvis.settings.clearHistory", action: #selector(clearHistoryTapped))
         stackView.addArrangedSubview(horizontalRow([clearNotesButton, clearHistoryButton]))
 
-        let voiceTestButton = actionButton("Voice Test", identifier: "jarvis.settings.voiceTest", action: #selector(voiceTestTapped))
-        let profilePreviewButton = actionButton("Preview Profiles", identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped))
+        let voiceTestButton = actionButton("Test vocal", identifier: "jarvis.settings.voiceTest", action: #selector(voiceTestTapped))
+        let profilePreviewButton = actionButton("Aperçu des profils", identifier: "jarvis.settings.profilePreview", action: #selector(profilePreviewTapped))
         stackView.addArrangedSubview(horizontalRow([voiceTestButton, profilePreviewButton]))
 
-        let personalVoiceButton = actionButton("Personal Voice", identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped))
-        let aboutButton = actionButton("About", identifier: "jarvis.settings.about", action: #selector(aboutTapped))
+        let personalVoiceButton = actionButton("Voix personnelle", identifier: "jarvis.settings.personalVoice", action: #selector(personalVoiceTapped))
+        let aboutButton = actionButton("À propos", identifier: "jarvis.settings.about", action: #selector(aboutTapped))
         stackView.addArrangedSubview(horizontalRow([personalVoiceButton, aboutButton]))
 
-        let resetButton = actionButton("Reset Vision Settings", identifier: "jarvis.settings.vision.reset", action: #selector(resetVisionTapped))
+        let resetButton = actionButton("Réinitialiser les réglages Vision", identifier: "jarvis.settings.vision.reset", action: #selector(resetVisionTapped))
         resetButton.setTitleColor(JarvisTheme.warning, for: .normal)
         stackView.addArrangedSubview(resetButton)
 
         // Compatibility identifier retained for existing UI automation while the
         // content now comes from real controls and stores rather than a fixed text page.
-        let compatibilityText = textLabel("JARVIS appliance settings", style: .caption1, color: JarvisTheme.mutedText)
+        let compatibilityText = textLabel("Réglages appareil JARVIS", style: .caption1, color: JarvisTheme.mutedText)
         compatibilityText.accessibilityIdentifier = "jarvis.settings.text"
         stackView.addArrangedSubview(compatibilityText)
     }
@@ -270,7 +270,7 @@ final class JarvisSettingsViewController: UIViewController {
     @objc private func speechChanged() {
         JarvisSpeechService.shared.isEnabled = speechSwitch.isOn
         if speechSwitch.isOn {
-            JarvisSpeechService.shared.speak("Speech output enabled.")
+            JarvisSpeechService.shared.speak("Sortie vocale activée.")
         } else {
             JarvisSpeechService.shared.stop()
         }
@@ -326,18 +326,18 @@ final class JarvisSettingsViewController: UIViewController {
 
     @objc private func hapticTutorialTapped() {
         guard preferencesStore.value.hapticsEnabled else {
-            accessibleAlert(title: "Haptics Are Off", message: "Enable Vision Haptics before starting the tutorial.")
+            accessibleAlert(title: "Haptique désactivé", message: "Activez l'haptique Vision avant de lancer le tutoriel.")
             return
         }
         let sessionID = VisionHapticsService.shared.beginSession()
         let intensity = preferencesStore.value.hapticIntensity
         let cues: [(VisionHapticCue, String)] = [
-            (.directionLeft, "Left"),
-            (.directionCenter, "Center"),
-            (.directionRight, "Right"),
-            (.targetAcquired, "Target found"),
-            (.targetLost, "Target lost"),
-            (.warning, "Warning"),
+            (.directionLeft, "Gauche"),
+            (.directionCenter, "Centre"),
+            (.directionRight, "Droite"),
+            (.targetAcquired, "Cible trouvée"),
+            (.targetLost, "Cible perdue"),
+            (.warning, "Avertissement"),
         ]
         for (index, item) in cues.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.75) {
@@ -353,13 +353,13 @@ final class JarvisSettingsViewController: UIViewController {
     }
 
     @objc private func clearNotesTapped() {
-        confirm(title: "Clear notes?", message: "This removes local JARVIS notes stored on this device.") {
+        confirm(title: "Effacer les notes ?", message: "Cela supprime les notes JARVIS locales stockées sur cet appareil.") {
             JarvisMemoryStore.shared.clearNotes()
         }
     }
 
     @objc private func clearHistoryTapped() {
-        confirm(title: "Clear history?", message: "This removes local command history. Vision OCR and barcode results are not stored there.") {
+        confirm(title: "Effacer l'historique ?", message: "Cela supprime l'historique des commandes locales. Les résultats OCR et codes-barres Vision n'y sont pas stockés.") {
             JarvisMemoryStore.shared.clearHistory()
         }
     }
@@ -370,10 +370,10 @@ final class JarvisSettingsViewController: UIViewController {
     @objc private func personalVoiceTapped() {
         JarvisSpeechService.shared.personalVoiceStatusText { [weak self] message in
             guard let self else { return }
-            let alert = UIAlertController(title: "Personal Voice", message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Use If Available", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = true })
-            alert.addAction(UIAlertAction(title: "Use System Voice", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = false })
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            let alert = UIAlertController(title: "Voix personnelle", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Utiliser si disponible", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = true })
+            alert.addAction(UIAlertAction(title: "Utiliser la voix système", style: .default) { _ in JarvisSpeechService.shared.prefersPersonalVoice = false })
+            alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
             self.present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
         }
     }
@@ -391,7 +391,7 @@ final class JarvisSettingsViewController: UIViewController {
     }
 
     @objc private func resetVisionTapped() {
-        confirm(title: "Reset Vision settings?", message: "This restores accessible Vision defaults. It does not change camera permission in iOS Settings.") { [weak self] in
+        confirm(title: "Réinitialiser les réglages Vision ?", message: "Les réglages d'accessibilité de Vision retrouveront leurs valeurs par défaut. L'autorisation d'accès à la caméra se gère dans les réglages iOS.") { [weak self] in
             self?.preferencesStore.reset()
             self?.loadValues()
         }
@@ -399,8 +399,8 @@ final class JarvisSettingsViewController: UIViewController {
 
     private func confirm(title: String, message: String, action: @escaping () -> Void) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Confirm", style: .destructive) { _ in action() })
+        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Confirmer", style: .destructive) { _ in action() })
         present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
     }
 

@@ -16,6 +16,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
     private let stateLabel = UILabel()
     private let hintLabel = UILabel()
     private let transientResponseLabel = UILabel()
+    /// Discreet four-step indicator: micro actif → son reçu → texte compris → réponse.
+    private let voiceStageLabel = UILabel()
+    private var voiceStage: JarvisVoiceStage = .idle
+    private var voiceStageFailed = false
+    private var voiceLevel: Float = 0
     private let inputContainer = JarvisPanelView()
     private let commandField = UITextField()
     private let submitButton = UIButton(type: .system)
@@ -144,6 +149,15 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         transientResponseLabel.alpha = 0
         transientResponseLabel.accessibilityIdentifier = "jarvis.transientResponse"
 
+        voiceStageLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
+        voiceStageLabel.adjustsFontForContentSizeCategory = true
+        voiceStageLabel.textAlignment = .center
+        voiceStageLabel.numberOfLines = 1
+        voiceStageLabel.adjustsFontSizeToFitWidth = true
+        voiceStageLabel.minimumScaleFactor = 0.7
+        voiceStageLabel.accessibilityIdentifier = "jarvis.voiceStage"
+        renderVoiceStage()
+
         commandField.delegate = self
         commandField.attributedPlaceholder = NSAttributedString(
             string: "Demandez à JARVIS…",
@@ -207,7 +221,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
         inputContainer.backgroundColor = UIColor(red: 0.025, green: 0.033, blue: 0.040, alpha: 0.92)
         inputContainer.layer.cornerRadius = JarvisDesignSystem.Radius.commandBar
 
-        [wordmarkLabel, subtitleLabel, orbView, stateLabel, hintLabel, transientResponseLabel, inputContainer, menuButton, helpButton].forEach {
+        [wordmarkLabel, subtitleLabel, orbView, stateLabel, hintLabel, voiceStageLabel, transientResponseLabel, inputContainer, menuButton, helpButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview($0)
         }
@@ -219,6 +233,7 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             orbView,
             stateLabel,
             hintLabel,
+            voiceStageLabel,
             transientResponseLabel,
             inputContainer,
         ]
@@ -265,7 +280,11 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             hintLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
             hintLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
 
-            transientResponseLabel.topAnchor.constraint(equalTo: hintLabel.bottomAnchor, constant: 18),
+            voiceStageLabel.topAnchor.constraint(equalTo: hintLabel.bottomAnchor, constant: 8),
+            voiceStageLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
+            voiceStageLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
+
+            transientResponseLabel.topAnchor.constraint(equalTo: voiceStageLabel.bottomAnchor, constant: 12),
             transientResponseLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
             transientResponseLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
 
@@ -306,40 +325,119 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
 
     private func wireVoice() {
         speech.onSpeechStart = { [weak self] in
+            self?.setVoiceStage(.reply)
             self?.setInterfaceState(.speaking, hint: "JARVIS parle.")
         }
         speech.onSpeechFinish = { [weak self] in
             guard let self else { return }
+            // A reply interrupted by a new turn reports didCancel asynchronously; it must
+            // not pull the screen out of the listening state the user just entered.
+            guard !self.voiceInput.isListening else { return }
+            self.setVoiceStage(.idle)
             if JarvisSpeechService.shared.isEnabled {
-                self.setInterfaceState(.ready, hint: "JARVIS est prêt.")
+                self.setInterfaceState(.ready, hint: "JARVIS est prêt. Touchez l'orbe pour parler.")
             } else {
                 self.setInterfaceState(.quiet, hint: "Mode silencieux.")
             }
         }
         voiceInput.onStateChange = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .standby:
-                self?.setInterfaceState(.standby, hint: "JARVIS est prêt.")
+                self.setVoiceStage(.idle)
+                self.setInterfaceState(.standby, hint: "JARVIS est prêt.")
             case .listening:
-                self?.speech.stop()
-                self?.setInterfaceState(.listening, hint: "Écoute en cours.")
+                self.setVoiceStage(.micro)
+                self.setInterfaceState(.listening, hint: "Micro actif. Parlez maintenant.")
+            case .hearingSound:
+                self.setVoiceStage(.sound)
+                if self.voiceInput.currentTranscript.isEmpty {
+                    self.hintLabel.text = "Son reçu…"
+                }
             case .heardYou(let transcript):
-                self?.setInterfaceState(.heardYou, hint: transcript)
+                self.setVoiceStage(.text)
+                self.setInterfaceState(.heardYou, hint: "« \(transcript) »")
             case .processing:
-                self?.setInterfaceState(.processing, hint: "Traitement en cours.")
+                self.setInterfaceState(.processing, hint: "Traitement en cours.")
             case .noSpeech:
-                self?.setInterfaceState(.ready, hint: "Aucune parole détectée.")
-            case .unavailable(let message):
-                self?.setInterfaceState(.attention, hint: message)
-                self?.showTransient(message)
+                self.setVoiceStage(self.voiceStage, failed: true)
+                self.setInterfaceState(.ready, hint: "Aucune parole détectée.")
+                self.showTransient(self.voiceStage == .sound
+                    ? "J'ai capté du son mais aucun mot. Parlez un peu plus près du téléphone, puis touchez l'orbe."
+                    : "Le micro n'a capté qu'un son très faible. Parlez plus fort ou plus près, puis touchez l'orbe.")
+            case .unavailable(let failure):
+                self.setVoiceStage(self.voiceStage, failed: true)
+                self.setInterfaceState(.attention, hint: failure.message)
+                self.showTransient(failure.message)
+                if failure.offersSettings {
+                    self.offerVoiceSettings(for: failure)
+                }
             }
         }
         voiceInput.onPartialTranscript = { [weak self] transcript in
-            self?.hintLabel.text = transcript.isEmpty ? "Écoute en cours." : transcript
+            guard let self else { return }
+            if !transcript.isEmpty { self.setVoiceStage(.text) }
+            self.hintLabel.text = transcript.isEmpty ? "Micro actif. Parlez maintenant." : transcript
         }
         voiceInput.onFinalTranscript = { [weak self] transcript in
             self?.execute(transcript, source: "voice")
         }
+        voiceInput.onInputLevel = { [weak self] level in
+            guard let self, self.voiceStage == .micro || self.voiceStage == .sound || self.voiceStage == .text else { return }
+            self.voiceLevel = level
+            self.renderVoiceStage()
+        }
+    }
+
+    private func startVoiceTurn() {
+        // Stop any reply first so the speech service releases the audio session before
+        // the microphone takes it, then listen.
+        speech.stop()
+        voiceStageFailed = false
+        voiceLevel = 0
+        voiceInput.startListening()
+    }
+
+    private func setVoiceStage(_ stage: JarvisVoiceStage, failed: Bool = false) {
+        voiceStage = stage
+        voiceStageFailed = failed
+        if stage == .idle || failed { voiceLevel = 0 }
+        renderVoiceStage()
+    }
+
+    private func renderVoiceStage() {
+        let steps: [(JarvisVoiceStage, String)] = [(.micro, "Micro"), (.sound, "Son"), (.text, "Texte"), (.reply, "Réponse")]
+        let result = NSMutableAttributedString()
+        var spoken: [String] = []
+        for (index, step) in steps.enumerated() {
+            let reached = voiceStage.rawValue >= step.0.rawValue
+            let blocked = voiceStageFailed && step.0.rawValue == voiceStage.rawValue + 1
+            let color: UIColor = blocked ? JarvisTheme.warning : reached ? JarvisTheme.accentHot : JarvisTheme.mutedText.withAlphaComponent(0.55)
+            var label = "\(blocked ? "✕" : reached ? "●" : "○") \(step.1)"
+            if step.0 == .sound, voiceStage.rawValue >= JarvisVoiceStage.micro.rawValue, voiceStage != .reply, !voiceStageFailed {
+                let bars = ["▁", "▂", "▃", "▅", "▇"]
+                label += " " + bars[min(bars.count - 1, Int(voiceLevel * Float(bars.count)))]
+            }
+            if index > 0 { result.append(NSAttributedString(string: "  ·  ", attributes: [.foregroundColor: JarvisTheme.mutedText.withAlphaComponent(0.4)])) }
+            result.append(NSAttributedString(string: label, attributes: [.foregroundColor: color]))
+            spoken.append("\(step.1) \(blocked ? "bloqué" : reached ? "validé" : "en attente")")
+        }
+        voiceStageLabel.attributedText = result
+        voiceStageLabel.accessibilityLabel = "Étapes de la voix : " + spoken.joined(separator: ", ")
+    }
+
+    private func offerVoiceSettings(for failure: JarvisVoiceFailure) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "Voix indisponible", message: "\(failure.message)\n\nDétail technique : \(failure.diagnostic)", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Ouvrir Réglages", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Utiliser le clavier", style: .cancel) { [weak self] _ in
+            self?.commandField.becomeFirstResponder()
+        })
+        present(alert, animated: true)
     }
 
     private func execute(_ text: String, source: String = "typed") {
@@ -506,16 +604,17 @@ final class JarvisRootViewController: UIViewController, UITextFieldDelegate {
             setInterfaceState(.ready, hint: "JARVIS est prêt.")
             speech.speak("JARVIS est prêt.", notifyState: false)
         case .ready, .done, .attention, .quiet:
-            voiceInput.startListening()
+            startVoiceTurn()
         case .listening, .heardYou:
             voiceInput.stopListening(process: true)
         case .processing:
             showTransient("Traitement en cours.")
         case .speaking:
             speech.stop()
+            setVoiceStage(.idle)
             setInterfaceState(.ready, hint: "Parole arrêtée.")
         case .inspection:
-            voiceInput.startListening()
+            startVoiceTurn()
         }
     }
 
