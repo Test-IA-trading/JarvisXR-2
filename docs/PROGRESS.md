@@ -22,7 +22,7 @@ appareil tant que la ligne « iPhone » ne le dit pas.
 | D · Sécurités | Arrêt d'urgence indépendant, contrôle « zéro frais » des appels réseau, confirmations, réinitialisation complète | Écrit, XCTest ajoutés ; CI à passer ; iPhone à tester |
 | E · Caméra | Désactivation temporaire réversible (§22), `JarvisFeatures.cameraEnabled` | Écrit ; CI à passer |
 | F · Voix | −2 demi-tons par défaut, « voix plus grave / plus aiguë / normale » | Écrit ; à écouter sur iPhone |
-| G · Conversation lot 1 | Parole réellement diffusée (CONVERSATION_NATURELLE, lot 1) | Prochain lot |
+| G · Conversation lot 1 | Parole réellement diffusée (CONVERSATION_NATURELLE, lot 1) : `JarvisSpokenReply`, `noteInterruptedTurn`, `recordAnswer` | Écrit (`0ee67e1`), XCTest ajoutés ; CI 46078976615 en cours |
 | H · ASR iOS 26 | `SpeechAnalyzer` en option, comparé sur l'iPhone | À faire |
 | I · Modèle local | Banc d'essai sur l'appareil, candidats 2026 (DECISIONS D7) | À faire |
 
@@ -52,6 +52,10 @@ appareil tant que la ligne « iPhone » ne le dit pas.
   réinitialisation, le journal, l'arrêt d'urgence et la garde financière : à exécuter par la CI.
 - Non fait : `%APPDATA%\JarvisPC\settings.json` du PC garde `voice_pitch_semitones: 1.5` (lecture hors du dépôt
   bloquée par les réglages de Claude Code) : le passer à `-2.0` pour la même voix grave sur le PC.
+- CI : run 46069446198 sur `f903ecf` (lots A à F) **réussi** (validation Python, compilation iPhoneOS, tests
+  unitaires et d'interface sur simulateur). Préversion `v2.0.0-preversion.11` publiée depuis ce commit :
+  `JarvisXR-v11-f903ecf-NON-SIGNEE.ipa`, 25 978 206 octets, SHA-256 65fcf7f2…, téléchargement anonyme vérifié,
+  copie et LISEZMOI-v11.txt dans OneDrive\Desktop\Jarvis\IPA. Lot G poussé ensuite (`0ee67e1`), CI en cours.
 - À tester sur iPhone : « Tu as accès à Obsidian ? », « Souviens-toi que… » puis « Tu te souviens de… » après
   redémarrage, une même question générale posée deux fois (la seconde doit être immédiate, provenance à l'écran),
   « arrêt d'urgence » puis « reprends », secousse, « Réinitialise complètement ta mémoire » puis « non », la voix
