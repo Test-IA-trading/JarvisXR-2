@@ -26,3 +26,9 @@ secrets.*
 # Checksum-pinned model fetched by tools/fetch_vision_model.py before XcodeGen.
 ios/JarvisXR/JarvisXR/Models/JarvisObjectDetector.mlmodel
 ios/JarvisXR/JarvisXR/Models/.JarvisObjectDetector-*.download
+
+# Checksum-pinned llama.cpp iPhone framework fetched by tools/fetch_llama_framework.py.
+ios/JarvisXR/Frameworks/
+
+# Python environment of the PC Jarvis (created by pc/Jarvis.bat).
+pc/.venv/

@@ -185,7 +185,7 @@ final class VisionAnalyzerPipelineTests: XCTestCase {
             }
             preparation.fulfill()
         }
-        wait(for: [preparation], timeout: 30)
+        wait(for: [preparation], timeout: 90)
 
         var nativeResult: ObjectDetectionResult?
         let inference = expectation(description: "real Desk_chair inference")
@@ -196,7 +196,9 @@ final class VisionAnalyzerPipelineTests: XCTestCase {
             }
             inference.fulfill()
         }
-        wait(for: [inference], timeout: 45)
+        // The Intel CI simulator has taken more than 45 s for this single inference when its
+        // host was saturated; the assertion stays about the result, not the speed.
+        wait(for: [inference], timeout: 150)
 
         let result = try XCTUnwrap(nativeResult)
         let chair = result.observations.first(where: { $0.classIdentifier == "chair" })
@@ -250,8 +252,8 @@ final class VisionAnalyzerPipelineTests: XCTestCase {
             ]
         }
         let narration = chair.map {
-            "I may be seeing a \($0.name) \($0.horizontalRegion.spokenLocation)."
-        } ?? "I do not have enough evidence to describe this image."
+            "Je vois peut-être \(VisionFrenchVocabulary.noun(for: $0.classIdentifier).indefinite) \($0.horizontalRegion.spokenLocation)."
+        } ?? "Je n'ai pas assez d'indices pour décrire cette image."
         let payload: [String: Any] = [
             "schema_version": 1,
             "fixtures": [[

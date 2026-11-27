@@ -50,6 +50,7 @@ def main() -> int:
         pytest("core/adapters/tests", "adapters"),
         pytest("core/router/tests", "router"),
         pytest("core/daemon/tests", "daemon"),
+        pytest("pc/tests", "pc"),
     ]
     for command in checks:
         code = run(command)

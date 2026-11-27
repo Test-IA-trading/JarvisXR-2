@@ -46,9 +46,9 @@ enum SpatialRegion: String, Codable, CaseIterable, Sendable {
 
     var spokenLocation: String {
         switch self {
-        case .left: return "on the left"
-        case .center: return "near the center"
-        case .right: return "on the right"
+        case .left: return "à gauche"
+        case .center: return "au centre"
+        case .right: return "à droite"
         }
     }
 }

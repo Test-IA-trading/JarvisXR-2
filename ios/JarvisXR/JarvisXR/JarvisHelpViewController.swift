@@ -22,7 +22,7 @@ final class JarvisHelpViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = initialSection == .vision ? "Vision Help" : "Help"
+        title = initialSection == .vision ? "Aide Vision" : "Aide"
         view.backgroundColor = JarvisTheme.background
         buildInterface()
     }
@@ -50,7 +50,7 @@ final class JarvisHelpViewController: UIViewController {
         ])
 
         let header = label(
-            initialSection == .vision ? "Use Jarvis Vision" : "Operate JARVIS",
+            initialSection == .vision ? "Utiliser Jarvis Vision" : "Utiliser JARVIS",
             style: .largeTitle,
             color: JarvisTheme.text
         )
@@ -59,85 +59,87 @@ final class JarvisHelpViewController: UIViewController {
         stackView.addArrangedSubview(header)
 
         let intro = label(
-            "Use touch, the in-app Voice button, natural phrases, Shortcuts, or jarvis:// links. Every camera result is available as speech and visible text.",
+            "Touchez l'orbe ou le bouton Voix et parlez en français, ou passez par Raccourcis et les liens jarvis://. Chaque résultat de la caméra est lu à voix haute et affiché.",
             style: .body,
             color: JarvisTheme.mutedText
         )
         stackView.addArrangedSubview(intro)
 
         addCallout(
-            "Safety first",
-            "Jarvis can miss or misidentify things. It is not a replacement for a cane, guide dog, human help, or safe mobility practices. Never use a camera result as permission to cross or proceed."
+            "La sécurité d'abord",
+            "Jarvis peut rater ou mal reconnaître des choses. Il ne remplace ni une canne, ni un chien guide, ni l'aide d'une personne, ni les précautions de déplacement. Un résultat de la caméra n'est jamais une autorisation de traverser ou d'avancer."
         )
 
-        addSection("Describe surroundings", [
-            "Choose Describe, point the phone, then select Describe What Is Here.",
-            "Try: “What is in front of me?”, “Describe this room,” or “Describe the left side.”",
-            "Use More Detail to expand the latest grounded result without taking another photo.",
+        addSection("Décrire ce qui vous entoure", [
+            "Choisissez Décrire, orientez le téléphone, puis touchez « Décrire ce qui est là ».",
+            "Dites : « Qu'est-ce que tu vois ? » ou « Décris ».",
+            "« Plus de détails » développe le dernier résultat sans reprendre de photo.",
         ])
-        addSection("Start Live Guide", [
-            "Choose Live, then Start Live Guide. Stable, meaningful changes are announced while Jarvis stays in the foreground.",
-            "Try: “Start live guide,” “Pause live guide,” “Only important changes,” or “What changed?”",
-            "Live Guide stops when Jarvis moves to the background. It is informational assistance, not navigation certification.",
+        addSection("Guide en direct", [
+            "Choisissez Guide en direct, puis « Lancer le guide en direct ». Jarvis annonce une fois chaque objet qui apparaît, se déplace ou disparaît, tant que l'app reste ouverte.",
+            "Touchez Voix et demandez : « Elle est où maintenant ? », « Qu'est-ce qui a bougé ? » ou « Qu'est-ce que tu vois ? ».",
+            "Quand c'est le téléphone qui bouge, Jarvis ne l'annonce pas comme un déplacement de l'objet. Le guide s'arrête quand Jarvis passe en arrière-plan. C'est une aide d'information, pas un outil de navigation certifié.",
         ])
-        addSection("Find an object", [
-            "Choose Find, name a supported object, and pan slowly.",
-            "Try: “Find the chair,” “Where is the person?”, or “Find the door.”",
-            "Jarvis reports broad left, center, or right guidance and says when a requested target is unsupported or lost.",
+        addSection("Trouver un objet", [
+            "Choisissez Trouver, nommez un objet reconnu (tasse, chaise, bouteille, téléphone…) et balayez lentement.",
+            "Dites : « Trouve la tasse » ou « Cherche mon téléphone ».",
+            "Jarvis indique gauche, centre ou droite, et dit honnêtement quand l'objet n'est pas reconnu ou a été perdu.",
         ])
-        addSection("Read text", [
-            "Choose Read, hold printed text steady, then Capture and Read.",
-            "Try: “Read this.” Use Pause Reading, Previous Line, and Next Line for control.",
-            "Recognized text remains session-only and is not added to general command history.",
+        addSection("Lire un texte", [
+            "Choisissez Lire, tenez le texte imprimé immobile, puis « Capturer et lire ».",
+            "Dites : « Lis ce texte ». Pause lecture, Ligne précédente et Ligne suivante permettent de naviguer.",
+            "Le texte reconnu ne reste que pendant la session et n'entre pas dans l'historique des commandes.",
         ])
-        addSection("Scan a barcode", [
-            "Choose Scan and move slowly across the package or code.",
-            "Try: “Scan this barcode.” Jarvis speaks the value only in Scan mode and never opens a detected link automatically.",
+        addSection("Scanner un code-barres", [
+            "Choisissez Code-barres et passez lentement sur l'emballage ou le code.",
+            "Dites : « Scanne le code-barres ». Jarvis lit la valeur et n'ouvre jamais un lien tout seul.",
         ])
-        addSection("Identify color and camera quality", [
-            "Try: “What color is this?” Keep the surface in the center of the camera.",
-            "Try: “Is the camera blocked?” Jarvis may suggest more light, less motion, or different framing.",
-            "Color names are approximate and can change with lighting and camera exposure.",
+        addSection("Couleur et qualité de l'image", [
+            "Le mode Couleur nomme approximativement la couleur au centre de l'image ; elle change avec la lumière.",
+            "Si l'image est trop sombre, floue ou masquée, Jarvis le dit et propose plus de lumière, moins de mouvement ou un autre cadrage.",
         ])
-        addSection("Use the flashlight", [
-            "Select Flashlight, or say “Turn on the flashlight” and “Turn off the flashlight.”",
-            "Ask “Is the flashlight on?” to hear the current Vision flashlight state.",
-            "The flashlight turns off when Vision stops or the app leaves the foreground.",
+        addSection("Lampe", [
+            "Touchez Lampe pour l'allumer ou l'éteindre.",
+            "La lampe s'éteint quand Vision s'arrête ou quand l'app passe en arrière-plan.",
         ])
-        addSection("Prepare a message", [
-            "Say “Message Alex” or “Tell Alex I will arrive soon,” then select the intended contact and phone number in the accessible system contact picker.",
-            "Jarvis reads the selected recipient and draft back. Say “Open the message composer” only when you are ready to review it in the standard iOS composer.",
-            "Sending or cancelling happens in the system composer. Jarvis does not silently send messages or upload contacts and message contents.",
+        addSection("Préparer un message", [
+            "Le choix du contact passe par le sélecteur d'iOS, et Jarvis vous relit le destinataire et le brouillon.",
+            "L'envoi ou l'annulation se fait dans la fenêtre de message d'iOS : Jarvis n'envoie rien sans vous et n'envoie ni vos contacts ni vos messages en ligne.",
         ])
-        addSection("Stop, repeat, and speech", [
-            "The red Stop control stays visible at the bottom of Vision. It stops camera analysis, speech, haptics, and voice input.",
-            "Try: “Stop,” “Repeat that,” “Give me more detail,” or “Describe less.”",
-            "Tap Voice inside Vision to give these commands without returning to the main screen.",
+        addSection("Stop, répéter et voix", [
+            "Le bouton rouge Stop reste visible en bas de Vision : il coupe l'analyse de la caméra, la voix, les vibrations et l'écoute.",
+            "Dites : « Stop », « Arrête d'observer » ou « Coupe la caméra ». Le bouton Répéter relit le dernier résultat.",
+            "Touchez Voix dans Vision pour donner ces commandes sans revenir à l'accueil.",
         ])
-        addSection("Understand haptics", [
-            "Direction cues distinguish left, center, and right. Separate patterns indicate target found, target lost, warning, and completion.",
-            "Haptics can be reduced or disabled in Vision Settings. Spoken direction remains available.",
+        addSection("Vibrations", [
+            "Des vibrations distinctes indiquent gauche, centre et droite, objet trouvé, objet perdu, alerte et fin.",
+            "Vous pouvez les réduire ou les couper dans les Réglages Vision ; la voix reste disponible.",
         ])
-        addSection("Privacy", [
-            "Core Vision processing is on device and does not require a vision network service.",
-            "Jarvis does not automatically save camera photos, video, recognized text, or barcode values.",
-            "Stopping a Vision session clears its temporary scene memory unless you explicitly save separate information.",
+        addSection("Confidentialité", [
+            "L'analyse Vision se fait sur l'iPhone, sans service réseau.",
+            "Jarvis n'enregistre pas automatiquement les photos, les vidéos, les textes reconnus ni les codes-barres.",
+            "Arrêter Vision efface la mémoire temporaire de la scène : objets vus, positions, capteurs de mouvement.",
         ])
-        addSection("Troubleshooting", [
-            "Camera access off: use Open iOS Settings in the recovery panel, enable Camera, return, and Try Again.",
-            "Model unavailable: Read and Scan may still work; Diagnostics shows validation and availability details.",
-            "Dark or blurry result: add light, move closer, steady the phone, and capture again.",
-            "No speech: confirm Speech Output in Settings and check the current audio route.",
+        addSection("Dépannage", [
+            "Accès à la caméra coupé : touchez « Ouvrir les Réglages iOS », activez Caméra, revenez, puis « Réessayer ».",
+            "Modèle indisponible : Lire et Code-barres peuvent encore fonctionner ; les Diagnostics donnent les détails.",
+            "Résultat sombre ou flou : ajoutez de la lumière, rapprochez-vous, stabilisez le téléphone et recommencez.",
+            "Pas de voix : vérifiez la sortie vocale dans les Réglages et la sortie audio en cours.",
+            "Voix robotique : Réglages › Voix de Jarvis › « Voix plus naturelle » explique comment télécharger gratuitement une voix « Améliorée » ou « Premium ».",
         ])
-        addSection("Main JARVIS and Control Mesh", [
-            "Tap once from standby to wake JARVIS.",
-            "Tap again to listen. Tap while listening to process what you said.",
-            "Tap while JARVIS is speaking to stop speech. Long hold to return to standby.",
-            "Try: scan this, read this, detect objects, or open Control Mesh.",
-            "Control Mesh explains supported Voice Control, Shortcuts, and phone-level routes without claiming hidden system control.",
+        addSection("JARVIS et Control Mesh", [
+            "Touchez l'orbe et parlez. Jarvis réécoute après chaque réponse ; dites « C'est tout » pour arrêter.",
+            "Touchez l'orbe pendant que Jarvis réfléchit ou parle pour l'interrompre.",
+            "Maintenez l'orbe appuyé pour remettre Jarvis en veille.",
+            "Réveil par la voix (Réglages) : JARVIS ouvert sur l'accueil, dites « Jarvis, quelle heure est-il ? » ou tapez deux fois dans vos mains, sans toucher l'écran.",
+            "Posez n'importe quelle question : une fois le cerveau local téléchargé (Réglages › Cerveau local), Jarvis répond même en mode avion ; relié à votre PC (Réglages › Jarvis PC), il répond avec le cerveau du PC et exécute « Sur le PC, ouvre Spotify ».",
+            "Dites « Je m'appelle… » et « Souviens-toi que… » : Jarvis s'en sert pour vous répondre. « Qu'est-ce que tu sais sur moi ? » fait le point, tout reste sur l'iPhone.",
+            "Calculs, conversions et dates exacts, sans Internet : « Combien font 128 fois 46 ? », « Intégrale de 0 à 1 de x au carré », « 10 miles en kilomètres », « Combien de jours avant Noël ? ».",
+            "Dites aussi : « Mets un minuteur de 10 minutes », « Rappelle-moi d'appeler maman demain à 18 h », « Qu'est-ce que j'ai demain ? », « Fais-moi le point », « Ouvre le cube ».",
+            "Control Mesh explique les commandes vocales d'iOS, les Raccourcis et les liens pris en charge, sans prétendre contrôler le système.",
         ])
 
-        let done = JarvisTheme.button(title: "Done")
+        let done = JarvisTheme.button(title: "Terminé")
         done.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
         done.titleLabel?.adjustsFontForContentSizeCategory = true
         done.accessibilityIdentifier = "jarvis.help.done"
