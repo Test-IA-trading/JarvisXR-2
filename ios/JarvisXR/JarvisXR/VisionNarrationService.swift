@@ -55,7 +55,7 @@ final class VisionNarrationService {
         guard !speakable.isEmpty else {
             var text = safetyPolicy.qualifiedAbsence(region: region)
             if !snapshot.text.isEmpty {
-                text += " I also detect readable text."
+                text += " Je repère aussi du texte lisible."
             }
             return makeNarration(
                 snapshot: snapshot,
@@ -70,8 +70,8 @@ final class VisionNarrationService {
             describe(tracked, decision: decision, verbosity: verbosity)
         }
         if !snapshot.text.isEmpty, verbosity != .concise {
-            let textRegion = snapshot.text.first?.boundingBox.horizontalRegion.spokenLocation ?? "in view"
-            sentences.append("I also detect readable text \(textRegion).")
+            let textRegion = snapshot.text.first?.boundingBox.horizontalRegion.spokenLocation ?? "dans l'image"
+            sentences.append("Je repère aussi du texte lisible \(textRegion).")
         }
         if !snapshot.quality.warnings.isEmpty, let guidance = snapshot.quality.guidance.first {
             sentences.append(guidance)
@@ -107,7 +107,7 @@ final class VisionNarrationService {
         guard !meaningful.isEmpty else {
             return makeNarration(
                 snapshot: snapshot,
-                text: "I do not have a confirmed visual change to report.",
+                text: "Je n'ai pas de changement visuel confirmé à signaler.",
                 priority: .change,
                 verbosity: verbosity,
                 contentKind: .change
@@ -124,6 +124,19 @@ final class VisionNarrationService {
             verbosity: verbosity,
             contentKind: .change,
             groundedIdentifiers: selected.map(\.trackIdentifier)
+        )
+    }
+
+    /// Live Guide: one French line for the debounced events of a frame (see VisionLiveGuideEngine).
+    func narrateLiveGuide(events: [VisionLiveGuideEvent], snapshot: SceneSnapshot) -> SceneNarration? {
+        guard !events.isEmpty else { return nil }
+        return makeNarration(
+            snapshot: snapshot,
+            text: VisionLiveGuideEngine.narrationText(for: events),
+            priority: .change,
+            verbosity: .standard,
+            contentKind: .change,
+            groundedIdentifiers: events.map(\.trackIdentifier)
         )
     }
 
@@ -153,8 +166,8 @@ final class VisionNarrationService {
         snapshot: SceneSnapshot,
         verbosity: NarrationVerbosity
     ) -> SceneNarration {
-        let definition = VisionClassCatalog.definition(forIdentifier: classIdentifier)
-        let targetName = definition?.displayName ?? classIdentifier
+        let targetNoun = VisionFrenchVocabulary.noun(for: classIdentifier)
+        let notFound = "Je n'ai pas encore trouvé \(targetNoun.definite). Balayez lentement : je peux \(targetNoun.objectPronoun) manquer."
         guard let candidate = candidates.first(where: {
             if case .suppressed = safetyPolicy.decision(for: $0, frameUsable: snapshot.quality.isUsable) {
                 return false
@@ -163,7 +176,7 @@ final class VisionNarrationService {
         }) else {
             return makeNarration(
                 snapshot: snapshot,
-                text: "I have not found \(targetName) yet. Pan slowly; I may be missing it.",
+                text: notFound,
                 priority: .target,
                 verbosity: verbosity,
                 contentKind: .target
@@ -175,11 +188,11 @@ final class VisionNarrationService {
         let text: String
         switch decision {
         case .supported:
-            text = "I detect \(phrase) \(candidate.horizontalRegion.spokenLocation)."
+            text = "Je détecte \(phrase) \(candidate.horizontalRegion.spokenLocation)."
         case .uncertain:
-            text = "I may be seeing \(phrase) \(candidate.horizontalRegion.spokenLocation)."
+            text = "Je vois peut-être \(phrase) \(candidate.horizontalRegion.spokenLocation)."
         case .suppressed:
-            text = "I have not found \(targetName) yet. Pan slowly; I may be missing it."
+            text = notFound
         }
         return makeNarration(
             snapshot: snapshot,
@@ -199,56 +212,50 @@ final class VisionNarrationService {
         let phrase = objectPhrase(tracked)
         let evidence: String
         switch decision {
-        case .supported: evidence = "I detect \(phrase)"
-        case .uncertain: evidence = "I may be seeing \(phrase)"
+        case .supported: evidence = "Je détecte \(phrase)"
+        case .uncertain: evidence = "Je vois peut-être \(phrase)"
         case .suppressed: return ""
         }
 
         var details = " \(tracked.horizontalRegion.spokenLocation)"
         if verbosity == .detailed {
             switch tracked.verticalRegion {
-            case .high: details += ", high in the view"
-            case .low: details += ", low in the view"
+            case .high: details += ", en haut de l'image"
+            case .low: details += ", en bas de l'image"
             case .middle: break
             }
+            let noun = VisionFrenchVocabulary.noun(for: tracked.classIdentifier)
+            let pronoun = noun.subjectPronoun.capitalizedFirstLetter
             if tracked.observation.relativeDistance == .possiblyClose {
-                details += ". It may be relatively close based only on its size in the image"
+                details += ". \(pronoun) semble assez proche, d'après sa seule taille dans l'image"
             } else if tracked.observation.relativeDistance == .fartherAway {
-                details += ". It appears smaller and may be farther away"
+                details += ". \(pronoun) paraît plus \(noun.isFeminine ? "petite" : "petit") et peut-être plus loin"
             }
         }
         return evidence + details + "."
     }
 
     private func objectPhrase(_ tracked: TrackedObservation) -> String {
-        if let definition = VisionClassCatalog.definition(forIdentifier: tracked.classIdentifier) {
-            if let article = definition.indefiniteArticle {
-                return "\(article) \(definition.displayName)"
-            }
-            return definition.displayName
-        }
-        let name = tracked.name
-        guard let first = name.lowercased().first else { return "an object" }
-        let article = "aeiou".contains(first) ? "an" : "a"
-        return "\(article) \(name)"
+        VisionFrenchVocabulary.noun(for: tracked.classIdentifier).indefinite
     }
 
     private func changeDescription(_ change: SceneChange) -> String {
-        let phrase = change.name
+        let noun = VisionFrenchVocabulary.noun(for: change.classIdentifier)
+        let subject = noun.capitalizedDefinite
         switch change.kind {
         case .appeared:
-            return "I now detect \(phrase) \((change.currentRegion ?? .center).spokenLocation)."
+            return "Je vois maintenant \(noun.indefinite) \((change.currentRegion ?? .center).spokenLocation)."
         case .moved:
             if let previous = change.previousRegion, let current = change.currentRegion, previous != current {
-                return "The \(phrase) moved from \(previous.spokenLocation) to \(current.spokenLocation)."
+                return "\(subject) s'est \(noun.agreed("déplacé")) \(previous.frenchFromPhrase) \(current.frenchTowardPhrase)."
             }
-            return "The \(phrase) moved within the view."
+            return "\(subject) a bougé dans l'image."
         case .approaching:
-            return "The \(phrase) is getting larger in the image \((change.currentRegion ?? .center).spokenLocation)."
+            return "\(subject) grossit dans l'image, \((change.currentRegion ?? .center).spokenLocation)."
         case .receding:
-            return "The \(phrase) is getting smaller in the image \((change.currentRegion ?? .center).spokenLocation)."
+            return "\(subject) rapetisse dans l'image, \((change.currentRegion ?? .center).spokenLocation)."
         case .lost:
-            return "I lost the \(phrase). It was last seen \((change.previousRegion ?? .center).spokenLocation)."
+            return "Je ne vois plus \(noun.definite). Je l'ai \(noun.agreed("vu")) pour la dernière fois \((change.previousRegion ?? .center).spokenLocation)."
         case .persisted, .uncertain:
             return ""
         }
@@ -257,17 +264,17 @@ final class VisionNarrationService {
     private func qualityNarration(for snapshot: SceneSnapshot, verbosity: NarrationVerbosity) -> SceneNarration {
         let text: String
         if snapshot.quality.warnings.contains(.cameraCovered) {
-            text = "The camera may be covered. Uncover it and try again."
+            text = "La caméra est peut-être couverte. Dégagez l'objectif et réessayez."
         } else if snapshot.quality.warnings.contains(.lowLight) {
-            text = "The image is too dark for a reliable description. More light may help."
+            text = "L'image est trop sombre pour une description fiable. Plus de lumière aiderait."
         } else if snapshot.quality.warnings.contains(.overexposed) {
-            text = "The image is too bright for a reliable description. Point away from the strongest light and try again."
+            text = "L'image est trop claire pour une description fiable. Détournez la caméra de la lumière la plus forte et réessayez."
         } else if snapshot.quality.warnings.contains(.blurry) || snapshot.quality.warnings.contains(.excessiveMotion) {
-            text = "The image is too blurry for a reliable description. Hold the phone steadier and try again."
+            text = "L'image est trop floue pour une description fiable. Tenez le téléphone plus immobile et réessayez."
         } else if let guidance = snapshot.quality.guidance.first {
-            text = "I cannot identify the scene reliably. \(guidance)"
+            text = "Je ne peux pas identifier la scène de façon fiable. \(guidance)"
         } else {
-            text = "I cannot provide a reliable description from this image."
+            text = "Je ne peux pas donner de description fiable à partir de cette image."
         }
         return makeNarration(
             snapshot: snapshot,
