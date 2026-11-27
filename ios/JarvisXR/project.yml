@@ -28,6 +28,54 @@ targets:
         DEVELOPMENT_TEAM: ""
         SUPPORTED_INTERFACE_ORIENTATIONS: UIInterfaceOrientationPortrait
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Local brain: the pinned llama.cpp release has an iPhone (ios-arm64) slice
+        # but no simulator slice, so it is linked for iPhoneOS builds only. Simulator
+        # builds compile the brain's unavailable path (`#if canImport(llama)`).
+        # Fetch it first with: python3 tools/fetch_llama_framework.py
+        "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(PROJECT_DIR)/Frameworks/ios-arm64"]
+        "OTHER_LDFLAGS[sdk=iphoneos*]": ["$(inherited)", "-framework", "llama"]
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    dependencies:
+      # The Dynamic Island and lock screen of the background watch (embedded in PlugIns).
+      - target: JarvisXRWidgets
+    postBuildScripts:
+      - name: Embed llama.cpp framework (iPhone builds)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          if [ "${PLATFORM_NAME}" != "iphoneos" ]; then
+            exit 0
+          fi
+          SOURCE="${PROJECT_DIR}/Frameworks/ios-arm64/llama.framework"
+          DESTINATION="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          if [ ! -f "${SOURCE}/llama" ]; then
+            echo "error: llama.framework is missing. Run: python3 tools/fetch_llama_framework.py"
+            exit 1
+          fi
+          mkdir -p "${DESTINATION}"
+          rm -rf "${DESTINATION}/llama.framework"
+          ditto "${SOURCE}" "${DESTINATION}/llama.framework"
+          rm -rf "${DESTINATION}/llama.framework/Headers" "${DESTINATION}/llama.framework/Modules"
+          if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --timestamp=none "${DESTINATION}/llama.framework"
+          fi
+  JarvisXRWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: JarvisXRWidgets
+      - path: JarvisXR/JarvisActivityAttributes.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.amrik.jarvisxr.widgets
+        PRODUCT_NAME: JarvisXRWidgets
+        INFOPLIST_FILE: JarvisXRWidgets/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        SKIP_INSTALL: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"]
   JarvisXRTests:
     type: bundle.unit-test
     platform: iOS

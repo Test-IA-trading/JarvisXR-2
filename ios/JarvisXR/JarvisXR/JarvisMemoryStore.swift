@@ -38,6 +38,39 @@ final class JarvisMemoryStore {
         return note
     }
 
+    /// Saves a note with an explicit date (field-test data such as « une note il y a huit jours »).
+    @discardableResult
+    func saveNote(_ text: String, createdAt: Date) -> JarvisNote {
+        var notes = loadNotes()
+        let note = JarvisNote(id: UUID(), text: text, createdAt: createdAt)
+        notes.append(note)
+        notes.sort { $0.createdAt > $1.createdAt }
+        saveNotes(notes)
+        return note
+    }
+
+    /// A note that already exists elsewhere (Jarvis PC), kept with its identifier so it is
+    /// never duplicated. Returns false when the iPhone already has it (same identifier or
+    /// same words).
+    @discardableResult
+    func importNote(id: UUID, text: String, createdAt: Date) -> Bool {
+        var notes = loadNotes()
+        guard !notes.contains(where: { $0.id == id || $0.text == text }) else { return false }
+        notes.append(JarvisNote(id: id, text: text, createdAt: createdAt))
+        notes.sort { $0.createdAt > $1.createdAt }
+        saveNotes(notes)
+        return true
+    }
+
+    /// Removes the notes matching `predicate` and returns how many were removed.
+    @discardableResult
+    func removeNotes(where predicate: (JarvisNote) -> Bool) -> Int {
+        let notes = loadNotes()
+        let kept = notes.filter { !predicate($0) }
+        saveNotes(kept)
+        return notes.count - kept.count
+    }
+
     func loadNotes() -> [JarvisNote] {
         guard let data = defaults.data(forKey: notesKey),
               let notes = decode([JarvisNote].self, from: data) else {
