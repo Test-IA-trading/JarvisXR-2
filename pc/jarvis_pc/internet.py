@@ -110,9 +110,33 @@ def _site(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+SEARXNG_URL = ""  # set by the app from Settings.searxng_url
+
+
+def searxng(query: str, base: str, limit: int = 4) -> list[tuple[str, str, str]]:
+    """(site, url, snippet) from the user's own SearXNG (JSON API), which itself asks several engines."""
+    data = _json(base.rstrip("/") + "/search?" + urllib.parse.urlencode({"q": query, "format": "json", "language": "fr"}))
+    out = []
+    for item in data.get("results", []) if isinstance(data, dict) else []:
+        url, text = str(item.get("url", "")), " ".join(str(item.get("content", "")).split())
+        if url.startswith("https://") and text:
+            out.append((_site(url), url, text))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def web_search(query: str, limit: int = 4) -> list[tuple[str, str, str]]:
-    """(site, url, snippet) of DuckDuckGo's first results, without ads. Only the subject is sent.
-    Empty when DuckDuckGo asks to prove a human is there: that check is never worked around."""
+    """(site, url, snippet) of the first results, without ads: the user's SearXNG when set,
+    else DuckDuckGo. Only the question is sent. Empty when DuckDuckGo asks to prove a human is
+    there: that check is never worked around."""
+    if SEARXNG_URL:
+        try:
+            found = searxng(query, SEARXNG_URL, limit)
+            if found:
+                return found
+        except (OSError, ValueError):
+            pass
     page = _get("https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query, "kl": "fr-fr"})).decode("utf-8", "replace")
     results = []
     for block in page.split('class="result__a"')[1:]:

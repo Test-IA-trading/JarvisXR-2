@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
-from . import mathsolver
+from . import mathsolver, personality
 
 OLLAMA = "http://127.0.0.1:11434"
 
@@ -87,16 +87,13 @@ def may_be_command(partial: str) -> bool:
     return "COMMANDE:".startswith(head) or head.startswith("COMMANDE")
 
 
-def system_prompt(context: list[str], now: datetime | None = None, extra: str | None = None) -> str:
+def system_prompt(context: list[str], now: datetime | None = None, extra: str | None = None, level: str = "normale",
+                  serious: bool = False) -> str:
     now = now or datetime.now()
     date = f"{WEEKDAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now.year}, {now:%H:%M}"
-    lines = [
-        "Tu es JARVIS, l'assistant personnel de l'utilisateur, sur son PC et son iPhone : cultivé, précis et calme, avec une pointe d'humour discret.",
-        "Vouvoie toujours l'utilisateur, avec la courtoisie d'un majordome.",
+    lines = personality.rules(level, serious) + [
         "Réponds toujours en français, comme dans une vraie conversation à voix haute : des phrases complètes, fluides et bien reliées "
-        "entre elles, comme le dirait une personne cultivée, jamais un style télégraphique. Va droit à l'essentiel, en deux ou trois "
-        "phrases et une soixantaine de mots au plus en général, sauf si l'utilisateur demande plus de détails ou si un calcul demande "
-        "quelques étapes.",
+        "entre elles, jamais un style télégraphique.",
         "Ta réponse est lue à voix haute : pas de listes, pas de titres, pas de markdown, pas d'émoji. Écris les formules en texte simple, sans LaTeX, par exemple x³/3 + C.",
         "Tu sais faire des mathématiques, de la physique, de la chimie, de l'histoire, du droit, du code et de la culture générale : réponds même aux questions difficiles, en donnant d'abord le résultat puis une courte explication.",
         "Quand des extraits de Wikipédia ou d'autres sites sont fournis, réponds d'après eux, fidèlement, avec tes "
@@ -130,16 +127,23 @@ def difficulty(question: str) -> str:
     return "normale"
 
 
-TOKENS = {"simple": 160, "normale": 400, "complexe": 900}
-CAREFUL = ("Cette demande demande du raisonnement : vérifie chaque étape avant de conclure, puis donne le résultat "
-           "et une explication claire, sans répéter la question.")
+TOKENS = {"simple": 120, "normale": 400, "complexe": 900}
+# Complex questions: the model reasons in writing first (hidden from screen and voice), then answers.
+DRAFT = ("Cette demande demande du raisonnement. Réfléchis d'abord par écrit entre <brouillon> et </brouillon>, en quelques "
+         "lignes brèves : les données, les calculs, une vérification. Puis, après </brouillon>, écris seulement la réponse à dire "
+         "à voix haute.")
 
 
 def clean(text: str) -> str:
     """Plain text for screen and voice: no thinking, LaTeX or markdown."""
-    text = re.sub(r"(?s)<think>.*?</think>", "", text)
-    if "<think>" in text:
-        text = text[: text.index("<think>")]
+    for tag in ("think", "brouillon"):
+        text = re.sub(rf"(?s)<{tag}>.*?</{tag}>", "", text)
+        if f"<{tag}>" in text:
+            text = text[: text.index(f"<{tag}>")]
+        # The opening tag may still be arriving (« <brou »): nothing is shown before it is complete.
+        tail = text.rfind("<")
+        if tail != -1 and f"<{tag}>".startswith(text[tail:]):
+            text = text[:tail]
     text = mathsolver.plain_math(text)
     for symbol in ("**", "__", "`", "#"):
         text = text.replace(symbol, "")
@@ -161,6 +165,7 @@ class OllamaBrain:
         self.host = host
         self.max_tokens = max_tokens
         self.last_tokens_per_second = 0.0
+        self.last_level = "normale"
 
     def installed_models(self) -> list[str]:
         try:
@@ -176,6 +181,10 @@ class OllamaBrain:
                 return name
         return None
 
+    def thinking_model(self) -> str | None:
+        """A reasoning model installed next to the main one (« qwen3:30b-a3b-thinking-2507… »), used for hard questions."""
+        return next((name for name in self.installed_models() if "thinking" in name), None)
+
     def ask(self, question: str, history: list[dict] | None = None, context: list[str] | None = None, on_text=None, timeout: float = 300,
             commands: str | None = None) -> str:
         """The answer to `question`; `on_text` receives the cleaned text written so far. With `commands`
@@ -186,14 +195,17 @@ class OllamaBrain:
         # The sources' text goes with the question itself: the brain then keeps to it.
         excerpts = [line for line in context or [] if line.startswith("Extrait de ")]
         others = [line for line in context or [] if line not in excerpts]
-        messages = [{"role": "system", "content": system_prompt(others, extra=commands)}]
+        level = difficulty(question)
+        self.last_level = level
+        serious = personality.is_serious(question)
+        thinker = self.thinking_model() if level == "complexe" and not commands else None
+        messages = [{"role": "system", "content": system_prompt(others, extra=commands, level=level, serious=serious)}]
         for turn in (history or [])[-6:]:
             if turn.get("user") and turn.get("assistant"):
                 messages.append({"role": "user", "content": turn["user"]})
                 messages.append({"role": "assistant", "content": turn["assistant"]})
-        level = difficulty(question)
-        if level == "complexe":
-            messages[0]["content"] += "\n" + CAREFUL
+        if level == "complexe" and not commands and not thinker:
+            messages[0]["content"] += "\n" + DRAFT
         content = question
         if len(excerpts) == 1:
             content += "\n\n(" + excerpts[0] + ")"
@@ -209,12 +221,13 @@ class OllamaBrain:
         # Facts from the sources are told as they are, without embroidery.
         grounded = bool(excerpts)
         body = json.dumps({
-            "model": model,
+            "model": thinker or model,
             "messages": messages,
             "stream": True,
-            "think": False,
+            "think": bool(thinker),
             "keep_alive": "30m",
-            "options": {"temperature": 0.3 if grounded or level == "complexe" else 0.6, "num_ctx": 4096,
+            "options": {"temperature": 0.3 if grounded or level == "complexe" else 0.6, "num_ctx": 4096,  # constant: another size makes Ollama reload the model (10 s or more)
+                       
                         "num_predict": max(self.max_tokens, TOKENS[level]) if level == "complexe" else min(self.max_tokens, TOKENS[level])},
         }).encode("utf-8")
         request = urllib.request.Request(self.host + "/api/chat", data=body, headers={"Content-Type": "application/json"})

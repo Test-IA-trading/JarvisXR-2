@@ -1,5 +1,7 @@
 """Ears and voice of the PC Jarvis, both on this computer: faster-whisper turns speech into
-text (CPU, int8), Piper speaks with the French « pierre » voice (upmc, CC BY-SA 4.0).
+text (CPU, int8), Piper speaks with the French « pierre » voice (upmc, CC BY-SA 4.0) by
+default, chosen and paced after the reference style (voiceprofile.py). The iPhone can use
+this voice too (/v1/tts).
 The models are downloaded once into %APPDATA%\\JarvisPC; no audio is ever saved."""
 from __future__ import annotations
 
@@ -14,8 +16,14 @@ from . import mathsolver
 from .claps import Detector
 from .config import cache_dir
 
-PIPER_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/"
+PIPER_ROOT = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
 PIPER_MODEL = "fr_FR-upmc-medium.onnx"
+
+
+def piper_url(model: str) -> str:
+    """« fr_FR-upmc-medium.onnx » → its folder on Hugging Face (fr/fr_FR/upmc/medium/)."""
+    lang, name, quality = model.removesuffix(".onnx").split("-")
+    return f"{PIPER_ROOT}{lang.split('_')[0]}/{lang}/{name}/{quality}/"
 
 
 def _download(url: str, target: Path) -> None:
@@ -35,26 +43,34 @@ def _download(url: str, target: Path) -> None:
 class Speaker:
     """Text to speech with Piper; formulas are read as words (x² → « x au carré »)."""
 
-    def __init__(self, speaker: str = "pierre", length_scale: float = 1.05, device=None):
+    def __init__(self, speaker: str = "pierre", length_scale: float = 1.07, device=None, model: str = PIPER_MODEL,
+                 sentence_silence: float = 0.3):
         self.speaker_name = speaker
         self.length_scale = length_scale
+        self.sentence_silence = sentence_silence
+        self.model = model if model.endswith(".onnx") else model + ".onnx"
         self.device = device
         self.voice = None
         self.speaking = threading.Event()
+        self.cancelled = threading.Event()
         self.lock = threading.Lock()
+        self.load_lock = threading.Lock()
 
     def ensure(self):
         if self.voice is not None:
             return self.voice
         from piper import PiperVoice
 
-        folder = cache_dir() / "voices"
-        folder.mkdir(parents=True, exist_ok=True)
-        model = folder / PIPER_MODEL
-        config = folder / (PIPER_MODEL + ".json")
-        _download(PIPER_BASE + PIPER_MODEL, model)
-        _download(PIPER_BASE + PIPER_MODEL + ".json", config)
-        self.voice = PiperVoice.load(model, config_path=config)
+        with self.load_lock:
+            if self.voice is not None:
+                return self.voice
+            folder = cache_dir() / "voices"
+            folder.mkdir(parents=True, exist_ok=True)
+            model = folder / self.model
+            config = folder / (self.model + ".json")
+            _download(piper_url(self.model) + self.model, model)
+            _download(piper_url(self.model) + self.model + ".json", config)
+            self.voice = PiperVoice.load(model, config_path=config)
         return self.voice
 
     def synthesize(self, text: str):
@@ -70,19 +86,75 @@ class Speaker:
         return audio, voice.config.sample_rate
 
     def say(self, text: str) -> None:
-        import sounddevice as sd
-
         if not text.strip():
             return
+        sentences: queue.Queue = queue.Queue()
+        sentences.put(text)
+        sentences.put(None)
+        self.play_stream(sentences)
+
+    def stop(self) -> None:
+        """Silences Jarvis at once; what was still to be said is dropped."""
+        self.cancelled.set()
+
+    def play_stream(self, sentences: "queue.Queue") -> None:
+        """Speaks the sentences as they come (None ends), without gaps: the next one is
+        synthesized while the current one plays, through one output stream kept open, with
+        the same short silence between sentences (docs/specs/voix.md §7)."""
+        import numpy as np
+        import sounddevice as sd
+
+        self.cancelled.clear()
+        pcm: queue.Queue = queue.Queue(maxsize=3)
+
+        def produce() -> None:
+            while True:
+                sentence = sentences.get()
+                if sentence is None or self.cancelled.is_set():
+                    pcm.put(None)
+                    return
+                if sentence.strip():
+                    try:
+                        pcm.put(self.synthesize(sentence))
+                    except Exception:  # noqa: BLE001 — one sentence lost, never the whole answer
+                        continue
+
+        threading.Thread(target=produce, daemon=True).start()
+        stream = None
         with self.lock:
-            audio, rate = self.synthesize(text)
-            self.speaking.set()
             try:
-                sd.play(audio, rate, device=self.device)
-                sd.wait()
-                time.sleep(0.3)  # the room's echo of Jarvis's own voice
+                while not self.cancelled.is_set():
+                    item = pcm.get()
+                    if item is None:
+                        break
+                    audio, rate = item
+                    if stream is None:
+                        stream = sd.OutputStream(samplerate=rate, channels=1, dtype="int16", device=self.device)
+                        stream.start()
+                        self.speaking.set()
+                    gap = np.zeros(int(rate * self.sentence_silence), dtype=np.int16)
+                    stream.write(np.concatenate([audio, gap]).reshape(-1, 1))
+                if stream is not None and not self.cancelled.is_set():
+                    time.sleep(0.25)  # the room's echo of Jarvis's own voice
             finally:
+                if stream is not None:
+                    stream.abort() if self.cancelled.is_set() else stream.stop()
+                    stream.close()
                 self.speaking.clear()
+
+    def wav_bytes(self, text: str) -> bytes:
+        """`text` spoken, as a WAV file in memory (16-bit mono): what the iPhone plays."""
+        import io
+        import wave
+
+        audio, rate = self.synthesize(text)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(rate)
+            out.writeframes(audio.tobytes())
+        return buffer.getvalue()
 
     def save_wav(self, text: str, path: Path) -> None:
         import wave

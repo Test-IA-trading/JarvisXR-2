@@ -249,4 +249,7 @@ class Router:
         else:
             count = "une chose" if len(notes) == 1 else f"{len(notes)} choses"
             parts.append(f"Vous m'avez demandé de retenir {count} : " + " ; ".join(notes[:3]) + ".")
+        knowledge = getattr(self, "knowledge", None)
+        if knowledge is not None and knowledge.export(1):
+            parts.append(knowledge.summary())
         return Answer(" ".join(parts))

@@ -89,6 +89,23 @@ class JarvisServer:
         except Exception:  # noqa: BLE001 — Bonjour is a convenience, the address can be typed
             self.zeroconf = None
 
+    def voice(self):
+        """The PC's voice (the one Jarvis speaks with here, or the same settings without speakers)."""
+        if self.core.speaker is not None:
+            return self.core.speaker
+        if getattr(self, "_voice", None) is None:
+            from .voice import Speaker
+
+            self._voice = Speaker(self.settings.voice_speaker, self.settings.voice_length_scale, model=self.settings.piper_voice,
+                                  sentence_silence=self.settings.voice_sentence_silence)
+        return self._voice
+
+    def memory_payload(self) -> dict:
+        """The shared notes and first name, plus Jarvis's durable memories and the ones deleted on the PC."""
+        payload = self.core.memory.snapshot()
+        payload["knowledge"] = self.core.knowledge.export() + [{"id": i, "deleted": True} for i in self.core.forgotten[-50:]]
+        return payload
+
     def _handler(self):
         server = self
 
@@ -127,11 +144,12 @@ class JarvisServer:
                     payload = {"name": "Jarvis PC", "version": __version__, "paired": paired}
                     if paired:
                         payload["model"] = server.core.brain.active_model()
+                        payload["voice"] = True  # /v1/tts: the iPhone may speak with the PC's voice
                     return self._json(200, payload)
                 if not self._authorized():
                     return self._json(401, {"error": "Code d'appairage manquant ou faux."})
                 if self.path == "/v1/memory":
-                    return self._json(200, server.core.memory.snapshot())
+                    return self._json(200, server.memory_payload())
                 if self.path == "/v1/inbox":
                     return self._json(200, {"messages": server.core.take_inbox()})
                 return self._json(404, {"error": "Inconnu."})
@@ -151,7 +169,25 @@ class JarvisServer:
                     answer = server.core.handle(text, source="iphone")
                     return self._json(200, {"spoken": answer.spoken, "display": answer.display, "data": answer.data})
                 if self.path == "/v1/memory":
-                    return self._json(200, server.core.memory.merge(data))
+                    server.core.memory.merge(data)
+                    # Jarvis's long-term memory travels with the notes (docs/specs/personnalite.md §6).
+                    server.core.knowledge.merge(data.get("knowledge") or [])
+                    return self._json(200, server.memory_payload())
+                if self.path == "/v1/tts":
+                    # Jarvis's PC voice for the iPhone: one sentence as WAV (docs/specs/voix.md §7).
+                    text = str(data.get("text", "")).strip()[:600]
+                    if not text:
+                        return self._json(400, {"error": "Texte vide."})
+                    try:
+                        audio = server.voice().wav_bytes(text)
+                    except Exception as error:  # noqa: BLE001 — the iPhone falls back to its own voice
+                        return self._json(503, {"error": f"Voix du PC indisponible : {error}"})
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(audio)))
+                    self.end_headers()
+                    self.wfile.write(audio)
+                    return None
                 if self.path == "/v1/say":
                     text = str(data.get("text", "")).strip()
                     if text:

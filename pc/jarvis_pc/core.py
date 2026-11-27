@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import internet, research
+from .knowledge import Knowledge
 from .brain import IPHONE_COMMANDS, PC_COMMANDS, OllamaBrain, command_in, may_be_command
 from .memory import Memory
 from .phrasing import rewrite as phrasing_of
@@ -30,9 +31,12 @@ def guarded(on_text):
 
 
 class JarvisCore:
-    def __init__(self, settings, memory: Memory, brain: OllamaBrain, router: Router, speaker=None):
+    def __init__(self, settings, memory: Memory, brain: OllamaBrain, router: Router, speaker=None, knowledge: Knowledge | None = None):
         self.settings = settings
         self.memory = memory
+        # Jarvis's long-term memory, next to the shared notes (« Mémoire Jarvis », an Obsidian vault).
+        self.knowledge = knowledge or Knowledge(memory.path.parent / "Mémoire Jarvis")
+        router.knowledge = self.knowledge
         self.brain = brain
         self.router = router
         self.speaker = speaker
@@ -41,11 +45,14 @@ class JarvisCore:
         self.lock = threading.Lock()
         self.timers: list[threading.Timer] = []
         self._research_cache: dict[str, list[str]] = {}
+        self.forgotten: list[str] = []  # deleted memories, told to the iPhone at the next sync
 
     def handle(self, text: str, source: str = "pc", on_text=None) -> Answer:
-        answer = self.router.route(text)
+        self.last_sources = []
+        answer = self._forget(text) or self.router.route(text)
         if answer is None:
             answer = self._brain_answer(text, on_text)
+        self.after_turn(text, answer.spoken, self.last_sources)
         if answer.data.get("brain") is None:
             # A command: the brain's history shows it as one, so « et Netflix ? » becomes « COMMANDE: ouvre Netflix »
             # instead of an imitated « Je lance… » that does nothing.
@@ -55,9 +62,35 @@ class JarvisCore:
         self._side_effects(answer)
         return answer
 
+    def _forget(self, text: str) -> Answer | None:
+        """« Oublie que j'aime le café »: the matching memory is deleted, on both devices at the next sync."""
+        match = re.match(r"(?i)^\s*(?:jarvis[ ,]*)?(?:oublie|efface)(?: que| ce que je t'ai dit sur)? (.{3,})", text.strip())
+        if not match or re.match(r"(?i)(mon nom|mon prénom|mon prenom)", match.group(1)):
+            return None
+        removed = self.knowledge.forget(match.group(1))
+        if removed is None:
+            return Answer("Je n'ai rien retenu de tel, Monsieur.", data={"command": "oublie"})
+        self.forgotten.append(removed["id"])
+        return Answer("C'est oublié : " + removed["text"], data={"command": "oublie"})
+
+    def after_turn(self, question: str, answer: str, sources: list[str]) -> None:
+        """Learns from the exchange in the background (the answer is never delayed): what the user
+        said about themselves, a correction of the previous answer, a verified answer to keep."""
+        previous = next((turn["user"] for turn in reversed(self.history) if turn.get("user") != question), None)
+
+        def work() -> None:
+            try:
+                self.knowledge.learn(question, answer, previous_question=previous)
+                if sources:
+                    self.knowledge.cache_answer(question, answer, sources)
+            except (OSError, ValueError):
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _brain_answer(self, text: str, on_text) -> Answer:
         found = self.research(text)
-        context = self.memory.context_lines() + found
+        context = self.memory.context_lines() + self.knowledge.context_lines(text) + found
         try:
             spoken = self.brain.ask(text, list(self.history), context, on_text=guarded(on_text), commands=PC_COMMANDS)
         except Exception as error:  # noqa: BLE001 — explained to the user instead
@@ -79,15 +112,21 @@ class JarvisCore:
                 spoken = ""
             if not spoken or command_in(spoken) is not None:
                 spoken = "Je ne sais pas encore faire cela sur le PC."
+        self.last_sources = found
         return Answer(spoken, data={"brain": self.brain.active_model() or ""})
 
     def ask_brain(self, question: str, history: list[dict], context: list[str], on_text=None, commands: str | None = None) -> str:
         """An open question from the iPhone: the PC's brain, with what both know. With
         `commands="iphone"`, an action comes back as « COMMANDE: … » for the iPhone to run."""
         merged = self.memory.context_lines() + [line for line in context if line not in self.memory.context_lines()]
-        merged += self.research(question, merged)
+        found = self.research(question, merged)
+        merged += self.knowledge.context_lines(question) + found
         extra = IPHONE_COMMANDS if commands == "iphone" else None
-        return self.brain.ask(question, history, merged, on_text=guarded(on_text) if extra else on_text, commands=extra)
+        spoken = self.brain.ask(question, history, merged, on_text=guarded(on_text) if extra else on_text, commands=extra)
+        if command_in(spoken) is None:
+            self.history.append({"user": question, "assistant": spoken})
+            self.after_turn(question, spoken, found)
+        return spoken
 
     def research(self, question: str, context: list[str] | tuple = ()) -> list[str]:
         """What several free sources say about the subject of « Qu'est-ce que… ? » when Internet is
@@ -98,7 +137,9 @@ class JarvisCore:
             return []
         subject = research.knowledge_subject(question)
         if not subject:
-            return []
+            # A question about today's world (« Qui a gagné le match hier ? »): the web, fresh each time.
+            query = research.web_query(question)
+            return [line for line in self._web(query) if line not in context] if query else []
         key = subject.lower()
         if key not in self._research_cache:
             with ThreadPoolExecutor(max_workers=2) as pool:

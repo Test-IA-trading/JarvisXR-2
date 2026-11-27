@@ -68,14 +68,8 @@ class VoiceLoop:
             sentences: "queue.Queue" = queue.Queue()
             streamer = SentenceStreamer()
 
-            def talk():
-                while True:
-                    sentence = sentences.get()
-                    if sentence is None:
-                        return
-                    self.speaker.say(sentence)
-
-            talker = threading.Thread(target=talk, daemon=True)
+            # One continuous voice: the next sentence is synthesized while this one plays.
+            talker = threading.Thread(target=self.speaker.play_stream, args=(sentences,), daemon=True)
             talker.start()
             started = threading.Lock()
             state = {"spoken": False}
@@ -123,7 +117,11 @@ def build(settings: Settings, voice: bool):
     if voice:
         from .voice import Speaker
 
-        speaker = Speaker()
+        speaker = Speaker(settings.voice_speaker, settings.voice_length_scale, model=settings.piper_voice,
+                          sentence_silence=settings.voice_sentence_silence)
+    from . import internet
+
+    internet.SEARXNG_URL = settings.searxng_url
     core = JarvisCore(settings, memory, brain, Router(memory, settings), speaker)
     return core, speaker
 
@@ -257,12 +255,85 @@ def autotest() -> int:
     return 1 if failed else 0
 
 
+TRIAL_TEXT = ("Bonjour, Monsieur. Tous les systèmes sont opérationnels. De la pluie est prévue cet après-midi : je prendrais "
+              "un parapluie à votre place. Votre réunion commence dans quinze minutes, et les documents sont prêts.")
+VOICES = ["fr_FR-upmc-medium", "fr_FR-mls-medium", "fr_FR-gilles-low", "fr_FR-tom-medium"]
+
+
+def analyse_voice(path: Path) -> int:
+    """Measures a reference voice's style on its cleanest passages; only the numbers are kept."""
+    from . import voiceprofile
+    from .config import data_dir
+
+    profile = voiceprofile.analyse_reference(path)
+    voiceprofile.save(profile, data_dir() / "voix_reference.json")
+    style = profile["style"]
+    print(f"Hauteur médiane {style['f0_median_hz']} Hz (de {style['f0_p10_hz']} à {style['f0_p90_hz']}), "
+          f"{style['syllables_per_second']} syllabes/s, pause médiane {style['pause_median_s']} s, "
+          f"{len(profile['passages_propres'])} passages propres retenus.")
+    print("Profil enregistré (chiffres seulement). Lancez « python -m jarvis_pc --voix-essais » pour comparer les voix.")
+    return 0
+
+
+def voice_trials(folder: Path | None) -> int:
+    """Ranks the free French Piper voices by closeness to the reference style and writes the
+    best few as WAV files to listen to. Nothing of the reference recording is used."""
+    import json as _json
+
+    import numpy as np
+
+    from . import voiceprofile
+    from .config import data_dir
+    from .voice import Speaker
+
+    reference_path = data_dir() / "voix_reference.json"
+    if not reference_path.exists():
+        print("Analysez d'abord une voix de référence : python -m jarvis_pc --analyse-voix fichier.wav")
+        return 1
+    reference = _json.loads(reference_path.read_text(encoding="utf-8"))["style"]
+    folder = folder or data_dir() / "Essais de voix"
+    folder.mkdir(parents=True, exist_ok=True)
+    ranked = []
+    for model in VOICES:
+        speaker = Speaker(model=model)
+        voice = speaker.ensure()
+        for name in (voice.config.speaker_id_map or {"": None}):
+            speaker.speaker_name = name
+            audio, rate = speaker.synthesize(TRIAL_TEXT)
+            samples = audio.astype(np.float32) / 32768.0
+            if rate != voiceprofile.RATE:
+                positions = np.arange(0, len(samples) - 1, rate / voiceprofile.RATE)
+                samples = np.interp(positions, np.arange(len(samples)), samples).astype(np.float32)
+            try:
+                style = voiceprofile.analyse(samples)
+            except ValueError:
+                continue
+            ranked.append((voiceprofile.distance(reference, style), model, name, style))
+    ranked.sort(key=lambda item: item[0])
+    for index, (score, model, name, style) in enumerate(ranked[:6], start=1):
+        speaker = Speaker(name, model=model)
+        tune = voiceprofile.tuning(reference, style)
+        speaker.length_scale = tune["length_scale"]
+        target = folder / f"{index}-{model}-{name or 'voix'}.wav"
+        target.write_bytes(speaker.wav_bytes(TRIAL_TEXT))
+        print(f"{index}. {model} {name} : écart {score:.2f}, {style['f0_median_hz']} Hz, {style['syllables_per_second']} syll./s, "
+              f"réglage conseillé length_scale={tune['length_scale']} → {target.name}")
+    print(f"Écoutez les essais dans {folder}, puis indiquez dans settings.json : piper_voice, voice_speaker, voice_length_scale.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jarvis_pc", description="Jarvis pour Windows")
     parser.add_argument("--texte", action="store_true", help="sans micro ni voix")
     parser.add_argument("--appareils", action="store_true", help="liste les micros et haut-parleurs")
     parser.add_argument("--autotest", action="store_true", help="vérifie chaque partie pour de vrai")
+    parser.add_argument("--analyse-voix", metavar="WAV", help="mesure le style d'une voix de référence (rien n'est copié)")
+    parser.add_argument("--voix-essais", metavar="DOSSIER", nargs="?", const="", help="écrit des essais des voix françaises les plus proches")
     args = parser.parse_args(argv)
+    if args.analyse_voix:
+        return analyse_voice(Path(args.analyse_voix))
+    if args.voix_essais is not None:
+        return voice_trials(Path(args.voix_essais) if args.voix_essais else None)
     if args.appareils:
         list_devices()
         return 0

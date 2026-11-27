@@ -6,6 +6,8 @@ Ce dossier reçoit les spécifications complémentaires (rédigées par exemple 
 |---|---|---|
 | `intelligence.md` | compréhension, raisonnement, sources | PC : `pc/jarvis_pc/brain.py` (`difficulty`, `system_prompt`), `core.py` (`research`) · iPhone : `JarvisLocalBrain.swift`, `JarvisFrenchCommands.swift` |
 | `voix.md` | écoute, mot « Jarvis », fin de phrase, interruption | iPhone : `JarvisVoiceInputService.swift`, `JarvisDuplexAudio.swift`, `JarvisWakeWord.swift`, `JarvisConversationFlow.swift` (`JarvisEchoFilter`) · PC : `wake.py` |
+| `voix-moteurs.md` | moteurs vocaux, licences, droits, style mesuré | PC : `voice.py` (`Speaker`, `/v1/tts`), `voiceprofile.py` |
+| `memoire` | mémoire de Jarvis (coffre Obsidian « Mémoire Jarvis ») | PC : `knowledge.py`, synchronisée par `/v1/memory` |
 | `personnalite.md` | ton, vouvoiement, longueur, manière de parler | PC : `brain.py` (`system_prompt`) · iPhone : `JarvisChatPrompt` (`JarvisLocalBrain.swift`), `JarvisSpeechService.swift` |
 
 ## Règles pour une spécification

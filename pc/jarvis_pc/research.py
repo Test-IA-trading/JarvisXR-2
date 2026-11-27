@@ -43,6 +43,33 @@ def knowledge_subject(question: str) -> str | None:
     return None
 
 
+# Questions whose answer is on today's web, not in an encyclopedia.
+WEB_MARKERS = (
+    "actualite", "actualites", "dernieres nouvelles", "recemment", "recent", "cette annee", "cette semaine", "en ce moment",
+    "aujourd'hui", "hier", "prix", "combien coute", "coute combien", "tarif", "qui a gagne", "resultat", "score", "classement",
+    "date de sortie", "sort quand", "horaires", "est ouvert", "ouvert le", "cherche sur internet", "recherche sur internet",
+    "cherche sur le web", "verifie sur internet", "trouve sur internet", "selon internet", "derniere version", "nouveau",
+    "nouvelle", "2025", "2026", "2027",
+)
+LOCAL_ONLY = ("meteo", "quelle heure", "minuteur", "rappelle moi", "ouvre ", "lance ", "note")
+
+
+def web_query(question: str) -> str | None:
+    """The words to search the web for, when the question needs current information
+    (« Qui a gagné le match hier ? », « Combien coûte la PS5 ? »), else None."""
+    text = normalize(rewrite(question))
+    request = strip_wake_word(text)
+    if len(request.split()) < 3 or any(word in request for word in LOCAL_ONLY):
+        return None
+    padded = f" {request} "
+    if not any(f" {marker} " in padded or (" " in marker and marker in request) for marker in WEB_MARKERS):
+        return None
+    for prefix in ("cherche sur internet", "recherche sur internet", "cherche sur le web", "trouve sur internet", "verifie sur internet"):
+        if request.startswith(prefix + " "):
+            return original_after(rewrite(question), len(text.split()) - len(request.split()) + len(prefix.split())).strip(" ?!.")
+    return rewrite(question).strip(" ?!.")
+
+
 def passage(text: str, subject: str, limit: int = 450) -> str:
     """The sentences of a web page that speak of the subject, in the page's order, up to `limit`
     characters: what the brain compares with the other sources."""

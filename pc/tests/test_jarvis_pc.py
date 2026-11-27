@@ -418,3 +418,96 @@ def test_the_brain_adapts_its_effort_to_the_question():
     assert difficulty("Explique-moi la relativité restreinte") == "complexe"
     assert difficulty("Peux-tu me donner une idée de cadeau pour ma mère qui aime le jardinage ?") == "normale"
     assert TOKENS["simple"] < TOKENS["normale"] < TOKENS["complexe"]
+
+
+def test_jarvis_learns_remembers_and_forgets(memory, tmp_path):
+    import time as _time
+
+    from jarvis_pc.knowledge import Knowledge
+
+    knowledge = Knowledge(tmp_path / "Mémoire Jarvis")
+    assert [n["text"] for n in knowledge.learn("J'habite à Paris")] == ["L'utilisateur habite Paris."]
+    knowledge.learn("J'habite à Lyon maintenant")
+    facts = [n for n in knowledge.notes.values() if n["kind"] == "fait"]
+    assert len(facts) == 1 and "Lyon" in facts[0]["text"], "a new value replaces the old one, no duplicate"
+    knowledge.learn("Ma sœur s'appelle Julie")
+    assert any("Julie" in line for line in knowledge.context_lines("Comment s'appelle ma sœur ?"))
+    assert knowledge.context_lines("Combien font 2 et 2 ?") == [], "only relevant memories reach the brain"
+    knowledge.cache_answer("Qui était Marie Curie ?", "Une physicienne et chimiste, deux fois prix Nobel.", ["Extrait de Wikipédia sur « Marie Curie » : …"])
+    assert knowledge.cache_answer("Quelle météo demain ?", "Il pleuvra demain sur Paris.", ["Extrait de x : y"]) is None, "volatile"
+    assert any("déjà vérifiée" in line for line in knowledge.context_lines("Marie Curie, c'était qui ?"))
+    knowledge.learn("Non, c'est 1873", previous_question="En quelle année l'arrêt Blanco ?")
+    assert any(n["kind"] == "correction" for n in knowledge.notes.values())
+    again = Knowledge(knowledge.folder)
+    assert len(again.notes) == len(knowledge.notes), "the Markdown vault is read back"
+    assert again.forget("ma sœur Julie") is not None and not any("Julie" in n["text"] for n in again.notes.values())
+
+    class Online(FakeSettings):
+        internet = False
+
+    brain = CommandBrain("Bien sûr, Monsieur.")
+    core = JarvisCore(Online(), memory, brain, Router(memory, Online(), opener=lambda _: None, browser=lambda _: None), knowledge=knowledge)
+    core.handle("Je préfère les réponses courtes")
+    _time.sleep(0.3)
+    assert any("courtes" in n["text"] for n in knowledge.notes.values()), "learned after the turn"
+    assert core.handle("Oublie que je préfère les réponses courtes").spoken.startswith("C'est oublié")
+    knowledge.merge([{"id": "x1", "kind": "preference", "text": "L'utilisateur aime le thé vert.", "updated": "2026-11-27T10:00:00+00:00"}])
+    assert any("thé vert" in n["text"] for n in knowledge.notes.values())
+    knowledge.merge([{"id": "x1", "deleted": True}])
+    assert not any("thé vert" in n["text"] for n in knowledge.notes.values())
+
+
+def test_personality_rules_follow_the_request():
+    from jarvis_pc import personality
+    from jarvis_pc.brain import clean, system_prompt
+
+    simple = system_prompt([], level="simple")
+    assert "Monsieur" in simple and "Vouvoie" in simple and "une seule phrase directe" in simple and "Humour sec" in simple
+    serious = system_prompt([], level="normale", serious=personality.is_serious("J'ai mal à la poitrine, c'est urgent"))
+    assert "sans aucune ironie" in serious and "Humour sec" not in serious
+    assert not personality.is_serious("Quelle heure est-il ?")
+    assert personality.PROFILE == {"humour": 60, "sarcasme": 45, "formalite": 90, "initiative": 80, "longueur": 45, "adaptation": 100}
+    # The hidden reasoning of hard questions never reaches the screen or the voice.
+    assert clean("<brouillon>14 h 37 → 17 h 12 = 2 h 35</brouillon>Le trajet dure deux heures trente-cinq.") == "Le trajet dure deux heures trente-cinq."
+    assert clean("<brouillon>je calcule") == "" and clean("Bonjour <brou") == "Bonjour"
+
+
+def test_questions_about_today_go_to_the_web():
+    from jarvis_pc.research import web_query
+
+    assert web_query("Qui a gagné le match du PSG hier ?") == "Qui a gagné le match du PSG hier"
+    assert web_query("Cherche sur Internet la recette des crêpes") == "la recette des crêpes"
+    assert web_query("Quelle heure est-il ?") is None and web_query("Pourquoi le ciel est bleu ?") is None
+
+
+def test_the_iphone_can_speak_with_the_pc_voice(memory):
+    import io
+    import json as _json
+    import urllib.request
+    import wave
+
+    from jarvis_pc.server import JarvisServer
+
+    class Voice:
+        def wav_bytes(self, text):
+            buffer = io.BytesIO()
+            with wave.open(buffer, "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(22050)
+                out.writeframes(b"\0\0" * 2205)
+            return buffer.getvalue()
+
+    settings = FakeSettings()
+    settings.pairing_code = "ABCD-EFGH"
+    core = JarvisCore(settings, memory, CommandBrain("ok"), Router(memory, settings, opener=lambda _: None, browser=lambda _: None), speaker=Voice())
+    server = JarvisServer(core, settings, host="127.0.0.1", port=8797)
+    server.start(advertise=False)
+    try:
+        request = urllib.request.Request("http://127.0.0.1:8797/v1/tts", data=_json.dumps({"text": "Bonjour, Monsieur."}).encode(),
+                                         headers={"Content-Type": "application/json", "Authorization": "Bearer ABCD-EFGH"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.headers["Content-Type"] == "audio/wav"
+            assert wave.open(io.BytesIO(response.read())).getframerate() == 22050
+    finally:
+        server.stop()
